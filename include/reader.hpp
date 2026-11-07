@@ -65,6 +65,7 @@ struct Settings {
     int library_sort = 0;
     int library_filter = 0;
     int reading_font = 0; // Literata, Atkinson Hyperlegible Next, Vita system.
+    int immersive = 1; // Saved reading view; control panels do not change pagination.
 };
 
 struct Progress {

@@ -39,9 +39,9 @@ int main() {
               display_coordinate(960, 0, 1919, 960) == 480, "Touch display scaling");
         check(display_coordinate(50, 100, 2019, 960) == 0 && display_coordinate(3000, 100, 2019, 960) == 959,
               "Touch coordinate clamping");
-        check(toolbar_hit(40, 488, 4) == 0 && toolbar_hit(919, 535, 4) == 3, "Toolbar boundary hit");
-        check(toolbar_hit(186, 500, 6) == 1 && toolbar_hit(185, 500, 6) == 0, "Unequal-width toolbar boundary hit");
-        check(toolbar_hit(920, 500, 4) == -1 && toolbar_hit(100, 487, 4) == -1 && toolbar_hit(100, 536, 4) == -1,
+        check(toolbar_hit(28,464,4)==0 && toolbar_hit(931,535,4)==3,"Native toolbar boundary hit");
+        check(toolbar_hit(180,500,6)==1 && toolbar_hit(176,500,6)==-1,"Toolbar gap activated an action");
+        check(toolbar_hit(936,500,4)==-1 && toolbar_hit(100,463,4)==-1 && toolbar_hit(100,536,4)==-1,
               "Toolbar hit outside bounds");
         check(list_row_hit(100, 96, 40, 610, 96, 57, 53) == 0 &&
               list_row_hit(100, 153, 40, 610, 96, 57, 53) == 1, "Library row selection");
@@ -49,14 +49,33 @@ int main() {
               list_row_hit(700, 100, 40, 610, 96, 57, 53) == -1 &&
               list_row_hit(100, 440, 40, 610, 96, 57, 53) == -1, "Row gap or blank area selected a book");
 
-        for (int row = 0; row < 6; ++row) {
+        for (int row = 0; row < reader::ui::page_size; ++row) {
             const int y = reader::ui::library_top + row * reader::ui::library_pitch;
             check(list_row_hit(100,y,40,610,reader::ui::library_top,reader::ui::library_pitch,
                 reader::ui::library_row_height) == row, "Modern library row is not touchable");
-            check(list_row_hit(300,reader::ui::menu_top + row * reader::ui::menu_pitch,
-                reader::ui::menu_left,reader::ui::menu_right,reader::ui::menu_top,reader::ui::menu_pitch,44) == row,
-                "Overflow menu row is not touchable");
         }
+        for (int item=0;item<6;++item) {
+            const auto tile=reader::ui::menu_button(item);
+            check(tile.width>=400 && tile.height>=72,"Control panel target is too small");
+            check(reader::ui::menu_hit(tile.x+20,tile.y+20,6)==item,"Control panel tile is not touchable");
+            check(reader::ui::menu_hit(tile.x+tile.width,tile.y+20,6)==-1,"Control panel gap activates an action");
+            check(tile.y+tile.height<reader::ui::toolbar_top,"Control panel overlaps Close");
+        }
+        check(reader::ui::menu_hit(60,160,7,6)==6 && reader::ui::menu_hit(500,160,7,6)==-1,
+              "Last options page exposes an invalid action");
+        for (int count=1;count<=6;++count) for (int item=0;item<count;++item) {
+            const auto target=reader::ui::toolbar_button(item,count);
+            check(target.height>=64 && target.width>=140,"Toolbar target is too small");
+            check(toolbar_hit(target.x,target.y,count)==item &&
+                toolbar_hit(target.x+target.width-1,target.y+target.height-1,count)==item,
+                "Visible toolbar and hit regions disagree");
+        }
+        check(reader::ui::page_first(0)==0 && reader::ui::page_first(3)==0 && reader::ui::page_first(4)==4,
+              "Four-row list boundaries are wrong");
+        check(reader::ui::library_top+reader::ui::page_size*reader::ui::library_pitch<reader::ui::toolbar_top,
+              "Book rows overlap toolbar");
+        for (std::size_t lines=1;lines<=5;++lines)
+            check(reader::ui::feedback_height(lines,false,true)-16>=64,"A short error makes Retry too small to tap");
         std::size_t chapter = 99;
         check(reader::ui::chapter_number("1",20000,chapter) && chapter == 0, "Jump to first chapter");
         check(reader::ui::chapter_number("20000",20000,chapter) && chapter == 19999, "Jump to last online chapter");

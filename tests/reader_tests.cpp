@@ -103,6 +103,12 @@ int main() {
         check(reader::save_settings(settings_path, {2, 0, 1}), "Settings save failed");
         auto settings = reader::load_settings(settings_path);
         check(settings.font == 2 && settings.spacing == 0 && settings.theme == 1, "Settings failed round trip");
+        settings.immersive=0;
+        check(reader::save_settings(settings_path,settings) && reader::load_settings(settings_path).immersive==0,
+              "Reading controls preference did not survive restart");
+        settings.immersive=1;
+        check(reader::save_settings(settings_path,settings) && reader::load_settings(settings_path).immersive==1,
+              "Immersive preference did not survive restart");
         settings.reading_font = 1;
         check(reader::save_settings(settings_path, settings) && reader::load_settings(settings_path).reading_font == 1,
               "Sans reading font did not survive restart");
@@ -115,6 +121,13 @@ int main() {
               "Legacy preferences did not migrate to Literata");
         write(settings_path, "NRS3\n1 1 0 0 0 99\n");
         check(reader::load_settings(settings_path).reading_font == 2, "Reading font not bounded");
+        check(reader::load_settings(settings_path).immersive==1,"Legacy settings lost the immersive default");
+        write(settings_path,"NRS4\n1 1 0 0 0 0 -99\n");
+        check(reader::load_settings(settings_path).immersive==0,"Negative reading-view preference was not bounded");
+        write(settings_path,"NRS4\n1 1 0 0 0 0 99\n");
+        check(reader::load_settings(settings_path).immersive==1,"Reading-view preference was not bounded");
+        write(settings_path,"NRS4\n1 1 0 0 0 0\n");
+        check(reader::load_settings(settings_path).immersive==1,"Truncated reading-view preferences have no defaults");
         write(settings_path, "NRS3\n2 1 0 2 1\n");
         check(reader::load_settings(settings_path).font == 1, "Truncated font settings have no defaults");
         write(settings_path, "NRS1\n99 -3 123\n");

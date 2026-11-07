@@ -218,23 +218,26 @@ Settings load_settings(const std::string& path) {
     std::string magic;
     Settings result;
     if (!(input >> magic >> result.font >> result.spacing >> result.theme) ||
-        (magic != "NRS1" && magic != "NRS2" && magic != "NRS3")) return {};
+        (magic != "NRS1" && magic != "NRS2" && magic != "NRS3" && magic != "NRS4")) return {};
     if (magic != "NRS1" && !(input >> result.library_sort >> result.library_filter)) return {};
-    if (magic == "NRS3" && !(input >> result.reading_font)) return {};
+    if ((magic == "NRS3" || magic == "NRS4") && !(input >> result.reading_font)) return {};
+    if (magic == "NRS4" && !(input >> result.immersive)) return {};
     result.font = bounded(result.font);
     result.spacing = bounded(result.spacing);
     result.theme = bounded(result.theme);
     result.library_sort = bounded(result.library_sort);
     result.library_filter = bounded(result.library_filter);
     result.reading_font = bounded(result.reading_font);
+    result.immersive = std::max(0, std::min(1, result.immersive));
     return result;
 }
 
 bool save_settings(const std::string& path, const Settings& settings) {
     std::ostringstream output;
-    output << "NRS3\n" << bounded(settings.font) << ' ' << bounded(settings.spacing) << ' '
+    output << "NRS4\n" << bounded(settings.font) << ' ' << bounded(settings.spacing) << ' '
            << bounded(settings.theme) << ' ' << bounded(settings.library_sort) << ' '
-           << bounded(settings.library_filter) << ' ' << bounded(settings.reading_font) << '\n';
+           << bounded(settings.library_filter) << ' ' << bounded(settings.reading_font) << ' '
+           << std::max(0, std::min(1, settings.immersive)) << '\n';
     return atomic_write(path, output.str());
 }
 

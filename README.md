@@ -12,7 +12,7 @@ Lua adapters for public catalogs and chapters.
 1. Install `NovelReader.vpk` with VitaShell on a homebrew-enabled Vita.
 2. Launch the app once to create `ux0:data/NovelReader/books/`.
 3. Copy UTF-8 `.txt` or DRM-free `.epub` books into that folder using VitaShell's USB or FTP mode.
-4. Press **Triangle / Import** in Library, browse to a book, and press **Cross** to import it.
+4. Tap **Import** in Library (or Triangle → Import books), browse to a book, and press **Cross** to import it.
 5. Open the imported book from Library with **Cross**.
 
 Library is a saved collection of imported local books and favorite online novels.
@@ -21,55 +21,65 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 
 | Screen | Controls |
 | --- | --- |
-| Library | Up/Down: browse; Cross: read book; Triangle: import local books |
+| Library | Up/Down: browse; Cross: read book; Triangle: options, including Import and book details |
 | Library | Square: choose Title/Recent/Progress sorting; L/R: switch All/Reading/Finished tabs |
 | Library | Select: online sources |
-| Import | Cross: open folder/import book; Circle: parent folder or Library at root; Triangle: refresh |
+| Import | Cross: open folder/import book; Circle: parent folder or Library at root; Refresh button or Triangle → Refresh folder |
 | Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
 | EPUB reader | L/R: previous/next chapter; Cross: contents |
 | TXT reader | L/R: turn page |
-| Contents | Up/Down: choose chapter; Left/Right: browse six entries; Cross: open; Circle: return |
+| Contents | Up/Down: choose chapter; Left/Right: browse four entries; Cross: open; Circle: return |
 | Contents | Square: illustrations in the current reading chapter |
-| Contents | Triangle: enter a chapter number and focus that entry |
+| Contents | Jump button or Triangle → Jump to chapter: enter a number and focus that entry |
 | Illustrations | Up/Down: choose; Cross: view; Circle: contents |
-| Image viewer | Cross: zoom in; Square: zoom out; D-pad: pan; Triangle: fit |
+| Image viewer | Cross: zoom in; Square: zoom out; D-pad: pan; Fit button or Triangle → Fit image |
 | Image viewer | L/R: previous/next image in chapter; Circle: illustration list |
 | Reader | Square: set/replace bookmark; Select: jump to bookmark |
-| Reader | Triangle: settings; Circle: library |
+| Reader | Triangle: reading controls; Appearance opens settings; Circle: library |
 | Settings | Up/Down: select; Left/Right: adjust; Circle/Cross/Triangle: apply |
 | All screens | Start: save and exit |
-| Menus / reader / image viewer | L+R together: More actions; Up/Down: choose; Cross: confirm; Circle: close |
+| All content screens | Triangle: options/control panel; L+R is an optional shortcut |
+| Control panels | D-pad or either stick: choose a large tile; Cross: confirm; Circle: close |
 
 ## Interface
 
-Library keeps six readable rows beside a selected-cover preview. **All, Reading,
-and Finished** are visible, tappable tabs; the sort chooser shows all three modes
-and starts on the active mode. A **Resume** card shows the most recently read
-available book, its saved chapter, and progress. Tap it, or choose **More → Resume
-last read**, to continue directly, including online novels. The initial selection
-also starts on the last-read book when it is visible in the saved filter. Missing
-books and the welcome guide are excluded from Resume. Books without covers use
-typographic title covers.
+The interface uses neutral charcoal surfaces, softly shaded rounded buttons,
+bright focus outlines, 34 px headings, 26 px labels, and at least 22 px supporting
+text. Bottom action buttons are 72 px tall. Menu colors are independent of the
+Night, Paper, and Sepia reading themes. See the [actual-size layout reference](docs/native-ui-preview.html)
+for Library, the reading control panel, Appearance, long titles, and error states.
+The reference is a design preview, not a Vita screenshot or emulator.
 
-Reading starts in **immersive mode**, with a taller reading area and a small
-chapter/page footer. Tap the center of the text to reveal or hide the header and
-action bar, or use **L+R → Show/Hide reading controls**. Tapping an illustration
-still opens its viewer. Changing control visibility reflows text and illustrations
-while preserving the current text/image anchor and bookmark. Visibility is kept
-for the current app session. Physical reading shortcuts work in either mode.
+Library shows **four full-width rows per page**, with cover thumbnails, titles
+that can wrap onto two lines, and reading status. Only the selected cover is
+decoded. **All, Reading, and Finished** are large tabs. **Continue reading** opens
+the last-read available book, including online favorites. The welcome guide and
+missing books are excluded. **Info** opens local book details with the full title,
+author, chapter count, and saved progress; online Info opens novel details. Import,
+Online, Sort (including its current value), and Options are directly visible.
+Large paging arrows and left/right navigation work throughout the lists.
 
-Action bars contain up to four relevant actions, with drawn controller symbols.
-**More** holds occasional actions such as bookmarks, downloading all chapters,
-refreshing, zoom controls, and exit. It works by touch or **L+R together**; menus
-consume input until closed. Short confirmations disappear after about three
-seconds. Errors stay visible until navigation or another action replaces them.
+Reading starts in **immersive mode**. A center tap or Triangle opens a six-tile
+control panel with Contents, Appearance, Save bookmark, Go to bookmark, Back to
+library, and Show/Hide reading bar. Opening/closing the panel overlays the page
+without reflowing or changing the reading position. An inline illustration still
+opens its viewer. Explicitly changing the reading view reflows around the same
+text/image anchor; that choice is saved across restarts. Physical reading
+shortcuts work in both views. Unavailable actions, such as Go to bookmark before
+a bookmark exists, are disabled.
 
-Reading settings show size/font/spacing steppers, three tappable theme swatches,
-and a larger live preview. Tap a row to select it, tap its minus/plus area to
-adjust, or use the directional buttons. Apply returns to the same reading anchor.
-Chapter lists distinguish the reading chapter from the focused entry; **Jump to
-chapter** uses a numeric system keyboard and focuses the requested chapter without
-opening it. Choose it with Triangle in Contents or More in online Chapters.
+Appearance has **Text** and **Display** tabs (also L/R). Text has size, font, and
+spacing selectors; Display has the reading theme and persistent reading view.
+Large minus/plus buttons, tappable values, theme swatches, and a live preview are
+available. Apply returns to the saved reading anchor. Every touch action has a
+controller route through shortcuts or Triangle's options panel.
+
+Chapter screens expose **Jump**, and online chapters also expose **Download** and
+**All** directly. Jump uses the numeric system keyboard and focuses a chapter
+without opening it. Download errors have a direct Retry button; progress shows
+completed counts and Cancel. Image viewing exposes Back, Previous, Zoom out, Fit,
+Zoom in, and Next on its action bar. Brief confirmations disappear automatically;
+errors remain until navigation or another action replaces them.
 
 ## Online novels
 
@@ -86,11 +96,11 @@ on demand; failed requests leave the current chapter and position intact.
 | Screen | Controls |
 | --- | --- |
 | Sources | Up/Down: choose; Cross: browse; Circle: local library |
-| Catalog | Up/Down: choose; Left/Right: move six entries; Cross: details |
-| Catalog | Square: search; Select: initial catalog; Triangle: next source page, or retry the current page |
-| Novel details | Cross: chapters; Square: add to library; Select: start/resume reading; Triangle: refresh chapter list |
-| Chapters | Up/Down: choose; Left/Right: move six entries; Cross: read; Square: download selected chapter |
-| Chapters | Select: download all public chapters; Triangle: refresh; Circle: details |
+| Catalog | Up/Down: choose; Left/Right: move four entries; Cross: details |
+| Catalog | Square: search; Select: initial catalog; Next/Reload button or Triangle → Next/Reload catalog |
+| Novel details | Cross: chapters; Square: save in library; Select: start/resume reading; Refresh chapters button |
+| Chapters | Up/Down: choose; Left/Right: move four entries; Cross: read; Square: download selected chapter |
+| Chapters | Select or All button: download all public chapters; Triangle → Refresh chapters; Circle: details |
 | Request/download in progress | Circle: cancel; Start: cancel, save, and exit |
 
 Online lists also support analog navigation, tapping rows, swipe paging, and
@@ -105,10 +115,10 @@ Novel details include a primary **Start reading / Resume** action, saved chapter
 library membership, and offline chapter count. Online favorites open this details
 screen from Library. Chapter rows show **Offline**, **Locked**, or a download hint.
 Requests show an activity indicator; downloads show a progress bar and completed
-count. Failed requests expose **More → Retry failed request** (also reachable with
-L+R), preserving the original operation and completed downloads.
+count. Failed requests expose a direct **Retry** button and **Options → Retry request**,
+preserving the original operation and completed downloads.
 
-On novel details, press **Square** or choose **More → Add to library** to save a favorite. Browsing
+On novel details, press **Square**, tap **Save**, or choose **Options → Add to library** to save a favorite. Browsing
 a novel or downloading chapters does not automatically add it to Library. Added
 novels appear alongside imported local books without source folders. Open one
 to resume or select a chapter; downloaded chapters are available offline. Chapter
@@ -149,17 +159,16 @@ The **front touchscreen** supports:
 
 | Screen | Touch controls |
 | --- | --- |
-| Library | Tap a book or selected preview to open; tap Resume to continue the last-read book; tap filter tabs or Sort; swipe to browse six entries |
+| Library | Tap a book to open, Info for details, or Continue reading; tap filters or Sort; swipe to browse four entries |
 | Reader | Swipe left/right for next/previous page; swipe up/down to move through text and images |
-| Reader | Tap an inline illustration to zoom it; other left/right body taps turn pages, center taps show/hide controls |
+| Reader | Tap an inline illustration to zoom it; other left/right body taps turn pages, center taps open the reading control panel |
 | Reader | Hold and release on the reading area to save a bookmark |
-| Contents / illustration list | Tap an entry to open; swipe to browse six entries |
+| Contents / illustration list | Tap an entry to open; swipe to browse four entries |
 | Settings | Tap a row to select, its minus/plus areas to adjust, or a theme swatch; Apply returns to reading |
 | Image viewer | Drag to pan; pinch to zoom around the fingers' midpoint; tap the image to toggle fit/2× zoom |
 
-Screens have a compact touch toolbar along the bottom, hidden during immersive
-reading. More menus provide secondary actions, including exit, bookmarks, and
-image zoom. Viewer **Back** returns directly to reading when opened
+Screens have large touch action bars along the bottom, hidden during immersive
+reading. Triangle or visible Options buttons open control panels. Viewer **Back** returns directly to reading when opened
 by tapping an inline image, or to the illustration list when opened from there.
 Touch gestures act on release outside the image viewer, where drag and pinch
 updates are live. Swiping a list never opens the row under the finger. Physical
@@ -187,21 +196,21 @@ bookmarks are disabled.
   favorites. Membership is saved in `ux0:data/NovelReader/library.txt`. Cached
   online indexes alone do not make a novel a favorite. Existing collections start
   with the guide; import previously copied books or cached indexes to add them.
-- **Triangle / Import** opens a file browser rooted at
+- **Import** (or Triangle → Import books) opens a file browser rooted at
   `ux0:data/NovelReader/books/`. Browse subfolders with Cross and Circle, then
   select a TXT, EPUB, or saved online index with Cross. Import adds a reference
   and returns to All books. Files stay in place; repeated imports do not duplicate
-  entries. Circle at the import root returns to Library. Triangle refreshes the
+  entries. Circle at the import root returns to Library. Refresh updates the
   import browser after copying files with VitaShell.
 - **Select / Online** opens supported internet sources. Search or browse, open
-  novel details, and press **Square** or choose **More → Add to library**. This saves the favorite
+  novel details, and press **Square** or tap **Save**. This saves the favorite
   without downloading every chapter. Use the chapter screen to download one or
   all public chapters. Adding favorites requires a successfully loaded index.
 - Imported books retain their relative paths for progress and bookmarks, including
   existing saves. Same-named files in different folders remain distinct. Moving or
   renaming a file changes its identity; restore missing files to their imported
   locations. Import references files rather than copying them.
-- Six entries appear per page with the selected cover, author, and chapter count.
+- Four entries appear per page; Info shows the cover, author, and chapter count.
   Only the selected cover is decoded. Broken or missing files stay visible with
   an error. Metadata is read on launch and return from online browsing or import;
   there is no persistent metadata cache yet.
@@ -220,7 +229,7 @@ bookmarks are disabled.
 ## Fonts
 
 Interface text uses **Source Sans 3 Regular**, with **Semibold** screen headings.
-Reading defaults to **Literata** (serif). In **Reader → Triangle → Reading font**,
+Reading defaults to **Literata** (serif). In **Reader → Triangle → Appearance → Text → Reading font**,
 choose Literata, **Atkinson Hyperlegible Next** (sans-serif), or **Vita system**.
 The selection is saved across restarts. Older settings retain their size, spacing,
 theme, and library preferences and default to Literata.

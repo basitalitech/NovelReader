@@ -41,5 +41,5 @@ private:
 
 int display_coordinate(int raw, int minimum, int maximum, int extent);
 int toolbar_hit(int x, int y, int buttons);
-int list_row_hit(int x, int y, int left, int right, int top, int pitch, int row_height, int rows = 6);
+int list_row_hit(int x, int y, int left, int right, int top, int pitch, int row_height, int rows = 4);
 } } // namespace reader::controls

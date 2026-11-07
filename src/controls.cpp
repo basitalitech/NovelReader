@@ -1,4 +1,5 @@
 #include "controls.hpp"
+#include "ui.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -100,9 +101,9 @@ int display_coordinate(int raw, int minimum, int maximum, int extent) {
     return static_cast<int>(std::max<std::int64_t>(0, std::min<std::int64_t>(extent - 1, scaled)));
 }
 int toolbar_hit(int x, int y, int buttons) {
-    if (buttons <= 0 || x < 40 || x >= 920 || y < 488 || y >= 536) return -1;
+    if (buttons <= 0) return -1;
     for (int i = 0; i < buttons; ++i)
-        if (x >= 40 + 880 * i / buttons && x < 40 + 880 * (i + 1) / buttons) return i;
+        if (ui::toolbar_button(i,buttons).contains(x,y)) return i;
     return -1;
 }
 int list_row_hit(int x, int y, int left, int right, int top, int pitch, int row_height, int rows) {

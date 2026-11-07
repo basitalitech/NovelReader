@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Novel Reader — Vita layout reference</title>
+<style>
+@font-face{font-family:Source;src:url('../assets/fonts/SourceSans3-Regular.ttf')}
+@font-face{font-family:Source;src:url('../assets/fonts/SourceSans3-Semibold.ttf');font-weight:600}
+@font-face{font-family:Literata;src:url('../assets/fonts/Literata-Regular.ttf')}
+*{box-sizing:border-box}body{margin:24px;background:#101012;color:#f8f8f6;font:22px Source,sans-serif}
+h1{font-size:30px;margin:0 0 8px}p{color:#ccccC9;margin:0 0 20px}nav{display:flex;gap:16px;margin:20px 0}
+button{font:26px Source,sans-serif;color:inherit;cursor:pointer;border:0;border-radius:12px;background:#303033;min-height:64px;padding:8px 16px;box-shadow:inset 0 1px #48484b}
+button:focus-visible,.focus{outline:2px solid #bcead5;outline-offset:-2px;background:#39423e}
+button:active{background:#bcead5;color:#18181a}button:disabled{color:#929294;cursor:default}
+.screen{position:relative;width:960px;height:544px;background:#18181a;overflow:hidden;flex-shrink:0}
+.screen[hidden]{display:none}.title{position:absolute;left:24px;top:5px;font-size:34px;font-weight:600;line-height:50px}
+.subtitle{position:absolute;left:24px;top:68px;font-size:22px;color:#ccccc9}
+.resume{position:absolute;left:568px;top:8px;width:368px;height:104px;text-align:left;padding-left:20px}
+.resume small{display:block;font-size:22px;color:#ccccc9;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.filters{position:absolute;left:24px;top:56px;display:flex;gap:8px}.filters button{width:168px}
+.book{position:absolute;left:24px;width:832px;height:76px;border-radius:12px;background:#303033}
+.cover{position:absolute;left:16px;top:8px;width:52px;height:60px;background:#18181a;border-left:3px solid #bcead5;display:grid;place-items:center;color:#bcead5}
+.book-title{position:absolute;left:84px;top:2px;width:640px;font-size:26px;line-height:26px;max-height:52px;overflow:hidden}
+.status{position:absolute;left:84px;bottom:1px;font-size:22px;color:#ccccc9;line-height:25px}
+.info{position:absolute;left:752px;top:0;width:80px;height:76px;font-size:22px;background:transparent;border-left:1px solid #ccccc9;border-radius:0;box-shadow:none;padding:0}
+.pager{position:absolute;left:872px;top:140px;width:64px}.pager button{width:64px;height:104px}.page-count{height:80px;text-align:center;font-size:22px;line-height:28px;padding-top:13px}
+.bar{position:absolute;left:24px;right:24px;top:464px;height:72px;display:flex}.bar button{flex:1;min-width:0;margin:0 4px}
+.paper{position:absolute;inset:0;background:#f5f5f1;color:#1e282b;padding:28px 48px;font:26px/35px Literata,serif}
+.paper p{color:inherit;margin:0 0 24px}.veil{position:absolute;inset:0;background:#000e}
+.panel-title{position:absolute;left:40px;top:16px;font-size:34px;font-weight:600}.panel-sub{position:absolute;left:40px;top:76px;font-size:22px;color:#ccccc9}
+.tile{position:absolute;width:432px;height:84px}.tile:nth-of-type(1){left:40px;top:140px}.tile:nth-of-type(2){left:488px;top:140px}
+.tile:nth-of-type(3){left:40px;top:236px}.tile:nth-of-type(4){left:488px;top:236px}.tile:nth-of-type(5){left:40px;top:332px}.tile:nth-of-type(6){left:488px;top:332px}
+.settings-tabs{position:absolute;left:24px;top:56px;display:flex;gap:16px}.settings-tabs button{width:448px}
+.setting{position:absolute;left:24px;width:488px;height:92px;background:#303033;border-radius:12px}
+.setting .name{position:absolute;left:88px;top:8px;color:#ccccc9;font-size:22px}.setting .value{position:absolute;left:88px;top:42px;font-size:26px}
+.setting button{position:absolute;top:14px;width:64px;height:64px;padding:0}.minus{left:8px}.plus{right:8px}
+.sample{position:absolute;left:536px;top:128px;width:400px;height:300px;background:#f5f5f1;color:#1e282b;padding:18px 20px}
+.sample-label{font:22px Source;color:#546164;margin-bottom:26px}.sample p{font:26px/35px Literata;color:inherit;margin:0}
+.error{position:absolute;left:24px;right:24px;bottom:92px;padding:20px;min-height:104px;background:#303033;outline:2px solid #bcead5;border-radius:12px;display:flex;gap:24px;align-items:center}
+.error span{flex:1;font-size:24px}.error button{width:192px}.error[hidden]{display:none}
+.footnote{margin-top:18px;font-size:22px;max-width:960px}
+</style>
+<h1>Novel Reader · Vita layout reference</h1>
+<p>960 × 544 at 1:1 size. Uses the packaged fonts. This is a design reference, not an emulator.</p>
+<nav aria-label="Preview screen"><button data-scene="library">Library</button><button data-scene="reader">Reading controls</button><button data-scene="appearance">Appearance</button><button id="error-toggle">Show error state</button></nav>
+<section class="screen" id="library" aria-label="Library preview">
+  <div class="title">Library</div>
+  <button class="resume focus">Continue reading<small>The Apothecary Diaries · Volume 2</small></button>
+  <div class="filters"><button class="focus">All</button><button>Reading</button><button>Finished</button></div>
+  <div class="book focus" style="top:124px"><div class="cover">A</div><div class="book-title">The Apothecary Diaries · Volume 2</div><div class="status">EPUB / 38% read</div><button class="info">Info</button></div>
+  <div class="book" style="top:204px"><div class="cover">S</div><div class="book-title">Spice and Wolf: The Long Journey Through the Northern Lands, Volume 12</div><div class="status">EPUB / 12% read</div><button class="info">Info</button></div>
+  <div class="book" style="top:284px"><div class="cover">W</div><div class="book-title">Wandering beneath the stars</div><div class="status">Online novel / 64% read</div><button class="info">Info</button></div>
+  <div class="book" style="top:364px"><div class="cover">L</div><div class="book-title">Letters from a distant shore</div><div class="status">Text book / Unavailable</div><button class="info">Info</button></div>
+  <div class="pager"><button disabled>&lt;</button><div class="page-count">1<br>/ 3</div><button>&gt;</button></div>
+  <div class="bar"><button>Import</button><button>Online</button><button>Sort</button><button>Options</button></div>
+</section>
+<section class="screen" id="reader" hidden aria-label="Reading controls preview">
+  <div class="paper"><p>A quiet evening. The next adventure waits between the lines.</p><p>Outside, the last light faded over the roofs. She settled into the familiar chair and turned the page.</p></div><div class="veil"></div>
+  <div class="panel-title">Reading controls</div><div class="panel-sub">Choose an action. Circle returns to the same page.</div>
+  <div><button class="tile focus">Contents</button><button class="tile">Appearance</button><button class="tile">Save bookmark</button><button class="tile" disabled>Go to bookmark</button><button class="tile">Back to library</button><button class="tile">Show reading bar</button></div>
+  <div class="bar"><button>Close</button></div>
+</section>
+<section class="screen" id="appearance" hidden aria-label="Appearance preview">
+  <div class="title">Appearance</div><div class="settings-tabs"><button class="focus">L　Text</button><button>Display　R</button></div>
+  <div class="setting focus" style="top:128px"><span class="name">Text size</span><span class="value">Medium</span><button class="minus">−</button><button class="plus">+</button></div>
+  <div class="setting" style="top:228px"><span class="name">Reading font</span><span class="value">Literata</span><button class="minus">−</button><button class="plus">+</button></div>
+  <div class="setting" style="top:328px"><span class="name">Line spacing</span><span class="value">Normal</span><button class="minus">−</button><button class="plus">+</button></div>
+  <div class="sample"><div class="sample-label">Reading preview</div><p>A quiet evening. The next adventure waits between the lines. Outside, the last light fades. You settle in and turn the page.</p></div>
+  <div class="bar"><button>Decrease</button><button>Increase</button><button>Apply</button></div>
+</section>
+<p class="footnote">Menu text: 26 px. Supporting text: 22 px. Main buttons: 72 px tall. Book rows: 76 px tall, four per page. Reading controls overlay the current page.</p>
+<script>
+const scenes=[...document.querySelectorAll('.screen')];
+document.querySelectorAll('[data-scene]').forEach(button=>button.addEventListener('click',()=>{
+  scenes.forEach(scene=>scene.hidden=scene.id!==button.dataset.scene);
+  document.querySelectorAll('.error').forEach(error=>error.remove());
+  document.getElementById('error-toggle').textContent='Show error state';
+}));
+document.querySelectorAll('.filters button').forEach(button=>button.addEventListener('click',()=>{
+  document.querySelectorAll('.filters button').forEach(tab=>tab.classList.toggle('focus',tab===button));
+}));
+document.getElementById('error-toggle').addEventListener('click',event=>{
+  const scene=scenes.find(scene=>!scene.hidden),old=scene.querySelector('.error');
+  if(old){old.remove();event.target.textContent='Show error state';return;}
+  const error=document.createElement('div');error.className='error';
+  error.innerHTML='<span>Download interrupted. 24 of 40 chapters completed. Your downloaded chapters are kept.</span><button>Retry</button>';
+  scene.append(error);event.target.textContent='Hide error state';
+});
+</script>
+</html>
