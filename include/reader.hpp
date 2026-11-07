@@ -64,6 +64,7 @@ struct Settings {
     int theme = 0;   // Night, paper, sepia.
     int library_sort = 0;
     int library_filter = 0;
+    int reading_font = 0; // Literata, Atkinson Hyperlegible Next, Vita system.
 };
 
 struct Progress {
@@ -87,6 +88,8 @@ struct LibraryItem {
     bool directory = false;
 };
 bool valid_library_component(const std::string& name);
+bool load_library(const std::string& path, std::vector<std::string>& books);
+bool save_library(const std::string& path, const std::vector<std::string>& books);
 std::string child_library_folder(const std::string& folder, const std::string& name);
 std::string parent_library_folder(const std::string& folder);
 std::vector<std::size_t> library_order(const std::vector<LibraryItem>& items, LibrarySort sort, LibraryFilter filter);

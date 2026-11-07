@@ -2,15 +2,15 @@ Welcome to Novel Reader
 
 A little library for your Vita
 
-Copy UTF-8 .txt novels or DRM-free .epub books into ux0:data/NovelReader/books/ using VitaShell, then press TRIANGLE in the library to refresh.
+Copy UTF-8 .txt novels or DRM-free .epub books into ux0:data/NovelReader/books/ using VitaShell, then press TRIANGLE or tap Import in Library. Browse to a book and press CROSS to add it to your collection.
 
 Press CROSS to open a book. Your last reading position is restored automatically. Books stay on your memory card and work entirely offline.
 
 In the library, SQUARE cycles Title, Recent, and Progress sorting. L and R switch between All books, Reading, and Finished. Your sort and filter are saved. EPUB titles and authors are read during scanning; the selected book's cover appears beside the list.
 
-You can organize multiple books into folders inside ux0:data/NovelReader/books/. Folders appear before books. Press CROSS or tap a folder to open it, then choose any book inside. Nested folders work too. CIRCLE or the touch Up button returns to the parent folder. Returning from a book keeps you in its folder.
+Library shows your imported books and favorite online novels together, without folders. The Import browser lets you browse folders inside ux0:data/NovelReader/books/. CROSS opens a folder or imports a book. CIRCLE goes up a folder, or returns to Library at the import root. TRIANGLE refreshes the import browser after copying files. Imports keep files in place and repeated imports do not add duplicates.
 
-Reading and Finished filters apply to books in the current folder. Folders stay visible under every filter so you can always browse deeper. Each book's save uses its relative path, so Series A/Volume 1.epub and Series B/Volume 1.epub have separate progress and bookmarks. Moving a book or renaming its folder starts a new save identity. Existing root-level saves still work.
+Each book keeps its relative path for progress and bookmarks. Series A/Volume 1.epub and Series B/Volume 1.epub have independent saves. Existing saves still work after import. Moving or renaming a book changes its save identity; restore missing files to their imported locations. The collection is saved in ux0:data/NovelReader/library.txt.
 
 Library progress bars show saved reading progress. EPUB percentages estimate progress by weighting chapters equally. Finished means the final page was displayed. Moving back to an earlier page updates that status.
 
@@ -22,7 +22,7 @@ Use LEFT and RIGHT to turn pages. UP and DOWN move one text line or illustration
 
 In EPUB books, the shoulder buttons open the previous or next chapter. CROSS opens the contents menu. Choose a chapter with UP and DOWN, browse with LEFT and RIGHT, then press CROSS to open it. CIRCLE returns to reading. Page turning also crosses chapter boundaries automatically.
 
-Press TRIANGLE while reading to change the font size, line spacing, or theme. Choose Night, Paper, or Sepia. Your position is preserved when the text reflows.
+Press TRIANGLE while reading to change the font size, reading font, line spacing, or theme. Choose Literata for serif reading, Atkinson Hyperlegible Next for sans-serif reading, or Vita system. Menus use Source Sans 3. Your font choice is saved across restarts. Choose Night, Paper, or Sepia for the theme. Your position is preserved when the text reflows.
 
 Press SQUARE to set a bookmark. Press SELECT to jump back to it, including across EPUB chapters. Each book has one bookmark in addition to its automatically saved reading position.
 
@@ -38,7 +38,7 @@ In settings, tap a row to select it, then use the Decrease, Increase, and Apply 
 
 Preparing your books
 
-This version reads plain UTF-8 text, with or without a UTF-8 byte order mark. Both Windows and Unix line endings are supported. TXT books may be up to 8 MiB each. Refresh rescans the current folder after you copy or rename files. The reader starts at the library root when launched.
+This version reads plain UTF-8 text, with or without a UTF-8 byte order mark. Both Windows and Unix line endings are supported. TXT books may be up to 8 MiB each. Use Import to add files after copying them. The reader starts in your saved Library when launched.
 
 EPUB chapters load one at a time in the book's reading order. The reader preserves paragraphs, headings, bold text, and underlined emphasis. Chapter documents must be well-formed UTF-8 XHTML and at most 2 MiB each.
 
@@ -54,7 +54,7 @@ You can also drag an image to pan and pinch to zoom. Tap the image to toggle bet
 
 PNG and JPEG are supported, up to 8 MiB encoded, 4096 pixels per side, and 4 megapixels total. Missing, damaged, or unsupported images show a labeled placeholder. Existing reading positions and bookmarks still work, including positions on illustrations.
 
-Vertical writing, CSS layouts, and ruby annotations are not implemented yet. Font coverage depends on the Vita system font. Convert other formats to UTF-8 TXT before copying them here.
+Vertical writing, CSS layouts, and ruby annotations are not implemented yet. Missing characters in the selected font fall back to the Vita system font. Complex-script shaping is not supported. Convert other formats to UTF-8 TXT before copying them here.
 
 The next chapter
 
@@ -64,7 +64,7 @@ Choose a source, then use SQUARE to search with the system keyboard. Open a nove
 
 While a request runs, CIRCLE cancels it. Completed chapters are kept. Repeat a download action to retry after a failure; completed chapters are skipped. START cancels, saves, and exits.
 
-Downloaded novels appear under Library > Online > source. Open one to choose an offline chapter. SELECT on its details screen resumes your saved position. The usual reader controls, settings, bookmarks, and chapter navigation work. Missing public chapters download on demand when Wi-Fi is connected.
+On a novel's details screen, SQUARE or Add to library saves it as a favorite alongside your local books. Browsing and downloading do not automatically add a favorite. Open a saved novel from Library to choose an offline chapter. SELECT on its details screen resumes your saved position. The usual reader controls, settings, bookmarks, and chapter navigation work. Missing public chapters download on demand when Wi-Fi is connected.
 
 Online chapters are plain text with paragraph breaks. Website layout changes or browser verification can temporarily stop a source; the app shows an error and keeps downloaded chapters. Library caching, more image formats, and local text search remain future improvements.
 

@@ -1,5 +1,6 @@
 #include "reader.hpp"
 #include "vita_images.hpp"
+#include "vita_fonts.hpp"
 #include "controls.hpp"
 #include "online.hpp"
 
@@ -33,6 +34,7 @@ const std::string root = "ux0:data/NovelReader";
 const std::string books_directory = root + "/books";
 const std::string progress_directory = root + "/progress";
 const std::string settings_path = root + "/settings.txt";
+const std::string library_path = root + "/library.txt";
 
 struct Palette { unsigned background, panel, text, muted, accent; };
 constexpr unsigned rgb(unsigned r, unsigned g, unsigned b) {
@@ -57,10 +59,15 @@ struct InlineTexture {
 
 class App {
 public:
-    explicit App(vita2d_pgf* font) : font_(font), settings_(reader::load_settings(settings_path)) {
+    explicit App(vita2d_pgf* font) : fonts_(font), settings_(reader::load_settings(settings_path)) {
         sort_ = static_cast<reader::LibrarySort>(settings_.library_sort);
         filter_ = static_cast<reader::LibraryFilter>(settings_.library_filter);
+        if (!reader::load_library(library_path, library_books_)) {
+            SceIoStat state{};
+            library_writable_ = sceIoGetstat(library_path.c_str(), &state) < 0;
+        }
         scan();
+        if (!fonts_.complete()) message_ = "Some bundled fonts are unavailable. Using the system font as fallback.";
     }
     ~App() {
         online_.cancel();
@@ -102,11 +109,13 @@ public:
         }
         if (is_online_screen()) return input_online(pressed);
         if (screen_ == Screen::Library) {
-            if (pressed & SCE_CTRL_SELECT) { release_image(); screen_ = Screen::Sources; online_selected_ = 0; message_.clear(); return true; }
+            if (pressed & SCE_CTRL_SELECT) { importing_ = false; current_folder_.clear(); release_image(); screen_ = Screen::Sources; online_selected_ = 0; message_.clear(); return true; }
             if (pressed & SCE_CTRL_CIRCLE) {
-                if (!current_folder_.empty()) {
+                if (importing_ && !current_folder_.empty()) {
                     const auto child = current_folder_;
                     browse_folder(reader::parent_library_folder(current_folder_), child);
+                } else if (importing_) {
+                    importing_ = false; browse_folder("");
                 }
                 return true;
             }
@@ -120,13 +129,16 @@ public:
                 refresh_library(keep);
                 save_library_preferences();
             }
-            if (pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER)) {
+            if (!importing_ && (pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER))) {
                 const auto step = pressed & SCE_CTRL_RTRIGGER ? 1 : 2;
                 filter_ = static_cast<reader::LibraryFilter>((static_cast<int>(filter_) + step) % 3);
                 selected_ = 0; refresh_library("");
                 save_library_preferences();
             }
-            if (pressed & SCE_CTRL_TRIANGLE) scan();
+            if (pressed & SCE_CTRL_TRIANGLE) {
+                if (!importing_) { importing_ = true; browse_folder(""); }
+                else scan();
+            }
             update_cover();
             if ((pressed & SCE_CTRL_CROSS) && !order_.empty()) open();
         } else if (screen_ == Screen::Reader) {
@@ -230,9 +242,10 @@ public:
             }
         } else {
             if ((pressed & SCE_CTRL_UP) && setting_row_ > 0) --setting_row_;
-            if ((pressed & SCE_CTRL_DOWN) && setting_row_ < 2) ++setting_row_;
+            if ((pressed & SCE_CTRL_DOWN) && setting_row_ < 3) ++setting_row_;
             int* value = setting_row_ == 0 ? &settings_.font :
-                         setting_row_ == 1 ? &settings_.spacing : &settings_.theme;
+                         setting_row_ == 1 ? &settings_.reading_font :
+                         setting_row_ == 2 ? &settings_.spacing : &settings_.theme;
             if (pressed & SCE_CTRL_LEFT) *value = std::max(0, *value - 1);
             if (pressed & SCE_CTRL_RIGHT) *value = std::min(2, *value + 1);
             if (pressed & (SCE_CTRL_CIRCLE | SCE_CTRL_TRIANGLE | SCE_CTRL_CROSS)) {
@@ -340,7 +353,7 @@ public:
             const auto index = *selection / 6 * 6 + (row < 0 ? 6 : row);
             if (row >= 0 && index < size) { *selection = index; return input(SCE_CTRL_CROSS); }
         } else if (screen_ == Screen::Settings) {
-            const auto row = reader::controls::list_row_hit(x, y, 40, 920, 106, 52, 46, 3);
+            const auto row = reader::controls::list_row_hit(x, y, 40, 920, 106, 52, 46, 4);
             if (row >= 0) setting_row_ = row;
         } else if (screen_ == Screen::Reader && y >= 96 && y < 446 && x >= 48 && x < 912) {
             int block_y = 96;
@@ -372,7 +385,7 @@ private:
         if (online_busy_) return {"Cancel", "Working", "", "", ""};
         if (screen_ == Screen::Sources) return {"Library", "Open", "", "", ""};
         if (screen_ == Screen::Catalog) return {"Sources", "Details", "Search", "Latest", online_catalog_.next.empty() ? "Retry" : "Next page"};
-        if (screen_ == Screen::Novel) return {online_from_library_ ? "Library" : "Catalog", "Chapters", "Download all", "Resume", "Refresh"};
+        if (screen_ == Screen::Novel) return {online_from_library_ ? "Library" : "Catalog", "Chapters", "Add to library", "Resume", "Refresh"};
         return {"Details", "Read", "Download", "Download all", "Refresh"};
     }
     void start_online(reader::online::Request request) {
@@ -460,11 +473,11 @@ private:
             message_ = online_catalog_.items.empty() ? "No novels found." : "Choose a novel. SQUARE searches.";
         } else if (update.request.action == Action::Chapters) {
             online_novel_ = std::move(update.novel); online_manifest_ = update.manifest;
-            online_selected_ = 0; screen_ = Screen::Novel; message_ = "CROSS: chapters  SQUARE: download public chapters";
+            online_selected_ = 0; screen_ = Screen::Novel; message_ = "SQUARE: add to library / CROSS: chapters";
         } else if (update.request.action == Action::Read) {
             online_manifest_ = update.manifest;
             open_online_reader(update.request.chapter);
-        } else message_ = "Download complete. Read offline from Library > Online.";
+        } else message_ = "Download complete. Add this novel from Details to keep it in Library.";
     }
     bool input_online(unsigned pressed) {
         if (pressed & SCE_CTRL_CIRCLE) {
@@ -494,7 +507,7 @@ private:
             }
         } else if (screen_ == Screen::Novel) {
             if (pressed & SCE_CTRL_CROSS) { screen_ = Screen::OnlineChapters; online_selected_ = 0; message_.clear(); }
-            else if (pressed & SCE_CTRL_SQUARE) download_online(true);
+            else if (pressed & SCE_CTRL_SQUARE) add_to_library(online_manifest_.substr(books_directory.size()+1));
             else if (pressed & SCE_CTRL_TRIANGLE) refresh_online_novel();
             else if (pressed & SCE_CTRL_SELECT) {
                 reader::Publication p;
@@ -516,9 +529,9 @@ private:
         heading(title,screen_ == Screen::Novel ? online_novel_.author : screen_ == Screen::OnlineChapters ? "CROSS: read / SQUARE: download / SELECT: download all" : "Public novels / CIRCLE: back / START: exit");
         if (screen_ == Screen::Novel) {
             text(60,125,palette().accent,0.9f,std::to_string(online_novel_.chapters.size())+" chapters / "+online_novel_.source);
-            const auto summary = reader::wrap_text(online_novel_.description.empty()?"No description provided by this source.":online_novel_.description,830,[this](const std::string& s){return vita2d_pgf_text_width(font_,0.85f,s.c_str());});
+            const auto summary = reader::wrap_text(online_novel_.description.empty()?"No description provided by this source.":online_novel_.description,830,[this](const std::string& s){return fonts_.width(reader::FontRole::Interface,17,s);});
             for (std::size_t i=0;i<std::min<std::size_t>(summary.size(),9);++i) text(60,165+static_cast<int>(i)*28,palette().text,0.85f,summary[i].text);
-            text(60,437,palette().muted,0.75f,"CROSS: chapters / SELECT: resume / TRIANGLE: refresh");
+            text(60,437,palette().muted,0.75f,"SQUARE: add to library / SELECT: resume / TRIANGLE: refresh");
         } else {
             const auto size = online_size(), first = online_selected_/6*6;
             for (auto i=first;i<size && i<first+6;++i) {
@@ -545,7 +558,7 @@ private:
     }
     void draw_toolbar() const {
         const std::vector<std::string> labels = is_online_screen() ? online_toolbar() :
-            screen_ == Screen::Library ? std::vector<std::string>{current_folder_.empty() ? "Root" : "Up", "Sort", "Filter", "Refresh", "Online", "Exit"} :
+            screen_ == Screen::Library ? std::vector<std::string>{importing_ ? (current_folder_.empty() ? "Library" : "Up") : "Library", "Sort", importing_ ? "All files" : "Filter", importing_ ? "Refresh" : "Import", "Online", "Exit"} :
             screen_ == Screen::Reader ? std::vector<std::string>{"Library", "Bookmark", "Go to mark", "Contents", "Settings"} :
             screen_ == Screen::Contents ? std::vector<std::string>{"Back", "Illustrations"} :
             screen_ == Screen::Illustrations ? std::vector<std::string>{"Contents", "View"} :
@@ -555,7 +568,7 @@ private:
         for (int i = 0; i < count; ++i) {
             const auto left = 40 + 880 * i / count, right = 40 + 880 * (i + 1) / count;
             vita2d_draw_rectangle(left + 2, 488, right - left - 4, 48, palette().panel);
-            const auto width = vita2d_pgf_text_width(font_, 0.75f, labels[i].c_str());
+            const auto width = fonts_.width(reader::FontRole::Interface, 15, labels[i]);
             text((left + right - width) / 2, 519, palette().text, 0.75f, labels[i], right - left - 12);
         }
     }
@@ -631,7 +644,7 @@ private:
         return order_.empty() ? "" : entries_[order_[selected_]].filename;
     }
     void refresh_library(const std::string& keep) {
-        order_ = reader::library_order(entries_, sort_, filter_);
+        order_ = reader::library_order(entries_, sort_, importing_ ? reader::LibraryFilter::All : filter_);
         selected_ = order_.empty() ? 0 : std::min(selected_, order_.size() - 1);
         for (std::size_t i = 0; i < order_.size(); ++i)
             if (entries_[order_[i]].filename == keep) { selected_ = i; break; }
@@ -681,12 +694,17 @@ private:
         } catch (const std::exception&) { message_ = "Not enough memory for this illustration."; }
     }
     const Palette& palette() const { return palettes[settings_.theme]; }
-    float font_scale() const { return 1.0f + settings_.font * 0.2f; }
+    unsigned reading_pixels() const { return 22 + settings_.font * 4; }
+    reader::FontRole reading_font() const {
+        return settings_.reading_font == 0 ? reader::FontRole::Serif :
+            settings_.reading_font == 1 ? reader::FontRole::Sans : reader::FontRole::System;
+    }
     int line_height() const { return 26 + settings_.font * 5 + settings_.spacing * 4; }
 
-    std::string fit(std::string text, float scale, int width) const {
-        if (vita2d_pgf_text_width(font_, scale, text.c_str()) <= width) return text;
-        while (!text.empty() && vita2d_pgf_text_width(font_, scale, (text + "...").c_str()) > width) {
+    std::string fit(std::string text, float scale, int width, reader::FontRole role) const {
+        const auto pixels = static_cast<unsigned>(std::lround(20 * scale));
+        if (fonts_.width(role, pixels, text) <= width) return text;
+        while (!text.empty() && fonts_.width(role, pixels, text + "...") > width) {
             auto last = text.size() - 1;
             while (last > 0 && (static_cast<unsigned char>(text[last]) & 0xc0) == 0x80) --last;
             text.resize(last);
@@ -694,13 +712,14 @@ private:
         return text + "...";
     }
 
-    void text(int x, int y, unsigned color, float scale, const std::string& value, int width = 864) const {
-        const auto clipped = fit(value, scale, width);
-        vita2d_pgf_draw_text(font_, x, y, color, scale, clipped.c_str());
+    void text(int x, int y, unsigned color, float scale, const std::string& value, int width = 864,
+              reader::FontRole role = reader::FontRole::Interface) const {
+        const auto clipped = fit(value, scale, width, role);
+        fonts_.draw(role, static_cast<unsigned>(std::lround(20 * scale)), x, y, color, clipped);
     }
 
     void heading(const std::string& title, const std::string& subtitle) const {
-        text(48, 43, palette().text, 1.2f, title);
+        text(48, 43, palette().text, 1.2f, title, 864, reader::FontRole::Heading);
         text(48, 70, palette().muted, 0.75f, subtitle);
         vita2d_draw_rectangle(48, 82, 864, 1, palette().panel);
     }
@@ -712,39 +731,66 @@ private:
         scan(restore);
     }
 
+    bool add_to_library(const std::string& filename) {
+        if (!library_writable_) { message_ = "Library index is unreadable. Restore library.txt before adding books."; return false; }
+        if (std::find(library_books_.begin(), library_books_.end(), filename) != library_books_.end()) {
+            message_ = "Already in your library."; return true;
+        }
+        auto updated = library_books_;
+        updated.push_back(filename);
+        if (!reader::save_library(library_path, updated)) { message_ = "Could not save library. Check free storage."; return false; }
+        library_books_ = std::move(updated);
+        message_ = "Added to library.";
+        return true;
+    }
+
     void scan(const std::string& restore = {}) {
         const auto keep = restore.empty() ? selected_filename() : restore;
-        message_ = "Scanning local books..."; draw();
+        message_ = importing_ ? "Scanning import folder..." : "Loading library..."; draw();
         release_image();
         entries_.clear();
         order_.clear();
         message_.clear();
-        const auto folder_path = books_directory + (current_folder_.empty() ? "" : '/' + current_folder_);
-        const auto directory = sceIoDopen(folder_path.c_str());
-        if (directory >= 0) {
-            SceIoDirent entry{};
-            int result = 0;
-            while ((result = sceIoDread(directory, &entry)) > 0) {
-                const std::string name(entry.d_name);
-                const bool is_folder = SCE_S_ISDIR(entry.d_stat.st_mode);
-                if (reader::valid_library_component(name) && (is_folder ||
-                    (SCE_S_ISREG(entry.d_stat.st_mode) && reader::is_supported_book(name)))) {
-                    reader::LibraryItem item;
-                    try {
-                        item.filename = reader::child_library_folder(current_folder_, name);
-                        item.title = is_folder ? name : reader::title_from_filename(name);
-                        item.path = books_directory + '/' + item.filename;
-                        item.directory = is_folder;
-                        entries_.push_back(std::move(item));
-                    } catch (const std::invalid_argument&) { message_ = "Some paths exceed the supported folder length."; }
+        if (importing_) {
+            const auto folder_path = books_directory + (current_folder_.empty() ? "" : '/' + current_folder_);
+            const auto directory = sceIoDopen(folder_path.c_str());
+            if (directory >= 0) {
+                SceIoDirent entry{};
+                int result = 0;
+                while ((result = sceIoDread(directory, &entry)) > 0) {
+                    const std::string name(entry.d_name);
+                    const bool is_folder = SCE_S_ISDIR(entry.d_stat.st_mode);
+                    if (reader::valid_library_component(name) && (is_folder ||
+                        (SCE_S_ISREG(entry.d_stat.st_mode) && reader::is_supported_book(name)))) {
+                        reader::LibraryItem item;
+                        try {
+                            item.filename = reader::child_library_folder(current_folder_, name);
+                            item.title = is_folder ? name : reader::title_from_filename(name);
+                            item.path = books_directory + '/' + item.filename;
+                            item.directory = is_folder;
+                            entries_.push_back(std::move(item));
+                        } catch (const std::invalid_argument&) { message_ = "Some paths exceed the supported folder length."; }
+                    }
+                    entry = {};
                 }
-                entry = {};
+                if (result < 0) message_ = "Could not read the entire books folder.";
+                sceIoDclose(directory);
+            } else message_ = "Cannot open this folder. Go Up or refresh after checking storage.";
+        } else {
+            for (const auto& filename : library_books_) {
+                reader::LibraryItem item;
+                item.filename = filename;
+                item.path = books_directory + '/' + filename;
+                item.title = reader::title_from_filename(filename.substr(filename.find_last_of('/') + 1));
+                SceIoStat state{};
+                if (sceIoGetstat(item.path.c_str(), &state) < 0 || !SCE_S_ISREG(state.st_mode))
+                    item.error = "File missing. Restore it to its imported location.";
+                entries_.push_back(std::move(item));
             }
-            if (result < 0) message_ = "Could not read the entire books folder.";
-            sceIoDclose(directory);
-        } else message_ = "Cannot open this folder. Go Up or refresh after checking storage.";
+            if (!library_writable_) message_ = "Library index is unreadable. Restore library.txt from backup.";
+        }
         // Bundled guide is always available without modifying the user's library.
-        if (current_folder_.empty()) {
+        if (!importing_) {
             reader::LibraryItem guide;
             guide.filename = "@welcome"; guide.title = "Welcome to Novel Reader"; guide.path = "app0:/welcome.txt"; guide.guide = true;
             entries_.push_back(std::move(guide));
@@ -752,7 +798,7 @@ private:
         for (auto& item : entries_) {
             if (item.directory) continue;
             item.progress = reader::load_progress(reader::progress_path(progress_directory, item.filename));
-            if (reader::is_epub_book(item.filename) || reader::is_online_book(item.filename)) {
+            if (item.error.empty() && (reader::is_epub_book(item.filename) || reader::is_online_book(item.filename))) {
                 reader::Publication metadata;
                 if (reader::open_publication(item.path, metadata, item.error)) {
                     item.title = metadata.title; item.author = metadata.author;
@@ -769,6 +815,15 @@ private:
         if (entries_[entry_index].directory) {
             const auto folder = entries_[entry_index].filename;
             browse_folder(folder);
+            return;
+        }
+        if (importing_) {
+            const auto filename = entries_[entry_index].filename;
+            if (add_to_library(filename)) {
+                importing_ = false; current_folder_.clear();
+                filter_ = reader::LibraryFilter::All; save_library_preferences();
+                scan(filename); message_ = "Added to library.";
+            }
             return;
         }
         if (reader::is_online_book(entries_[entry_index].path)) {
@@ -822,9 +877,8 @@ private:
             std::string error;
             if (!reader::load_chapter(publication_, index, candidate, error)) { message_ = error; return false; }
             probe_illustrations(candidate);
-            const auto scale = font_scale();
-            auto layout = reader::layout_book(candidate, 864, 350, line_height(), [this, scale](const std::string& value) {
-                return vita2d_pgf_text_width(font_, scale, value.c_str());
+            auto layout = reader::layout_book(candidate, 864, 350, line_height(), [this](const std::string& value) {
+                return fonts_.width(reading_font(), reading_pixels(), value);
             });
             const auto position = at_end ? layout.pages.back() : reader::block_at_offset(layout.blocks, offset);
             if (publication_.chapters[index].title == "Chapter " + std::to_string(index + 1))
@@ -841,9 +895,8 @@ private:
     }
 
     void reflow(std::size_t offset) {
-        const auto scale = font_scale();
-        auto layout = reader::layout_book(book_, 864, 350, line_height(), [this, scale](const std::string& value) {
-            return vita2d_pgf_text_width(font_, scale, value.c_str());
+        auto layout = reader::layout_book(book_, 864, 350, line_height(), [this](const std::string& value) {
+            return fonts_.width(reading_font(), reading_pixels(), value);
         });
         lines_ = std::move(layout.blocks); pages_ = std::move(layout.pages);
         top_ = reader::block_at_offset(lines_, offset);
@@ -873,7 +926,8 @@ private:
         const char* sorts[] = {"Title", "Recent", "Progress"};
         const char* filters[] = {"All books", "Reading", "Finished"};
         const auto slash = current_folder_.find_last_of('/');
-        heading(current_folder_.empty() ? "Novel Reader" : current_folder_.substr(slash == std::string::npos ? 0 : slash + 1),
+        heading(importing_ ? "Import / " + (current_folder_.empty() ? std::string("books") : current_folder_.substr(slash == std::string::npos ? 0 : slash + 1)) : "Library",
+                importing_ ? "Choose a TXT, EPUB or saved online novel / CROSS: import / CIRCLE: back" :
                 std::string(filters[static_cast<int>(filter_)]) + "  /  Sort: " + sorts[static_cast<int>(sort_)]);
         const auto first = (selected_ / 6) * 6;
         for (std::size_t i = first; i < order_.size() && i < first + 6; ++i) {
@@ -885,7 +939,7 @@ private:
             }
             text(60, y + 24, item.directory ? palette().accent : palette().text, 0.95f,
                  item.directory ? "> " + item.title : item.title, 525);
-            std::string status = item.directory ? "Folder" : item.guide ? "Guide" : reader::is_online_book(item.filename) ? "Downloaded novel" : reader::is_epub_book(item.filename) ? "EPUB" : "TXT";
+            std::string status = item.directory ? "Folder" : item.guide ? "Guide" : reader::is_online_book(item.filename) ? "Online novel" : reader::is_epub_book(item.filename) ? "EPUB" : "TXT";
             if (item.directory) status += "  /  Open to browse";
             else if (!item.error.empty()) status += "  /  Could not read metadata";
             else if (item.progress.percent == 100) status += "  /  Finished";
@@ -898,8 +952,8 @@ private:
             }
         }
         if (order_.empty()) {
-            text(60, 155, palette().text, 1.0f, filter_ == reader::LibraryFilter::All ? "This folder is empty." : "No books in this filter.", 525);
-            text(60, 190, palette().muted, 0.8f, "Use Filter or Up to browse elsewhere.", 525);
+            text(60, 155, palette().text, 1.0f, importing_ ? "No supported books in this folder." : "No books in this filter.", 525);
+            text(60, 190, palette().muted, 0.8f, "Use Import to add local books, or Online to find novels.", 525);
         } else {
             const auto& item = entries_[order_[selected_]];
             vita2d_draw_rectangle(642, 96, 270, 300, palette().panel);
@@ -921,10 +975,10 @@ private:
             text(644, 420, palette().text, 0.8f, item.directory ? "Folder" : item.author.empty() ? "Local library" : item.author, 268);
             text(644, 442, palette().muted, 0.65f, item.directory ? "CROSS or tap to open" : !item.error.empty() ? item.error :
                 !cover_message_.empty() ? cover_message_ : reader::is_epub_book(item.filename) ?
-                std::to_string(item.chapters) + " chapters" : "UTF-8 text", 268);
+                std::to_string(item.chapters) + " chapters" : reader::is_online_book(item.filename) ? std::to_string(item.chapters) + " chapters / online" : "UTF-8 text", 268);
         }
         text(48, 471, palette().accent, 0.7f, message_.empty() ?
-            "books/" + (current_folder_.empty() ? "" : current_folder_ + '/') + "  /  " + std::to_string(order_.size()) + " entries" : message_);
+            (importing_ ? "Import: books/" + current_folder_ : "TRIANGLE: import local books / SELECT: online novels") + "  /  " + std::to_string(order_.size()) + " entries" : message_);
     }
 
     void draw_reader() const {
@@ -965,9 +1019,9 @@ private:
             }
             const auto run = line.text.substr(at, end - at);
             const auto color = style & reader::Heading ? palette().accent : palette().text;
-            vita2d_pgf_draw_text(font_, x, y, color, font_scale(), run.c_str());
-            if (style & reader::Strong) vita2d_pgf_draw_text(font_, x + 1, y, color, font_scale(), run.c_str());
-            const auto width = vita2d_pgf_text_width(font_, font_scale(), run.c_str());
+            fonts_.draw(reading_font(), reading_pixels(), x, y, color, run);
+            if (style & reader::Strong) fonts_.draw(reading_font(), reading_pixels(), x + 1, y, color, run);
+            const auto width = fonts_.width(reading_font(), reading_pixels(), run);
             if (style & reader::Emphasis) vita2d_draw_rectangle(x, y + 3, width, 1, color);
             x += width; at = end;
         }
@@ -1020,22 +1074,24 @@ private:
         const char* sizes[] = {"Small", "Medium", "Large"};
         const char* spacings[] = {"Compact", "Normal", "Relaxed"};
         const char* themes[] = {"Night", "Paper", "Sepia"};
+        const char* families[] = {"Literata (serif)", "Atkinson Hyperlegible Next (sans)", "Vita system"};
         const std::string rows[] = {
             std::string("Font size:     ") + sizes[settings_.font],
+            std::string("Reading font:  ") + families[settings_.reading_font],
             std::string("Line spacing:  ") + spacings[settings_.spacing],
             std::string("Theme:         ") + themes[settings_.theme]
         };
-        for (int i = 0; i < 3; ++i) {
+        for (int i = 0; i < 4; ++i) {
             if (setting_row_ == i) vita2d_draw_rectangle(40, 106 + i * 52, 880, 46, palette().panel);
             text(60, 136 + i * 52, palette().text, 1.0f, rows[i]);
         }
-        text(48, 323, palette().muted, 0.75f, "Preview");
-        text(48, 365, palette().text, font_scale(), "A quiet evening. One more chapter.");
-        text(48, 365 + line_height(), palette().text, font_scale(), "The next adventure waits between the lines.");
+        text(48, 342, palette().muted, 0.75f, "Preview");
+        fonts_.draw(reading_font(), reading_pixels(), 48, 380, palette().text, "A quiet evening. One more chapter.");
+        fonts_.draw(reading_font(), reading_pixels(), 48, 380 + line_height(), palette().text, "The next adventure waits between the lines.");
         text(48, 477, palette().muted, 0.75f, "Tap a setting, then adjust below. Your reading position is kept.");
     }
 
-    vita2d_pgf* font_;
+    reader::VitaFonts fonts_;
     reader::online::Service online_{"app0:",books_directory+"/Online"};
     reader::online::Result online_catalog_;
     reader::online::Novel online_novel_;
@@ -1049,6 +1105,8 @@ private:
     reader::Publication publication_;
     reader::Progress progress_;
     std::vector<reader::LibraryItem> entries_;
+    std::vector<std::string> library_books_;
+    bool importing_ = false, library_writable_ = true;
     std::vector<std::size_t> order_;
     reader::LibrarySort sort_ = reader::LibrarySort::Title;
     reader::LibraryFilter filter_ = reader::LibraryFilter::All;

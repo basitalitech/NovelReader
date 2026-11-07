@@ -26,6 +26,19 @@ int main() {
     const std::string directory(created), path = directory + "/state";
     int status = 0;
     try {
+        const auto index = directory + "/library.txt";
+        std::vector<std::string> collection = {"Series/Volume 1.epub", "Online/novgo/abc.nvr", "Story.txt", "Story.txt"};
+        check(reader::save_library(index, collection), "Save mixed local and online library");
+        std::vector<std::string> restored_library;
+        check(reader::load_library(index, restored_library) && restored_library == std::vector<std::string>({
+            "Series/Volume 1.epub", "Online/novgo/abc.nvr", "Story.txt"}), "Library persists and deduplicates identities");
+        check(!reader::save_library(index, {"../outside.txt"}), "Library allowed traversal");
+        check(!reader::save_library(index, {"Series"}), "Library allowed folder membership");
+        check(reader::load_library(index, restored_library) && restored_library.size() == 3, "Rejected write damaged existing library");
+        { std::ofstream corrupt(index); corrupt << "NRLIBRARY1\nStory.txt\n../outside.epub\n"; }
+        check(!reader::load_library(index, restored_library) && restored_library.size() == 3, "Invalid index partially replaced library");
+        check(reader::save_library(index, {}) && reader::load_library(index, restored_library) && restored_library.empty(), "Empty library persistence");
+        std::remove(index.c_str());
         std::vector<reader::LibraryItem> items(4);
         items[0].filename = "b.epub"; items[0].title = "beta";
         items[1].filename = "a.txt"; items[1].title = "Alpha";

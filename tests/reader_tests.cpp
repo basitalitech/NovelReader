@@ -103,6 +103,20 @@ int main() {
         check(reader::save_settings(settings_path, {2, 0, 1}), "Settings save failed");
         auto settings = reader::load_settings(settings_path);
         check(settings.font == 2 && settings.spacing == 0 && settings.theme == 1, "Settings failed round trip");
+        settings.reading_font = 1;
+        check(reader::save_settings(settings_path, settings) && reader::load_settings(settings_path).reading_font == 1,
+              "Sans reading font did not survive restart");
+        settings.reading_font = 2;
+        check(reader::save_settings(settings_path, settings) && reader::load_settings(settings_path).reading_font == 2,
+              "System reading font did not survive restart");
+        write(settings_path, "NRS2\n2 1 0 2 1\n");
+        settings = reader::load_settings(settings_path);
+        check(settings.reading_font == 0 && settings.font == 2 && settings.library_sort == 2 && settings.library_filter == 1,
+              "Legacy preferences did not migrate to Literata");
+        write(settings_path, "NRS3\n1 1 0 0 0 99\n");
+        check(reader::load_settings(settings_path).reading_font == 2, "Reading font not bounded");
+        write(settings_path, "NRS3\n2 1 0 2 1\n");
+        check(reader::load_settings(settings_path).font == 1, "Truncated font settings have no defaults");
         write(settings_path, "NRS1\n99 -3 123\n");
         settings = reader::load_settings(settings_path);
         check(settings.font == 2 && settings.spacing == 0 && settings.theme == 2, "Settings not bounded");

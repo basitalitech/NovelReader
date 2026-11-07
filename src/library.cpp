@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <cctype>
 #include <stdexcept>
+#include <fstream>
+#include <cstdio>
+#include <set>
 
 namespace reader {
 bool valid_library_component(const std::string& name) {
@@ -35,6 +38,43 @@ std::string parent_library_folder(const std::string& folder) {
     validate_folder(folder);
     const auto slash = folder.find_last_of('/');
     return slash == std::string::npos ? "" : folder.substr(0, slash);
+}
+
+namespace {
+bool valid_book_identity(const std::string& name) {
+    try { validate_folder(name); }
+    catch (const std::invalid_argument&) { return false; }
+    return !name.empty() && is_supported_book(name);
+}
+}
+bool load_library(const std::string& path, std::vector<std::string>& books) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return false;
+    std::string line;
+    if (!std::getline(in, line) || line != "NRLIBRARY1") return false;
+    std::vector<std::string> result;
+    std::set<std::string> seen;
+    while (std::getline(in, line)) {
+        if (result.size() >= 20000 || !valid_book_identity(line)) return false;
+        if (seen.insert(line).second) result.push_back(line);
+    }
+    if (!in.eof()) return false;
+    books = std::move(result);
+    return true;
+}
+bool save_library(const std::string& path, const std::vector<std::string>& books) {
+    if (books.size() > 20000) return false;
+    for (const auto& book : books) if (!valid_book_identity(book)) return false;
+    const auto temporary = path + ".tmp";
+    std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+    out << "NRLIBRARY1\n";
+    std::set<std::string> seen;
+    for (const auto& book : books) if (seen.insert(book).second) out << book << '\n';
+    out.close();
+    if (!out || std::rename(temporary.c_str(), path.c_str()) != 0) {
+        std::remove(temporary.c_str()); return false;
+    }
+    return true;
 }
 
 bool reading_started(const Progress& progress) {

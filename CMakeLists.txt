@@ -73,7 +73,12 @@ if(NOVELREADER_HOST_TESTS)
     add_test(NAME analog_and_touch COMMAND controls_tests)
 else()
     include("${VITASDK}/share/vita.cmake" REQUIRED)
-    add_executable(novelreader src/main.cpp src/vita_images.cpp)
+    find_path(NOVELREADER_FREETYPE_INCLUDE ft2build.h PATH_SUFFIXES freetype2)
+    if(NOT NOVELREADER_FREETYPE_INCLUDE)
+        message(FATAL_ERROR "VitaSDK FreeType headers are required for bundled fonts")
+    endif()
+    add_executable(novelreader src/main.cpp src/vita_images.cpp src/vita_fonts.cpp)
+    target_include_directories(novelreader PRIVATE "${NOVELREADER_FREETYPE_INCLUDE}")
     # Leave space for vita-elf-create's import metadata between load segments.
     target_link_options(novelreader PRIVATE -Wl,--defsym=__sce_headroom=0x10000)
     target_compile_options(novelreader PRIVATE -Wall -Wextra -Wpedantic)
@@ -81,7 +86,7 @@ else()
         SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub SceTouch_stub
         ScePgf_stub ScePvf_stub SceCommonDialog_stub SceAppMgr_stub
         SceIofilemgr_stub ScePower_stub SceProcessmgr_stub SceIme_stub SceAppUtil_stub
-        freetype png turbojpeg jpeg z m)
+        freetype bz2 png turbojpeg jpeg z m)
     add_custom_command(TARGET novelreader POST_BUILD
         COMMAND ${CMAKE_COMMAND} "-DNM=${CMAKE_NM}" "-DELF=$<TARGET_FILE:novelreader>"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckVitaThreads.cmake"
@@ -90,6 +95,13 @@ else()
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
         VERSION "00.70" NAME "Novel Reader"
         FILE assets/welcome.txt welcome.txt
+        FILE assets/fonts/SourceSans3-Regular.ttf fonts/SourceSans3-Regular.ttf
+        FILE assets/fonts/SourceSans3-Semibold.ttf fonts/SourceSans3-Semibold.ttf
+        FILE assets/fonts/Literata-Regular.ttf fonts/Literata-Regular.ttf
+        FILE assets/fonts/AtkinsonHyperlegibleNext-Regular.ttf fonts/AtkinsonHyperlegibleNext-Regular.ttf
+        FILE assets/fonts/SourceSans3-LICENSE.md fonts/SourceSans3-LICENSE.md
+        FILE assets/fonts/Literata-OFL.txt fonts/Literata-OFL.txt
+        FILE assets/fonts/AtkinsonHyperlegibleNext-OFL.txt fonts/AtkinsonHyperlegibleNext-OFL.txt
         FILE assets/cacert.pem cacert.pem
         FILE assets/sources/common.lua sources/common.lua
         FILE assets/sources/json.lua sources/json.lua

@@ -3,7 +3,7 @@
 A light novel reader built with C++14, VitaSDK, and vita2d. Version 0.7
 reads **UTF-8 TXT, DRM-free EPUB, and downloaded web novels** offline, with chapter
 navigation, cover previews, library filters, inline illustrations, and a zoomable
-illustration viewer, folder browsing, analog-stick navigation, and front touchscreen controls.
+illustration viewer, local book imports, analog-stick navigation, and front touchscreen controls.
 Online novel sources are **Novgo, Asura Novels, and Beast Novels**, using packaged
 Lua adapters for public catalogs and chapters.
 
@@ -12,19 +12,19 @@ Lua adapters for public catalogs and chapters.
 1. Install `NovelReader.vpk` with VitaShell on a homebrew-enabled Vita.
 2. Launch the app once to create `ux0:data/NovelReader/books/`.
 3. Copy UTF-8 `.txt` or DRM-free `.epub` books into that folder using VitaShell's USB or FTP mode.
-4. Press **Triangle** in the library to refresh, then **Cross** to open a book.
+4. Press **Triangle / Import** in Library, browse to a book, and press **Cross** to import it.
+5. Open the imported book from Library with **Cross**.
 
-The bundled welcome guide is available at the library root under All books.
-Books and subfolders are listed in the current folder. File names become
-library titles for TXT books, with underscores replaced by spaces. EPUB metadata
-is read when scanning the library, so titles and authors are available before
-opening a book. Uppercase `.TXT` and `.EPUB` extensions work.
+Library is a saved collection of imported local books and favorite online novels.
+The bundled welcome guide is always available under All books. Import reads TXT
+file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 
 | Screen | Controls |
 | --- | --- |
-| Library | Up/Down: browse; Cross: open folder/read book; Circle: parent folder; Triangle: refresh |
+| Library | Up/Down: browse; Cross: read book; Triangle: import local books |
 | Library | Square: cycle Title/Recent/Progress sorting; L/R: cycle All/Reading/Finished filters |
 | Library | Select: online sources |
+| Import | Cross: open folder/import book; Circle: parent folder or Library at root; Triangle: refresh |
 | Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
 | EPUB reader | L/R: previous/next chapter; Cross: contents |
 | TXT reader | L/R: turn page |
@@ -55,7 +55,7 @@ on demand; failed requests leave the current chapter and position intact.
 | Sources | Up/Down: choose; Cross: browse; Circle: local library |
 | Catalog | Up/Down: choose; Left/Right: move six entries; Cross: details |
 | Catalog | Square: search; Select: initial catalog; Triangle: next source page, or retry the current page |
-| Novel details | Cross: chapters; Square: download all public chapters; Select: resume saved position; Triangle: refresh chapter list |
+| Novel details | Cross: chapters; Square: add to library; Select: resume saved position; Triangle: refresh chapter list |
 | Chapters | Up/Down: choose; Left/Right: move six entries; Cross: read; Square: download selected chapter |
 | Chapters | Select: download all public chapters; Triangle: refresh; Circle: details |
 | Request/download in progress | Circle: cancel; Start: cancel, save, and exit |
@@ -69,8 +69,10 @@ skipped. Interrupted individual chapters restart from the beginning. Cancellatio
 during connection setup may wait for the network timeout.
 Worker startup failures display the underlying error.
 
-Novel indexes appear in **Library → Online → source** as soon as their chapter
-lists have loaded. Open one to select a downloaded chapter while offline. Chapter
+On novel details, press **Square / Add to library** to save a favorite. Browsing
+a novel or downloading chapters does not automatically add it to Library. Added
+novels appear alongside imported local books without source folders. Open one
+to select a chapter; downloaded chapters are available offline. Chapter
 text is stored in a hidden `.chapters` directory alongside the indexes; keep that
 directory together with the `.nvr` indexes when copying downloads. Novel and chapter
 filenames use hashes of their source URLs. Progress and bookmarks track stable
@@ -108,7 +110,7 @@ The **front touchscreen** supports:
 
 | Screen | Touch controls |
 | --- | --- |
-| Library | Tap a folder, book, or selected preview to open; Up returns to the parent folder; swipe to browse six entries |
+| Library | Tap a book or selected preview to open; Import opens the local file browser; swipe to browse six entries |
 | Reader | Swipe left/right for next/previous page; swipe up/down to move through text and images |
 | Reader | Tap an inline illustration to zoom it; other left/right body taps turn pages, center taps open contents |
 | Reader | Hold and release on the reading area to save a bookmark |
@@ -142,61 +144,59 @@ bookmarks are disabled.
 
 ## Library
 
-- Folders appear first, alphabetically, followed by books in the selected sort
-  order. Open a folder with Cross or a tap. Circle or the touch **Up** button
-  returns to its parent and selects the folder you just left. At the library
-  root, the button reads **Root** and Circle does nothing. The current folder's
-  name appears in the heading and its relative path appears above the toolbar.
-- Each view lists only its immediate children; nested folders can be browsed
-  independently. Reading/Finished filters apply to books in the current folder.
-  Folders remain visible under every filter, even if they contain no matching
-  books. The guide appears only at the root under All books. Launching the app
-  starts at the root; returning from a book keeps you in its containing folder.
-- Bookmarks, progress, and cover previews use paths relative to the library
-  root. For example, `Series A/Volume 1.epub` and `Series B/Volume 1.epub` have
-  independent saves. Existing root-level saves keep their previous identities.
-  Moving a book or renaming a folder changes the affected save identities;
-  progress is not automatically migrated. Hidden names, links, and unsupported
-  file types are omitted. Relative paths are limited to 768 UTF-8 bytes and
-  may be further limited by the Vita filesystem.
-- Six books per page, with a selected-book cover preview, author, and chapter
-  count. EPUB 3 `cover-image` and EPUB 2 `meta name="cover"` references are
-  supported. TXT books and books without readable covers get a drawn placeholder.
-- Title sorting ignores ASCII letter case. Recent sorting uses last-read time;
-  Progress sorting places the highest saved percentages first. Ties resolve by
-  title and filename. The bundled guide is last in All books and omitted from
-  Reading/Finished filters.
-- Sort and filter preferences survive restarts. Reading includes books opened
-  in this version, plus legacy saves with a nonzero position. Finished means
-  the last page of the final chapter has been displayed. Returning to an earlier
-  page changes the saved percentage and Reading/Finished classification.
-- Progress bars show saved progress. EPUB percentages estimate progress by
-  weighting chapters equally, then using the text offset within the current
-  chapter; they are not a precise word-count percentage. TXT progress uses its
-  text offset. Legacy saves show Continue reading until reopened.
-- Metadata scanning is synchronous on launch, folder entry, and refresh, and
-  reads only the current folder's books. Only the selected
-  cover is decoded, and changing selection releases the previous cover. Broken
-  books remain listed with an error so one file does not hide the rest of the
-  library. There is no persistent metadata cache yet.
+- Library shows a flat, persistent collection of imported local books and online
+  favorites. Membership is saved in `ux0:data/NovelReader/library.txt`. Cached
+  online indexes alone do not make a novel a favorite. Existing collections start
+  with the guide; import previously copied books or cached indexes to add them.
+- **Triangle / Import** opens a file browser rooted at
+  `ux0:data/NovelReader/books/`. Browse subfolders with Cross and Circle, then
+  select a TXT, EPUB, or saved online index with Cross. Import adds a reference
+  and returns to All books. Files stay in place; repeated imports do not duplicate
+  entries. Circle at the import root returns to Library. Triangle refreshes the
+  import browser after copying files with VitaShell.
+- **Select / Online** opens supported internet sources. Search or browse, open
+  novel details, and choose **Square / Add to library**. This saves the favorite
+  without downloading every chapter. Use the chapter screen to download one or
+  all public chapters. Adding favorites requires a successfully loaded index.
+- Imported books retain their relative paths for progress and bookmarks, including
+  existing saves. Same-named files in different folders remain distinct. Moving or
+  renaming a file changes its identity; restore missing files to their imported
+  locations. Import references files rather than copying them.
+- Six entries appear per page with the selected cover, author, and chapter count.
+  Only the selected cover is decoded. Broken or missing files stay visible with
+  an error. Metadata is read on launch and return from online browsing or import;
+  there is no persistent metadata cache yet.
+- Square cycles Title/Recent/Progress sorting; L/R cycles All/Reading/Finished.
+  Preferences survive restarts. Title sorting ignores ASCII case. Recent uses
+  last-read time; Progress puts highest percentages first. The guide appears last
+  under All and is omitted from Reading/Finished.
+- Reading includes started books; Finished means the final page was displayed.
+  Returning to an earlier page changes this status. EPUB percentages weight
+  chapters equally; TXT progress uses text offsets. Legacy saves show Continue
+  reading until reopened.
+- Keep the library index, books, and hidden online chapter folders together when
+  backing up the collection. A damaged index is reported and is not overwritten
+  by an add operation.
 
-For example, copy a collection with VitaShell using this structure:
+## Fonts
 
-```text
-ux0:data/NovelReader/books/
-  Standalone.epub
-  Series A/
-    Volume 1.epub
-    Volume 2.epub
-    Extras/
-      Side Story.txt
-  Series B/
-    Volume 1.epub
-```
+Interface text uses **Source Sans 3 Regular**, with **Semibold** screen headings.
+Reading defaults to **Literata** (serif). In **Reader → Triangle → Reading font**,
+choose Literata, **Atkinson Hyperlegible Next** (sans-serif), or **Vita system**.
+The selection is saved across restarts. Older settings retain their size, spacing,
+theme, and library preferences and default to Literata.
 
-Empty or unavailable folders can be left using Circle/Up. Refresh rescans the
-current folder after files are copied, removed, or renamed. Folder browsing does
-not combine separate files into a single book.
+Font selection, size, and spacing changes reflow the chapter while preserving its
+text position and bookmarks. Settings preview uses the selected reading font;
+menus keep their interface font. Missing glyphs fall back to the Vita system PGF
+font for both measurement and drawing. If a bundled font cannot load, the app
+shows a notice and uses PGF instead. System glyph coverage still limits fallback.
+
+The package includes static TrueType fonts and their SIL Open Font License 1.1
+notices; see [font sources and licenses](assets/fonts/README.md). No font downloads
+are needed at build time or while using the app. Bold retains a second glyph pass;
+emphasis is underlined. Publisher-embedded fonts and complex-script shaping are
+not implemented. Visual rendering and glyph fallback need Vita hardware testing.
 
 ## EPUB reading
 
@@ -216,11 +216,11 @@ not combine separate files into a single book.
   current chapter and position intact so you can choose another chapter.
 - Paragraphs, headings, explicit line breaks, bold, and emphasis are retained.
   Headings use the accent color, bold uses a second glyph pass, and emphasis is
-  underlined using the system font. Scripts, styles, and ruby annotations are
+  underlined using the selected reading font. Scripts, styles, and ruby annotations are
   omitted; ruby base text remains. Illustrations render between their surrounding
   paragraphs. Open **Cross → Square** from the reader for the full chapter image
   list and zoom viewer.
-- CSS, custom fonts, and exact publisher layouts are not supported. XHTML must
+- CSS, publisher-embedded fonts, and exact publisher layouts are not supported. XHTML must
   be well-formed UTF-8 XML. XML/numeric entities and common
   named XHTML entities are supported; external DTDs are never loaded.
 
@@ -269,7 +269,7 @@ and decoding images above the source size limits are not implemented.
 ## Build
 
 Set `VITASDK` to your VitaSDK installation. The installed SDK needs vita2d and
-its FreeType, PNG (with simplified read API), TurboJPEG, JPEG, and zlib dependencies.
+its FreeType, bzip2, PNG (with simplified read API), TurboJPEG, JPEG, and zlib dependencies.
 XML, ZIP, Lua, and HTTPS dependencies are vendored;
 see [dependency versions and licenses](third_party/README.md). No downloads are
 made during configuration or building.
@@ -307,7 +307,7 @@ ctest --test-dir build/host --output-on-failure
   resulting chapter text. Formatting is capped at 100,000 style spans. ZIP
   stored/deflated entries are accepted and their checksums verified. Encrypted
   chapter content is unsupported; font obfuscation does not block text reading.
-- Horizontal text; glyph coverage follows the Vita system font. No PDF, TXT
+- Horizontal text; glyph coverage follows the selected font and system fallback. No PDF, TXT
   chapter detection or search yet. Images flow between text
   paragraphs; publisher CSS positioning and text wrapping around images are
   not supported.
@@ -323,9 +323,9 @@ ctest --test-dir build/host --output-on-failure
   UTF-8-safe wrapping, settings, and chapter-aware position persistence.
 - [EPUB loader](src/epub.cpp): bounded ZIP reads, container/package metadata,
   spine/navigation parsing, and XHTML conversion; no archive extraction to disk.
-- [Vita frontend](src/main.cpp): filesystem library scan, system font rendering,
+- [Vita frontend](src/main.cpp): saved library, local import browser, interface and reading fonts,
   library controls, image viewing, controller navigation, and reader settings.
-- [Library logic](src/library.cpp): folder path validation, folders-first
+- [Library logic](src/library.cpp): persistent collection membership, folder path validation,
   sorting/filtering, and saved progress estimates.
 - [Mixed text/image layout](src/layout.cpp): variable-height pagination,
   dedicated illustration pages, and compatible text/image anchors.
