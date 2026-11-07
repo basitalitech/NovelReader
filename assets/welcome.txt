@@ -58,6 +58,14 @@ Vertical writing, CSS layouts, and ruby annotations are not implemented yet. Fon
 
 The next chapter
 
-The reader core is separate from the Vita interface. Library caching, more image formats, and search are future local improvements. Online catalogues and Lua source parsers are planned for future work.
+Press SELECT in the library, or tap Online, to browse public novels from Novgo, Asura Novels, and Beast Novels. Connect Wi-Fi in Vita Settings first. Asura uses novels, not comics.
+
+Choose a source, then use SQUARE to search with the system keyboard. Open a novel with CROSS for details, and press CROSS again for its chapters. CROSS reads and saves a chapter. SQUARE downloads the selected chapter, and SELECT downloads all public chapters. Locked chapters require login or purchase and are not downloaded in this version.
+
+While a request runs, CIRCLE cancels it. Completed chapters are kept. Repeat a download action to retry after a failure; completed chapters are skipped. START cancels, saves, and exits.
+
+Downloaded novels appear under Library > Online > source. Open one to choose an offline chapter. SELECT on its details screen resumes your saved position. The usual reader controls, settings, bookmarks, and chapter navigation work. Missing public chapters download on demand when Wi-Fi is connected.
+
+Online chapters are plain text with paragraph breaks. Website layout changes or browser verification can temporarily stop a source; the app shows an error and keeps downloaded chapters. Library caching, more image formats, and local text search remain future improvements.
 
 Until then, find a comfortable spot and enjoy your book.

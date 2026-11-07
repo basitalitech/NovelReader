@@ -87,7 +87,10 @@ bool is_epub_book(const std::string& name) {
 }
 
 bool is_supported_book(const std::string& name) {
-    return is_text_book(name) || is_epub_book(name);
+    return is_text_book(name) || is_epub_book(name) || is_online_book(name);
+}
+bool is_online_book(const std::string& name) {
+    return name.size() > 4 && name.compare(name.size() - 4, 4, ".nvr") == 0;
 }
 
 std::string title_from_filename(const std::string& name) {
@@ -187,24 +190,26 @@ Progress load_progress(const std::string& path) {
     std::uint64_t chapter = 0, bookmark_chapter = 0;
     int has_bookmark = 0;
     if (!(input >> magic >> offset >> has_bookmark >> bookmark) ||
-        (magic != "NRP1" && magic != "NRP2" && magic != "NRP3") ||
+        (magic != "NRP1" && magic != "NRP2" && magic != "NRP3" && magic != "NRP4") ||
         offset > max_book_bytes * 4 || bookmark > max_book_bytes * 4 ||
         (has_bookmark != 0 && has_bookmark != 1)) return {};
     if (magic != "NRP1" && (!(input >> chapter >> bookmark_chapter) ||
-        chapter >= max_chapters || bookmark_chapter >= max_chapters)) return {};
+        chapter >= 20000 || bookmark_chapter >= 20000)) return {};
     int percent = -1;
     std::uint64_t last_read = 0;
-    if (magic == "NRP3" && (!(input >> percent >> last_read) || percent < -1 || percent > 100 ||
+    if ((magic == "NRP3" || magic == "NRP4") && (!(input >> percent >> last_read) || percent < -1 || percent > 100 ||
         last_read > UINT64_C(32503680000))) return {};
-    return {static_cast<std::size_t>(offset), has_bookmark == 1, static_cast<std::size_t>(bookmark),
+    Progress result{static_cast<std::size_t>(offset), has_bookmark == 1, static_cast<std::size_t>(bookmark),
             static_cast<std::size_t>(chapter), static_cast<std::size_t>(bookmark_chapter), percent, last_read};
+    if (magic == "NRP4" && (!(input >> std::quoted(result.chapter_id) >> std::quoted(result.bookmark_id)) || result.chapter_id.size() > 1024 || result.bookmark_id.size() > 1024)) return {};
+    return result;
 }
 
 bool save_progress(const std::string& path, const Progress& progress) {
     std::ostringstream output;
-    output << "NRP3\n" << progress.offset << ' ' << progress.has_bookmark << ' ' << progress.bookmark
+    output << "NRP4\n" << progress.offset << ' ' << progress.has_bookmark << ' ' << progress.bookmark
            << ' ' << progress.chapter << ' ' << progress.bookmark_chapter << ' ' << progress.percent
-           << ' ' << progress.last_read << '\n';
+           << ' ' << progress.last_read << '\n' << std::quoted(progress.chapter_id) << ' ' << std::quoted(progress.bookmark_id) << '\n';
     return atomic_write(path, output.str());
 }
 

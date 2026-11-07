@@ -36,6 +36,7 @@ struct Publication {
     bool epub = false;
     std::vector<Chapter> chapters; // OPF spine order; chapter contents load on demand.
     std::string cover_path;
+    bool online = false;
 };
 
 struct Line {
@@ -73,6 +74,7 @@ struct Progress {
     std::size_t bookmark_chapter = 0;
     int percent = -1; // Unknown for legacy saves; EPUB estimate weights chapters equally.
     std::uint64_t last_read = 0; // Unix time, updated by the frontend on reading actions.
+    std::string chapter_id = {}, bookmark_id = {}; // Stable paths for downloaded chapters.
 };
 
 enum class LibrarySort { Title, Recent, Progress };
@@ -108,6 +110,7 @@ std::size_t previous_page_start(const std::vector<std::size_t>& pages, std::size
 
 bool is_text_book(const std::string& name);
 bool is_epub_book(const std::string& name);
+bool is_online_book(const std::string& name);
 bool is_supported_book(const std::string& name);
 bool valid_utf8(const std::string& text);
 bool open_publication(const std::string& path, Publication& publication, std::string& error);

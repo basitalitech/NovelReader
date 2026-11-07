@@ -1,10 +1,11 @@
 # Novel Reader for PS Vita
 
-A local light novel reader built with C++14, VitaSDK, and vita2d. Version 0.6
-reads **UTF-8 TXT and DRM-free EPUB** books entirely offline, with chapter
+A light novel reader built with C++14, VitaSDK, and vita2d. Version 0.7
+reads **UTF-8 TXT, DRM-free EPUB, and downloaded web novels** offline, with chapter
 navigation, cover previews, library filters, inline illustrations, and a zoomable
 illustration viewer, folder browsing, analog-stick navigation, and front touchscreen controls.
-Online sources and Lua parsers are future work.
+Online novel sources are **Novgo, Asura Novels, and Beast Novels**, using packaged
+Lua adapters for public catalogs and chapters.
 
 ## Install and read
 
@@ -23,6 +24,7 @@ opening a book. Uppercase `.TXT` and `.EPUB` extensions work.
 | --- | --- |
 | Library | Up/Down: browse; Cross: open folder/read book; Circle: parent folder; Triangle: refresh |
 | Library | Square: cycle Title/Recent/Progress sorting; L/R: cycle All/Reading/Finished filters |
+| Library | Select: online sources |
 | Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
 | EPUB reader | L/R: previous/next chapter; Cross: contents |
 | TXT reader | L/R: turn page |
@@ -35,6 +37,62 @@ opening a book. Uppercase `.TXT` and `.EPUB` extensions work.
 | Reader | Triangle: settings; Circle: library |
 | Settings | Up/Down: select; Left/Right: adjust; Circle/Cross/Triangle: apply |
 | All screens | Start: save and exit |
+
+## Online novels
+
+Connect Wi-Fi in Vita Settings, then press **Select** in the library or tap
+**Online**. Choose Novgo, Asura Novels, or Beast Novels. Asura uses its **novels**
+catalog; comics are not supported.
+
+Browse titles, use **Square / Search** to enter a title with the system keyboard,
+then open a novel for its description and chapter list. **Read** fetches a missing
+public chapter and saves it before opening the existing reader. Reading downloaded
+chapters does not require a connection. Turning to a missing chapter fetches it
+on demand; failed requests leave the current chapter and position intact.
+
+| Screen | Controls |
+| --- | --- |
+| Sources | Up/Down: choose; Cross: browse; Circle: local library |
+| Catalog | Up/Down: choose; Left/Right: move six entries; Cross: details |
+| Catalog | Square: search; Select: initial catalog; Triangle: next source page, or retry the current page |
+| Novel details | Cross: chapters; Square: download all public chapters; Select: resume saved position; Triangle: refresh chapter list |
+| Chapters | Up/Down: choose; Left/Right: move six entries; Cross: read; Square: download selected chapter |
+| Chapters | Select: download all public chapters; Triangle: refresh; Circle: details |
+| Request/download in progress | Circle: cancel; Start: cancel, save, and exit |
+
+Online lists also support analog navigation, tapping rows, swipe paging, and
+the bottom touch toolbar. Requests run on one background worker; progress and
+cancellation remain available while it works. Downloads are sequential, with a
+short pause between chapters. An error stops the batch and retains completed
+chapters. Repeat the download action to retry: valid completed chapters are
+skipped. Interrupted individual chapters restart from the beginning. Cancellation
+during connection setup may wait for the network timeout.
+Worker startup failures display the underlying error.
+
+Novel indexes appear in **Library → Online → source** as soon as their chapter
+lists have loaded. Open one to select a downloaded chapter while offline. Chapter
+text is stored in a hidden `.chapters` directory alongside the indexes; keep that
+directory together with the `.nvr` indexes when copying downloads. Novel and chapter
+filenames use hashes of their source URLs. Progress and bookmarks track stable
+chapter paths, so inserting or reordering chapters during refresh preserves their
+identity. A removed bookmarked chapter disables that bookmark. Renaming or moving
+the download folders still changes the library save identity.
+
+This phase supports **public/free text chapters**. Locked entries are labeled
+and skipped by Download all; account login and purchased chapters are not
+implemented. Online chapter formatting is plain UTF-8 text with paragraph breaks;
+remote illustrations and covers are not downloaded. The initial catalogs reflect
+each site's public listing, and search results may be limited by the source.
+Source layout changes, browser verification, and service outages can interrupt
+access; errors are shown without replacing a saved chapter with an error page.
+
+HTTPS uses bundled curl and Mbed TLS with certificate and hostname verification,
+TLS 1.2 or newer, and a packaged Mozilla CA bundle. Redirects must remain on the
+source's allowed HTTPS hosts. The Vita's date/time must be correct. Responses are
+limited to 4 MiB, chapter text to 2 MiB, and a novel to 20,000 chapter entries / 400
+chapter-list pages. Downloads use temporary files and rename; insufficient space
+stops the operation. Desktop live checks verify a public chapter from each source;
+Wi-Fi, TLS, the system keyboard, and controls still need Vita hardware testing.
 
 ## Analog and touch controls
 
@@ -212,7 +270,7 @@ and decoding images above the source size limits are not implemented.
 
 Set `VITASDK` to your VitaSDK installation. The installed SDK needs vita2d and
 its FreeType, PNG (with simplified read API), TurboJPEG, JPEG, and zlib dependencies.
-XML and ZIP readers are vendored;
+XML, ZIP, Lua, and HTTPS dependencies are vendored;
 see [dependency versions and licenses](third_party/README.md). No downloads are
 made during configuration or building.
 
@@ -222,6 +280,9 @@ cmake --build build/vita -j2
 ```
 
 The installable package is `build/vita/NovelReader.vpk`, title ID `NVRD00001`.
+The Vita build links the complete pthread library and checks the executable's
+thread-support symbols before packaging. This prevents unresolved weak probes
+from making the C++ runtime reject worker creation on hardware.
 The package requests extended homebrew filesystem access to read and save under
 `ux0:data`. VS Code's **Build Vita package** task performs the same build.
 
@@ -293,6 +354,12 @@ ctest --test-dir build/host --output-on-failure
 
 Next local milestones: a metadata/thumbnail cache for larger libraries, more
 image formats/downsampling, and search.
-Future online sources can use Lua adapters for catalogue/search/chapter fetching.
-Downloaded chapters should enter the local library so offline reading uses the
-same reader. No Lua runtime or network code is included yet.
+Online source adapters live in [assets/sources](assets/sources). They expose
+catalog/search, novel/chapter-list, and chapter-text operations through bounded
+Lua states with HTTP and HTML helpers; filesystem, OS, package loading, and debug
+libraries are unavailable. Additions must stay within the C++ source host allowlist.
+[Online service](src/online_service.cpp) owns the network worker and sequential
+download jobs. [Cache storage](src/online_store.cpp) owns downloaded publications
+and stable chapter identities. [Online tests](tests/online_tests.cpp) cover source
+fixtures, malformed HTML/JSON, host restrictions, interrupted downloads, retry,
+locked chapters, offline reopening, and progress remapping.

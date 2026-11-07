@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "online.hpp"
 #include "tinyxml2.h"
 #include "unzip.h"
 
@@ -332,6 +333,7 @@ void check_encryption(Archive& archive, const Publication& publication) {
 
 bool open_publication(const std::string& path, Publication& publication, std::string& error) {
     error.clear();
+    if (is_online_book(path)) return online::open_cached(path, publication, error);
     try {
         Publication result;
         result.path = path; result.title = title_from_filename(path); result.epub = is_epub_book(path);
@@ -417,6 +419,10 @@ bool load_chapter(const Publication& publication, std::size_t index, Book& chapt
     error.clear();
     try {
         if (index >= publication.chapters.size()) throw std::runtime_error("Chapter no longer exists in this book.");
+        if (publication.online) {
+            if (!load_book(publication.chapters[index].path, chapter, error)) return false;
+            chapter.title = publication.chapters[index].title; return true;
+        }
         if (!publication.epub) return load_book(publication.path, chapter, error);
         Archive archive(publication.path);
         XMLDocument document;
