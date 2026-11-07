@@ -268,6 +268,7 @@ public:
             book.illustrations.push_back({book.text.size(), alt.empty() ? "Illustration " +
                 std::to_string(book.illustrations.size() + 1) : alt, path});
             text(alt.empty() ? "[Illustration]" : "[Illustration: " + alt + "]", Emphasis);
+            book.illustrations.back().end = book.text.size();
             block(); return;
         }
         if (tag == "li") text("- ", Plain);

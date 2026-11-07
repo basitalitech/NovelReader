@@ -12,7 +12,7 @@ Library progress bars show saved reading progress. EPUB percentages estimate pro
 
 Getting comfortable
 
-Use LEFT and RIGHT to turn pages. UP and DOWN move one line at a time. Hold a direction to keep moving. In TXT books, the shoulder buttons also turn pages.
+Use LEFT and RIGHT to turn pages. UP and DOWN move one text line or illustration at a time. Hold a direction to keep moving. In TXT books, the shoulder buttons also turn pages.
 
 In EPUB books, the shoulder buttons open the previous or next chapter. CROSS opens the contents menu. Choose a chapter with UP and DOWN, browse with LEFT and RIGHT, then press CROSS to open it. CIRCLE returns to reading. Page turning also crosses chapter boundaries automatically.
 
@@ -30,11 +30,13 @@ EPUB chapters load one at a time in the book's reading order. The reader preserv
 
 Viewing illustrations
 
+Illustrations now appear between the surrounding paragraphs as you read. Small images share the page with text, and large illustrations get a page of their own. Images fit the reading area without cropping or stretching.
+
 While reading an EPUB, press CROSS for contents, then SQUARE for illustrations in the current chapter. Choose an image and press CROSS to view it. Your reading position and bookmark stay unchanged.
 
 In the viewer, CROSS zooms in, SQUARE zooms out, and the D-pad pans. TRIANGLE fits the image to the screen. L and R show the previous and next image in the chapter. CIRCLE returns to the image list.
 
-PNG and JPEG are supported, up to 8 MiB encoded, 4096 pixels per side, and 4 megapixels total. Missing, damaged, or unsupported images show an error. Image markers remain in the reading text so old reading positions continue to work.
+PNG and JPEG are supported, up to 8 MiB encoded, 4096 pixels per side, and 4 megapixels total. Missing, damaged, or unsupported images show a labeled placeholder. Existing reading positions and bookmarks still work, including positions on illustrations.
 
 Vertical writing, CSS layouts, and ruby annotations are not implemented yet. Font coverage depends on the Vita system font. Convert other formats to UTF-8 TXT before copying them here.
 

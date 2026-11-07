@@ -15,7 +15,13 @@ constexpr std::size_t max_image_bytes = 8 * 1024 * 1024;
 
 enum TextStyle : unsigned { Plain = 0, Emphasis = 1, Strong = 2, Heading = 4 };
 struct StyleSpan { std::size_t begin, end; unsigned style; };
-struct Illustration { std::size_t offset; std::string label, path; };
+struct Illustration {
+    std::size_t offset;
+    std::string label, path;
+    std::size_t end = 0; // End of the compatibility marker in normalized text.
+    unsigned width = 0, height = 0; // Probed once per chapter; zero means unavailable.
+    std::string error = {};
+};
 
 struct Book {
     std::string title;
@@ -35,6 +41,20 @@ struct Publication {
 struct Line {
     std::size_t offset;
     std::string text;
+};
+
+constexpr std::size_t no_illustration = static_cast<std::size_t>(-1);
+struct LayoutBlock {
+    std::size_t offset;
+    std::string text;
+    int height;
+    std::size_t illustration = no_illustration;
+    int image_width = 0, image_height = 0;
+    bool standalone = false;
+};
+struct ChapterLayout {
+    std::vector<LayoutBlock> blocks;
+    std::vector<std::size_t> pages;
 };
 
 struct Settings {
@@ -76,6 +96,11 @@ bool load_epub_image(const std::string& archive_path, const std::string& image_p
                      std::string& bytes, std::string& error);
 
 using Measure = std::function<int(const std::string&)>;
+
+ChapterLayout layout_book(const Book& book, int width, int page_height, int line_height, const Measure& measure);
+std::size_t layout_page_end(const std::vector<LayoutBlock>& blocks, std::size_t start, int page_height);
+std::size_t block_at_offset(const std::vector<LayoutBlock>& blocks, std::size_t offset);
+std::size_t previous_page_start(const std::vector<std::size_t>& pages, std::size_t start);
 
 bool is_text_book(const std::string& name);
 bool is_epub_book(const std::string& name);

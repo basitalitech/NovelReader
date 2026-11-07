@@ -135,6 +135,8 @@ int main() {
         check(book.illustrations.size() == 1 && book.illustrations[0].path == "OPS/Images/cover.jpg" &&
               book.illustrations[0].label == "A moonlit lake" &&
               book.text.compare(book.illustrations[0].offset, 14, "[Illustration:") == 0, "Illustration path or position");
+        check(book.illustrations[0].end == book.text.find(']', book.illustrations[0].offset) + 1,
+              "Illustration marker end is not recorded for inline layout");
         check(has_style(book, "First chapter", reader::Heading | reader::Strong), "Heading formatting");
         check(has_style(book, "world", reader::Emphasis | reader::Strong), "Nested emphasis formatting");
         check(reader::load_chapter(publication, 1, book, error) && book.text.find("The end.") != std::string::npos,

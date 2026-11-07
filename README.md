@@ -1,8 +1,9 @@
 # Novel Reader for PS Vita
 
-A local light novel reader built with C++14, VitaSDK, and vita2d. Version 0.3
+A local light novel reader built with C++14, VitaSDK, and vita2d. Version 0.4
 reads **UTF-8 TXT and DRM-free EPUB** books entirely offline, with chapter
-navigation, cover previews, library filters, and a zoomable illustration viewer.
+navigation, cover previews, library filters, inline illustrations, and a zoomable
+illustration viewer.
 Online sources and Lua parsers are future work.
 
 ## Install and read
@@ -22,7 +23,7 @@ opening a book. Uppercase `.TXT` and `.EPUB` extensions work.
 | --- | --- |
 | Library | Up/Down: browse; Cross: read; Triangle: refresh |
 | Library | Square: cycle Title/Recent/Progress sorting; L/R: cycle All/Reading/Finished filters |
-| Reader | Left/Right: turn page; Up/Down: move one line |
+| Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
 | EPUB reader | L/R: previous/next chapter; Cross: contents |
 | TXT reader | L/R: turn page |
 | Contents | Up/Down: choose chapter; Left/Right: browse six entries; Cross: open; Circle: return |
@@ -40,7 +41,8 @@ library. Each book has one bookmark and an independent reading position. EPUB
 positions and bookmarks include the chapter and a text offset within it; jumping
 to a bookmark in another chapter opens that chapter. Font and spacing changes
 preserve the text position rather than a page number. Existing TXT saves from
-versions 0.1 and 0.2 are read automatically and upgraded on the next save.
+versions 0.1–0.3 are read automatically. Text and image positions remain compatible
+because image anchors use the existing normalized-text offsets.
 Night, Paper, and Sepia themes are available. Saves live in
 `ux0:data/NovelReader/progress/`; settings live in
 `ux0:data/NovelReader/settings.txt`. Renaming a book gives it a new save identity.
@@ -80,7 +82,7 @@ bookmarks are disabled.
   Multiple contents links within one document share a single chapter entry;
   fragment-level contents jumps are not implemented.
 - Left/Right crosses to the adjacent chapter at a chapter boundary. Left from
-  the first line opens the previous chapter's final page. L/R opens the adjacent
+  the first text line or image opens the previous chapter's final page. L/R opens the adjacent
   chapter at its beginning. Contents selection of the current chapter keeps its
   reading position.
 - Only the current chapter's text is kept in memory; opening a different chapter
@@ -89,14 +91,28 @@ bookmarks are disabled.
 - Paragraphs, headings, explicit line breaks, bold, and emphasis are retained.
   Headings use the accent color, bold uses a second glyph pass, and emphasis is
   underlined using the system font. Scripts, styles, and ruby annotations are
-  omitted; ruby base text remains. Images keep an illustration/alt-text marker
-  in the text to preserve existing reading positions. Open **Cross → Square**
-  from the reader to view the current chapter's images.
+  omitted; ruby base text remains. Illustrations render between their surrounding
+  paragraphs. Open **Cross → Square** from the reader for the full chapter image
+  list and zoom viewer.
 - CSS, custom fonts, and exact publisher layouts are not supported. XHTML must
   be well-formed UTF-8 XML. XML/numeric entities and common
   named XHTML entities are supported; external DTDs are never loaded.
 
 ## Illustrations
+
+PNG and JPEG illustrations appear automatically in the reading flow, preserving
+aspect ratio. Small illustrations share the page with text; images occupying
+more than two thirds of the reading area's height get a dedicated page. Images
+fit within the reading area and are not enlarged beyond their native dimensions.
+Page turns account for image height, so images are never cut across pages. Up/Down
+steps through individual text lines and illustrations.
+
+The normalized text retains its original image-marker bytes for compatibility,
+but the visual layout replaces each marker with an image. Old positions inside
+a marker restore to that illustration; text positions after it keep their original
+offsets. Bookmarks on illustrations and font/spacing reflow use these same anchors.
+Missing, damaged, or unsupported images become labeled placeholders in the flow;
+surrounding text remains readable.
 
 The illustration list follows image occurrence order in the current chapter,
 including raster images referenced by SVG `<image>` wrappers. Paths are resolved
@@ -106,15 +122,22 @@ filenames. External images are not fetched.
 The viewer supports embedded PNG and JPEG images, fits them to the screen, and
 zooms from 1× to 4× the fitted size. Pan is clamped to the image edges; smaller
 axes stay centered. The image is clipped to the viewing area, leaving controls
-visible. Viewing images does not move the reading position or bookmark.
+visible. Viewing images does not move the reading position or bookmark. The
+reader still uses **Cross** for contents; choose **Square**, select an image, and
+press **Cross** to zoom it.
 
 Each image is limited to 8 MiB encoded, 4,096 pixels per side, and 4 megapixels
 total. Headers are checked before GPU allocation; the PNG/JPEG decoder then
 validates the full stream. Failed loads keep the current image/reader state and
-show an error. A cover or viewer texture is released when leaving its screen;
+show an error. Chapter opening probes image dimensions once for layout, which
+can add loading time for chapters with many images. Font changes reuse these
+dimensions. Only visible inline images are decoded; their textures are reduced
+to reading-area sizes and released when they leave the visible page. Thumbnail
+creation temporarily decodes one full image within the existing pixel limits.
+A cover or viewer texture is released when leaving its screen;
 replacing a viewer image temporarily retains the old texture until the new one
 has decoded successfully. Full SVG artwork, GIF, WebP, animation, EXIF rotation,
-and automatic downsampling of larger images are not implemented.
+and decoding images above the source size limits are not implemented.
 
 ## Build
 
@@ -146,7 +169,8 @@ ctest --test-dir build/host --output-on-failure
 
 - Plain UTF-8 TXT, optionally with a UTF-8 BOM. Convert UTF-16 or legacy
   encodings first. Windows, Unix, and classic Mac line endings are accepted.
-- Maximum 8 MiB of input and normalized text, and 100,000 display lines. Tabs
+- Maximum 8 MiB of input and normalized text, and 100,000 display blocks (text
+  lines and images) per chapter. Tabs
   expand to four spaces. Oversized layouts are rejected to bound Vita memory use.
 - EPUB limits: 512 MiB archive, 20,000 ZIP entries, 4,096 primary chapters,
   512 KiB per metadata/navigation document, and 2 MiB per XHTML document and
@@ -154,8 +178,9 @@ ctest --test-dir build/host --output-on-failure
   stored/deflated entries are accepted and their checksums verified. Encrypted
   chapter content is unsupported; font obfuscation does not block text reading.
 - Horizontal text; glyph coverage follows the Vita system font. No PDF, TXT
-  chapter detection, search, or touch controls yet. Illustrations use a separate
-  viewer rather than inline page layout.
+  chapter detection, search, or touch controls yet. Images flow between text
+  paragraphs; publisher CSS positioning and text wrapping around images are
+  not supported.
 - Layout is synchronous when opening a book or applying settings. Large books
   can take time to paginate. EPUB pagination is limited to the current chapter.
 - Saves use a temporary file and rename; failed writes are shown in the reader.
@@ -172,6 +197,8 @@ ctest --test-dir build/host --output-on-failure
   library controls, image viewing, controller navigation, and reader settings.
 - [Library logic](src/library.cpp): deterministic sorting/filtering and saved
   progress estimates.
+- [Mixed text/image layout](src/layout.cpp): variable-height pagination,
+  dedicated illustration pages, and compatible text/image anchors.
 - [Image validation](src/image_info.cpp) and [Vita decoder](src/vita_images.cpp):
   bounded image headers and PNG/TurboJPEG decoding into GPU textures.
 - [Core tests](tests/reader_tests.cpp): malformed text, wrapping, reflow anchors,
@@ -183,6 +210,9 @@ ctest --test-dir build/host --output-on-failure
   estimates, preference/save migration, image dimensions, and malformed headers.
   Desktop tests cover transport and headers; actual GPU image decoding and
   zoom/pan controls need Vita hardware testing.
+- [Inline layout tests](tests/layout_tests.cpp): mixed pages, image sizing,
+  dedicated pages, unavailable images, image-only chapters, page navigation,
+  UTF-8 text, bookmark anchors, and font reflow.
 
 Next local milestones: a metadata/thumbnail cache for larger libraries, more
 image formats/downsampling, and search.

@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <exception>
 #include <ctime>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,12 @@ const Palette palettes[] = {
 };
 
 enum class Screen { Library, Reader, Settings, Contents, Illustrations, Image };
+struct TextureDeleter { void operator()(vita2d_texture* texture) const { vita2d_free_texture(texture); } };
+struct InlineTexture {
+    std::size_t illustration;
+    std::unique_ptr<vita2d_texture, TextureDeleter> texture;
+    std::string error;
+};
 
 class App {
 public:
@@ -51,6 +58,7 @@ public:
     ~App() { release_image(); }
 
     void draw() {
+        if (screen_ == Screen::Reader) sync_inline_images();
         const auto& color = palette();
         vita2d_set_clear_color(color.background);
         vita2d_start_drawing();
@@ -92,9 +100,11 @@ public:
         } else if (screen_ == Screen::Reader) {
             if (pressed & SCE_CTRL_CIRCLE) {
                 save(); screen_ = Screen::Library;
+                inline_images_.clear();
                 book_ = {};
                 publication_ = {};
-                std::vector<reader::Line>().swap(lines_);
+                std::vector<reader::LayoutBlock>().swap(lines_);
+                pages_.clear();
                 refresh_library(active_filename_);
                 active_filename_.clear();
                 update_cover();
@@ -117,13 +127,13 @@ public:
                 const auto previous = top_;
                 const auto previous_chapter = chapter_;
                 if (pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER)) {
-                    if (top_ + page_lines() >= lines_.size() && chapter_ + 1 < publication_.chapters.size())
+                    if (visible_end() >= lines_.size() && chapter_ + 1 < publication_.chapters.size())
                         change_chapter(chapter_ + 1, 0);
-                    else top_ = std::min(top_ + page_lines(), lines_.size() - 1);
+                    else if (visible_end() < lines_.size()) top_ = visible_end();
                 }
                 if (pressed & (SCE_CTRL_LEFT | SCE_CTRL_LTRIGGER)) {
                     if (top_ == 0 && chapter_ > 0) change_chapter(chapter_ - 1, 0, true);
-                    else top_ = top_ > page_lines() ? top_ - page_lines() : 0;
+                    else top_ = reader::previous_page_start(pages_, top_);
                 }
                 if ((pressed & SCE_CTRL_UP) && top_ > 0) --top_;
                 if ((pressed & SCE_CTRL_DOWN) && top_ + 1 < lines_.size()) ++top_;
@@ -139,7 +149,7 @@ public:
                 if (pressed & SCE_CTRL_SELECT) {
                     if (progress_.has_bookmark) {
                         if (progress_.bookmark_chapter == chapter_) {
-                            top_ = reader::line_at_offset(lines_, progress_.bookmark); changed = true;
+                            top_ = reader::block_at_offset(lines_, progress_.bookmark); changed = true;
                         } else changed = change_chapter(progress_.bookmark_chapter, progress_.bookmark) || changed;
                     } else message_ = "Press SQUARE to save a bookmark.";
                 }
@@ -207,6 +217,65 @@ public:
     }
 
 private:
+    void probe_illustrations(reader::Book& book) {
+        for (auto& illustration : book.illustrations) {
+            std::string bytes;
+            reader::ImageInfo info;
+            if (reader::load_epub_image(publication_.path, illustration.path, bytes, illustration.error) &&
+                reader::inspect_image(bytes, info, illustration.error)) {
+                illustration.width = info.width; illustration.height = info.height;
+            }
+        }
+    }
+
+    std::size_t visible_end() const { return reader::layout_page_end(lines_, top_, 350); }
+
+    void sync_inline_images() {
+        std::vector<std::size_t> visible;
+        const auto end = visible_end();
+        for (auto at = top_; at < end; ++at)
+            if (lines_[at].illustration != reader::no_illustration) visible.push_back(lines_[at].illustration);
+        inline_images_.erase(std::remove_if(inline_images_.begin(), inline_images_.end(), [&](const InlineTexture& cached) {
+            return std::find(visible.begin(), visible.end(), cached.illustration) == visible.end();
+        }), inline_images_.end());
+        for (auto at = top_; at < end; ++at) {
+            const auto& block = lines_[at];
+            if (block.illustration == reader::no_illustration) continue;
+            const auto found = std::find_if(inline_images_.begin(), inline_images_.end(), [&](const InlineTexture& cached) {
+                return cached.illustration == block.illustration;
+            });
+            if (found != inline_images_.end()) continue;
+            InlineTexture cached{block.illustration, {}, book_.illustrations[block.illustration].error};
+            if (cached.error.empty()) {
+                try {
+                    std::string bytes;
+                    if (reader::load_epub_image(publication_.path, book_.illustrations[block.illustration].path, bytes, cached.error))
+                        cached.texture.reset(decode_thumbnail(bytes, block.image_width, block.image_height, cached.error));
+                } catch (const std::exception&) { cached.error = "Not enough memory for this illustration."; }
+            }
+            inline_images_.push_back(std::move(cached));
+        }
+    }
+
+    void draw_inline_image(const reader::LayoutBlock& block, int y) const {
+        const auto cached = std::find_if(inline_images_.begin(), inline_images_.end(), [&](const InlineTexture& item) {
+            return item.illustration == block.illustration;
+        });
+        if (cached != inline_images_.end() && cached->texture) {
+            auto* texture = cached->texture.get();
+            const auto width = vita2d_texture_get_width(texture), height = vita2d_texture_get_height(texture);
+            const auto scale = std::min(static_cast<float>(block.image_width) / width,
+                                        static_cast<float>(block.image_height) / height);
+            vita2d_draw_texture_scale(texture, 480 - width * scale / 2,
+                                     y + (block.height - height * scale) / 2, scale, scale);
+        } else {
+            vita2d_draw_rectangle(48, y + 2, 864, block.height - 4, palette().panel);
+            text(60, y + 24, palette().text, 0.75f, book_.illustrations[block.illustration].label, 840);
+            text(60, y + 47, palette().muted, 0.65f,
+                 cached == inline_images_.end() || cached->error.empty() ? "Illustration unavailable" : cached->error, 840);
+        }
+    }
+
     void save_library_preferences() {
         settings_.library_sort = static_cast<int>(sort_);
         settings_.library_filter = static_cast<int>(filter_);
@@ -272,7 +341,6 @@ private:
     const Palette& palette() const { return palettes[settings_.theme]; }
     float font_scale() const { return 1.0f + settings_.font * 0.2f; }
     int line_height() const { return 26 + settings_.font * 5 + settings_.spacing * 4; }
-    std::size_t page_lines() const { return static_cast<std::size_t>(350 / line_height()); }
 
     std::string fit(std::string text, float scale, int width) const {
         if (vita2d_pgf_text_width(font_, scale, text.c_str()) <= width) return text;
@@ -355,7 +423,8 @@ private:
         } catch (const std::exception&) {
             book_ = {};
             publication_ = {};
-            std::vector<reader::Line>().swap(lines_);
+            std::vector<reader::LayoutBlock>().swap(lines_);
+            pages_.clear(); inline_images_.clear();
             active_filename_.clear();
             error = "Book layout is too large for this version.";
             message_ = error;
@@ -374,15 +443,17 @@ private:
             reader::Book candidate;
             std::string error;
             if (!reader::load_chapter(publication_, index, candidate, error)) { message_ = error; return false; }
+            probe_illustrations(candidate);
             const auto scale = font_scale();
-            auto layout = reader::wrap_text(candidate.text, 864, [this, scale](const std::string& value) {
+            auto layout = reader::layout_book(candidate, 864, 350, line_height(), [this, scale](const std::string& value) {
                 return vita2d_pgf_text_width(font_, scale, value.c_str());
             });
-            const auto position = at_end ? (layout.size() > page_lines() ? layout.size() - page_lines() : 0) :
-                                          reader::line_at_offset(layout, offset);
+            const auto position = at_end ? layout.pages.back() : reader::block_at_offset(layout.blocks, offset);
             if (publication_.chapters[index].title == "Chapter " + std::to_string(index + 1))
                 publication_.chapters[index].title = candidate.title;
-            book_ = std::move(candidate); lines_ = std::move(layout); top_ = position; chapter_ = index;
+            inline_images_.clear();
+            book_ = std::move(candidate); lines_ = std::move(layout.blocks); pages_ = std::move(layout.pages);
+            top_ = position; chapter_ = index;
             message_.clear();
             return true;
         } catch (const std::exception&) {
@@ -393,10 +464,12 @@ private:
 
     void reflow(std::size_t offset) {
         const auto scale = font_scale();
-        lines_ = reader::wrap_text(book_.text, 864, [this, scale](const std::string& value) {
+        auto layout = reader::layout_book(book_, 864, 350, line_height(), [this, scale](const std::string& value) {
             return vita2d_pgf_text_width(font_, scale, value.c_str());
         });
-        top_ = reader::line_at_offset(lines_, offset);
+        lines_ = std::move(layout.blocks); pages_ = std::move(layout.pages);
+        top_ = reader::block_at_offset(lines_, offset);
+        inline_images_.clear();
     }
 
     void save() {
@@ -404,7 +477,7 @@ private:
         progress_.offset = lines_[top_].offset;
         progress_.chapter = chapter_;
         progress_.percent = reader::reading_percent(chapter_, publication_.chapters.size(),
-            progress_.offset, book_.text.size(), top_ + page_lines() >= lines_.size());
+            progress_.offset, book_.text.size(), visible_end() >= lines_.size());
         const auto now = std::time(nullptr);
         if (now > 0) progress_.last_read = static_cast<std::uint64_t>(now);
         if (!reader::save_progress(reader::progress_path(progress_directory, active_filename_), progress_))
@@ -470,23 +543,28 @@ private:
             std::to_string(chapter_ + 1) + "/" + std::to_string(publication_.chapters.size()) + "  " +
             publication_.chapters[chapter_].title + (publication_.author.empty() ? "" : "  /  " + publication_.author) : "LOCAL BOOK";
         heading(publication_.title, subtitle);
-        for (std::size_t i = 0; i < page_lines() && top_ + i < lines_.size(); ++i)
-            draw_line(lines_[top_ + i], 112 + static_cast<int>(i) * line_height());
-        const auto end = std::min(top_ + page_lines(), lines_.size());
-        const auto percent = end == lines_.size() ? 100 : static_cast<int>(100 * top_ / lines_.size());
+        int y = 96;
+        const auto end = visible_end();
+        for (auto i = top_; i < end; ++i) {
+            if (lines_[i].illustration == reader::no_illustration) draw_line(lines_[i], y + line_height() - 8);
+            else draw_inline_image(lines_[i], y);
+            y += lines_[i].height;
+        }
+        const auto percent = end == lines_.size() ? 100 : static_cast<int>(100 * lines_[top_].offset / std::max<std::size_t>(1, book_.text.size()));
         vita2d_draw_rectangle(48, 452, 864, 3, palette().panel);
         vita2d_draw_rectangle(48, 452, 864.0f * percent / 100.0f, 3, palette().accent);
         const auto status = message_.empty() ?
-            std::to_string(percent) + (publication_.epub ? "% of chapter  /  Line " : "%  /  Line ") +
-            std::to_string(top_ + 1) + " of " + std::to_string(lines_.size()) : message_;
+            std::to_string(percent) + (publication_.epub ? "% of chapter" : "% read") + "  /  Page " +
+            std::to_string(std::upper_bound(pages_.begin(), pages_.end(), top_) - pages_.begin()) +
+            " of " + std::to_string(pages_.size()) : message_;
         text(48, 480, palette().accent, 0.75f, status);
         text(48, 506, palette().muted, 0.65f, publication_.epub ?
              "LEFT/RIGHT  Page   L/R  Chapter   CROSS  Contents   TRIANGLE  Settings   CIRCLE  Library" :
-             "L/R or LEFT/RIGHT  Page   UP/DOWN  Line   TRIANGLE  Settings   CIRCLE  Library");
-        text(48, 530, palette().muted, 0.65f, "SQUARE  Set bookmark   SELECT  Go to bookmark   UP/DOWN  Line   START  Save & exit");
+             "L/R or LEFT/RIGHT  Page   UP/DOWN  Scroll   TRIANGLE  Settings   CIRCLE  Library");
+        text(48, 530, palette().muted, 0.65f, "SQUARE  Set bookmark   SELECT  Go to bookmark   UP/DOWN  Scroll   START  Save & exit");
     }
 
-    void draw_line(const reader::Line& line, int y) const {
+    void draw_line(const reader::LayoutBlock& line, int y) const {
         std::size_t at = 0;
         int x = 48;
         auto span = std::lower_bound(book_.styles.begin(), book_.styles.end(), line.offset,
@@ -590,7 +668,9 @@ private:
     std::string cover_key_, cover_message_;
     float zoom_ = 1, pan_x_ = 0, pan_y_ = 0;
     std::size_t illustration_selected_ = 0;
-    std::vector<reader::Line> lines_;
+    std::vector<reader::LayoutBlock> lines_;
+    std::vector<std::size_t> pages_;
+    std::vector<InlineTexture> inline_images_;
     std::string active_filename_, message_;
     std::size_t selected_ = 0, top_ = 0;
     std::size_t chapter_ = 0, contents_selected_ = 0;

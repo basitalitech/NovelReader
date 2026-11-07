@@ -2,6 +2,8 @@
 #include "reader.hpp"
 #include <png.h>
 #include <turbojpeg.h>
+#include <algorithm>
+#include <cstdint>
 
 vita2d_texture* decode_texture(const std::string& bytes, std::string& error) {
     reader::ImageInfo info;
@@ -43,4 +45,24 @@ vita2d_texture* decode_texture(const std::string& bytes, std::string& error) {
     if (decoded < 0) { vita2d_free_texture(texture); error = "JPEG is damaged or uses unsupported colors."; return nullptr; }
     vita2d_texture_set_filters(texture, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
     return texture;
+}
+
+vita2d_texture* decode_thumbnail(const std::string& bytes, unsigned width, unsigned height, std::string& error) {
+    auto* source = decode_texture(bytes, error);
+    if (!source) return nullptr;
+    const auto source_width = vita2d_texture_get_width(source), source_height = vita2d_texture_get_height(source);
+    if (!width || !height) { vita2d_free_texture(source); error = "Invalid thumbnail dimensions."; return nullptr; }
+    if (source_width <= width && source_height <= height) return source;
+    auto* result = vita2d_create_empty_texture(width, height);
+    if (!result) { vita2d_free_texture(source); error = "Not enough graphics memory for inline image."; return nullptr; }
+    const auto* input = static_cast<const std::uint32_t*>(vita2d_texture_get_datap(source));
+    auto* output = static_cast<std::uint32_t*>(vita2d_texture_get_datap(result));
+    const auto input_stride = vita2d_texture_get_stride(source) / 4, output_stride = vita2d_texture_get_stride(result) / 4;
+    for (unsigned y = 0; y < height; ++y)
+        for (unsigned x = 0; x < width; ++x)
+            output[y * output_stride + x] = input[(static_cast<std::uint64_t>(y) * source_height / height) * input_stride +
+                                                   static_cast<std::uint64_t>(x) * source_width / width];
+    vita2d_free_texture(source);
+    vita2d_texture_set_filters(result, SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
+    return result;
 }
