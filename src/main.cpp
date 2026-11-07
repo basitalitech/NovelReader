@@ -18,6 +18,7 @@
 #include <ctime>
 #include <memory>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 extern "C" {
@@ -84,6 +85,13 @@ public:
             save(); return false;
         }
         if (screen_ == Screen::Library) {
+            if (pressed & SCE_CTRL_CIRCLE) {
+                if (!current_folder_.empty()) {
+                    const auto child = current_folder_;
+                    browse_folder(reader::parent_library_folder(current_folder_), child);
+                }
+                return true;
+            }
             if ((pressed & SCE_CTRL_UP) && selected_ > 0) --selected_;
             if ((pressed & SCE_CTRL_DOWN) && selected_ + 1 < order_.size()) ++selected_;
             if ((pressed & SCE_CTRL_LEFT) && !order_.empty()) selected_ = selected_ > 6 ? selected_ - 6 : 0;
@@ -225,6 +233,7 @@ public:
     }
 
     Screen screen() const { return screen_; }
+    std::size_t folder_revision() const { return folder_revision_; }
     void pan_image(float dx, float dy) {
         if (screen_ != Screen::Image) return;
         pan_x_ += dx; pan_y_ += dy; clamp_pan();
@@ -276,7 +285,7 @@ public:
         }
         const auto button = reader::controls::toolbar_hit(x, y, toolbar_count());
         if (button >= 0) {
-            const unsigned library[] = {SCE_CTRL_SQUARE, SCE_CTRL_RTRIGGER, SCE_CTRL_TRIANGLE, SCE_CTRL_START};
+            const unsigned library[] = {SCE_CTRL_CIRCLE, SCE_CTRL_SQUARE, SCE_CTRL_RTRIGGER, SCE_CTRL_TRIANGLE, SCE_CTRL_START};
             const unsigned reader[] = {SCE_CTRL_CIRCLE, SCE_CTRL_SQUARE, SCE_CTRL_SELECT, SCE_CTRL_CROSS, SCE_CTRL_TRIANGLE};
             const unsigned contents[] = {SCE_CTRL_CIRCLE, SCE_CTRL_SQUARE};
             const unsigned illustrations[] = {SCE_CTRL_CIRCLE, SCE_CTRL_CROSS};
@@ -322,11 +331,11 @@ public:
 
 private:
     int toolbar_count() const {
-        return screen_ == Screen::Library ? 4 : screen_ == Screen::Reader ? 5 :
+        return screen_ == Screen::Library ? 5 : screen_ == Screen::Reader ? 5 :
                screen_ == Screen::Contents || screen_ == Screen::Illustrations ? 2 : screen_ == Screen::Settings ? 3 : 6;
     }
     void draw_toolbar() const {
-        const std::vector<std::string> labels = screen_ == Screen::Library ? std::vector<std::string>{"Sort", "Filter", "Refresh", "Exit"} :
+        const std::vector<std::string> labels = screen_ == Screen::Library ? std::vector<std::string>{current_folder_.empty() ? "Root" : "Up", "Sort", "Filter", "Refresh", "Exit"} :
             screen_ == Screen::Reader ? std::vector<std::string>{"Library", "Bookmark", "Go to mark", "Contents", "Settings"} :
             screen_ == Screen::Contents ? std::vector<std::string>{"Back", "Illustrations"} :
             screen_ == Screen::Illustrations ? std::vector<std::string>{"Contents", "View"} :
@@ -486,34 +495,52 @@ private:
         vita2d_draw_rectangle(48, 82, 864, 1, palette().panel);
     }
 
-    void scan() {
-        const auto keep = selected_filename();
+    void browse_folder(const std::string& folder, const std::string& restore = {}) {
+        release_image(); entries_.clear(); order_.clear(); selected_ = 0;
+        current_folder_ = folder;
+        ++folder_revision_;
+        scan(restore);
+    }
+
+    void scan(const std::string& restore = {}) {
+        const auto keep = restore.empty() ? selected_filename() : restore;
         message_ = "Scanning local books..."; draw();
         release_image();
         entries_.clear();
         order_.clear();
         message_.clear();
-        const auto directory = sceIoDopen(books_directory.c_str());
+        const auto folder_path = books_directory + (current_folder_.empty() ? "" : '/' + current_folder_);
+        const auto directory = sceIoDopen(folder_path.c_str());
         if (directory >= 0) {
             SceIoDirent entry{};
             int result = 0;
             while ((result = sceIoDread(directory, &entry)) > 0) {
                 const std::string name(entry.d_name);
-                if (SCE_S_ISREG(entry.d_stat.st_mode) && reader::is_supported_book(name)) {
+                const bool is_folder = SCE_S_ISDIR(entry.d_stat.st_mode);
+                if (reader::valid_library_component(name) && (is_folder ||
+                    (SCE_S_ISREG(entry.d_stat.st_mode) && reader::is_supported_book(name)))) {
                     reader::LibraryItem item;
-                    item.filename = name; item.title = reader::title_from_filename(name); item.path = books_directory + '/' + name;
-                    entries_.push_back(std::move(item));
+                    try {
+                        item.filename = reader::child_library_folder(current_folder_, name);
+                        item.title = is_folder ? name : reader::title_from_filename(name);
+                        item.path = books_directory + '/' + item.filename;
+                        item.directory = is_folder;
+                        entries_.push_back(std::move(item));
+                    } catch (const std::invalid_argument&) { message_ = "Some paths exceed the supported folder length."; }
                 }
                 entry = {};
             }
             if (result < 0) message_ = "Could not read the entire books folder.";
             sceIoDclose(directory);
-        } else message_ = "Cannot open books folder. Check storage and restart.";
+        } else message_ = "Cannot open this folder. Go Up or refresh after checking storage.";
         // Bundled guide is always available without modifying the user's library.
-        reader::LibraryItem guide;
-        guide.filename = "@welcome"; guide.title = "Welcome to Novel Reader"; guide.path = "app0:/welcome.txt"; guide.guide = true;
-        entries_.push_back(std::move(guide));
+        if (current_folder_.empty()) {
+            reader::LibraryItem guide;
+            guide.filename = "@welcome"; guide.title = "Welcome to Novel Reader"; guide.path = "app0:/welcome.txt"; guide.guide = true;
+            entries_.push_back(std::move(guide));
+        }
         for (auto& item : entries_) {
+            if (item.directory) continue;
             item.progress = reader::load_progress(reader::progress_path(progress_directory, item.filename));
             if (reader::is_epub_book(item.filename)) {
                 reader::Publication metadata;
@@ -529,6 +556,11 @@ private:
 
     void open() {
         const auto entry_index = order_[selected_];
+        if (entries_[entry_index].directory) {
+            const auto folder = entries_[entry_index].filename;
+            browse_folder(folder);
+            return;
+        }
         message_ = "Opening book...";
         draw();
         std::string error;
@@ -613,7 +645,9 @@ private:
     void draw_library() const {
         const char* sorts[] = {"Title", "Recent", "Progress"};
         const char* filters[] = {"All books", "Reading", "Finished"};
-        heading("Novel Reader", std::string(filters[static_cast<int>(filter_)]) + "  /  Sort: " + sorts[static_cast<int>(sort_)]);
+        const auto slash = current_folder_.find_last_of('/');
+        heading(current_folder_.empty() ? "Novel Reader" : current_folder_.substr(slash == std::string::npos ? 0 : slash + 1),
+                std::string(filters[static_cast<int>(filter_)]) + "  /  Sort: " + sorts[static_cast<int>(sort_)]);
         const auto first = (selected_ / 6) * 6;
         for (std::size_t i = first; i < order_.size() && i < first + 6; ++i) {
             const auto& item = entries_[order_[i]];
@@ -622,9 +656,11 @@ private:
                 vita2d_draw_rectangle(40, y, 570, 53, palette().panel);
                 vita2d_draw_rectangle(40, y, 4, 53, palette().accent);
             }
-            text(60, y + 24, palette().text, 0.95f, item.title, 525);
-            std::string status = item.guide ? "Guide" : reader::is_epub_book(item.filename) ? "EPUB" : "TXT";
-            if (!item.error.empty()) status += "  /  Could not read metadata";
+            text(60, y + 24, item.directory ? palette().accent : palette().text, 0.95f,
+                 item.directory ? "> " + item.title : item.title, 525);
+            std::string status = item.directory ? "Folder" : item.guide ? "Guide" : reader::is_epub_book(item.filename) ? "EPUB" : "TXT";
+            if (item.directory) status += "  /  Open to browse";
+            else if (!item.error.empty()) status += "  /  Could not read metadata";
             else if (item.progress.percent == 100) status += "  /  Finished";
             else if (item.progress.percent >= 0) status += "  /  " + std::to_string(item.progress.percent) + "% read";
             else status += reader::reading_started(item.progress) ? "  /  Continue reading" : "  /  New";
@@ -635,8 +671,8 @@ private:
             }
         }
         if (order_.empty()) {
-            text(60, 155, palette().text, 1.0f, "No books in this filter.", 525);
-            text(60, 190, palette().muted, 0.8f, "Use L/R to return to All books.", 525);
+            text(60, 155, palette().text, 1.0f, filter_ == reader::LibraryFilter::All ? "This folder is empty." : "No books in this filter.", 525);
+            text(60, 190, palette().muted, 0.8f, "Use Filter or Up to browse elsewhere.", 525);
         } else {
             const auto& item = entries_[order_[selected_]];
             vita2d_draw_rectangle(642, 96, 270, 300, palette().panel);
@@ -644,19 +680,24 @@ private:
                 const auto scale = fit_scale(246, 276);
                 vita2d_draw_texture_scale(image_, 777 - vita2d_texture_get_width(image_) * scale / 2,
                     246 - vita2d_texture_get_height(image_) * scale / 2, scale, scale);
+            } else if (item.directory) {
+                vita2d_draw_rectangle(694, 182, 78, 22, palette().accent);
+                vita2d_draw_rectangle(694, 200, 166, 104, palette().accent);
+                vita2d_draw_rectangle(704, 214, 146, 80, palette().background);
+                text(675, 362, palette().muted, 0.75f, "Open folder", 230);
             } else {
                 vita2d_draw_rectangle(722, 173, 108, 136, palette().background);
                 vita2d_draw_rectangle(734, 184, 3, 114, palette().accent);
                 for (int line = 0; line < 4; ++line) vita2d_draw_rectangle(750, 211 + line * 18, 62, 2, palette().muted);
                 text(675, 362, palette().muted, 0.75f, item.guide ? "Reader guide" : "No cover available", 230);
             }
-            text(644, 420, palette().text, 0.8f, item.author.empty() ? "Local library" : item.author, 268);
-            text(644, 442, palette().muted, 0.65f, !item.error.empty() ? item.error :
+            text(644, 420, palette().text, 0.8f, item.directory ? "Folder" : item.author.empty() ? "Local library" : item.author, 268);
+            text(644, 442, palette().muted, 0.65f, item.directory ? "CROSS or tap to open" : !item.error.empty() ? item.error :
                 !cover_message_.empty() ? cover_message_ : reader::is_epub_book(item.filename) ?
                 std::to_string(item.chapters) + " chapters" : "UTF-8 text", 268);
         }
         text(48, 471, palette().accent, 0.7f, message_.empty() ?
-            "ux0:data/NovelReader/books/  /  " + std::to_string(order_.size()) + " shown" : message_);
+            "books/" + (current_folder_.empty() ? "" : current_folder_ + '/') + "  /  " + std::to_string(order_.size()) + " entries" : message_);
     }
 
     void draw_reader() const {
@@ -785,6 +826,8 @@ private:
     std::vector<std::size_t> pages_;
     std::vector<InlineTexture> inline_images_;
     std::string active_filename_, message_;
+    std::string current_folder_;
+    std::size_t folder_revision_ = 0;
     std::size_t selected_ = 0, top_ = 0;
     std::size_t chapter_ = 0, contents_selected_ = 0;
     int setting_row_ = 0;
@@ -828,6 +871,7 @@ int main() {
             const auto seconds = previous_time && now >= previous_time ? std::min<std::uint64_t>(now - previous_time, 50000) / 1000000.0f : 0;
             previous_time = now;
             const auto before = app.screen();
+            const auto folder_before = app.folder_revision();
             const auto left = left_stick.direction(pad.lx, pad.ly), right = right_stick.direction(pad.rx, pad.ry);
             const auto buttons = [](unsigned directions) {
                 unsigned result = 0;
@@ -861,8 +905,8 @@ int main() {
                 app.pan_image(-std::max(-1.0f, std::min(1.0f, x)) * 480 * seconds,
                               -std::max(-1.0f, std::min(1.0f, y)) * 480 * seconds);
             }
-            if (app.screen() == before) running = app.gesture(gesture);
-            if (app.screen() != before) {
+            if (app.screen() == before && app.folder_revision() == folder_before) running = app.gesture(gesture);
+            if (app.screen() != before || app.folder_revision() != folder_before) {
                 left_stick.cancel_until_neutral(); right_stick.cancel_until_neutral(); touch.cancel_until_release();
             }
             app.draw();

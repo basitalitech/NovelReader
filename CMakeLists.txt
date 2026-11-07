@@ -8,7 +8,7 @@ if(NOT NOVELREADER_HOST_TESTS AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VITASDK}/share/vita.toolchain.cmake" CACHE PATH "Vita toolchain")
 endif()
 
-project(NovelReader VERSION 0.5.0 LANGUAGES C CXX)
+project(NovelReader VERSION 0.6.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -62,6 +62,6 @@ else()
         freetype png turbojpeg jpeg z m)
     vita_create_self(eboot.bin novelreader UNSAFE)
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
-        VERSION "00.50" NAME "Novel Reader"
+        VERSION "00.60" NAME "Novel Reader"
         FILE assets/welcome.txt welcome.txt)
 endif()

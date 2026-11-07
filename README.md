@@ -1,9 +1,9 @@
 # Novel Reader for PS Vita
 
-A local light novel reader built with C++14, VitaSDK, and vita2d. Version 0.5
+A local light novel reader built with C++14, VitaSDK, and vita2d. Version 0.6
 reads **UTF-8 TXT and DRM-free EPUB** books entirely offline, with chapter
 navigation, cover previews, library filters, inline illustrations, and a zoomable
-illustration viewer, analog-stick navigation, and front touchscreen controls.
+illustration viewer, folder browsing, analog-stick navigation, and front touchscreen controls.
 Online sources and Lua parsers are future work.
 
 ## Install and read
@@ -13,15 +13,15 @@ Online sources and Lua parsers are future work.
 3. Copy UTF-8 `.txt` or DRM-free `.epub` books into that folder using VitaShell's USB or FTP mode.
 4. Press **Triangle** in the library to refresh, then **Cross** to open a book.
 
-The bundled welcome guide is always available in the library. Books are scanned
-directly in the books folder; subfolders are not scanned. File names become
+The bundled welcome guide is available at the library root under All books.
+Books and subfolders are listed in the current folder. File names become
 library titles for TXT books, with underscores replaced by spaces. EPUB metadata
 is read when scanning the library, so titles and authors are available before
 opening a book. Uppercase `.TXT` and `.EPUB` extensions work.
 
 | Screen | Controls |
 | --- | --- |
-| Library | Up/Down: browse; Cross: read; Triangle: refresh |
+| Library | Up/Down: browse; Cross: open folder/read book; Circle: parent folder; Triangle: refresh |
 | Library | Square: cycle Title/Recent/Progress sorting; L/R: cycle All/Reading/Finished filters |
 | Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
 | EPUB reader | L/R: previous/next chapter; Cross: contents |
@@ -50,7 +50,7 @@ The **front touchscreen** supports:
 
 | Screen | Touch controls |
 | --- | --- |
-| Library | Tap a book or selected cover to open; swipe up/left or down/right to browse six entries at a time |
+| Library | Tap a folder, book, or selected preview to open; Up returns to the parent folder; swipe to browse six entries |
 | Reader | Swipe left/right for next/previous page; swipe up/down to move through text and images |
 | Reader | Tap an inline illustration to zoom it; other left/right body taps turn pages, center taps open contents |
 | Reader | Hold and release on the reading area to save a bookmark |
@@ -76,13 +76,31 @@ versions 0.1–0.3 are read automatically. Text and image positions remain compa
 because image anchors use the existing normalized-text offsets.
 Night, Paper, and Sepia themes are available. Saves live in
 `ux0:data/NovelReader/progress/`; settings live in
-`ux0:data/NovelReader/settings.txt`. Renaming a book gives it a new save identity.
+`ux0:data/NovelReader/settings.txt`. Renaming a book or moving it to another
+folder gives it a new save identity.
 Replacing a book's contents or changing its chapter order may invalidate its old
 position. Out-of-range saved chapters return to the beginning; out-of-range
 bookmarks are disabled.
 
 ## Library
 
+- Folders appear first, alphabetically, followed by books in the selected sort
+  order. Open a folder with Cross or a tap. Circle or the touch **Up** button
+  returns to its parent and selects the folder you just left. At the library
+  root, the button reads **Root** and Circle does nothing. The current folder's
+  name appears in the heading and its relative path appears above the toolbar.
+- Each view lists only its immediate children; nested folders can be browsed
+  independently. Reading/Finished filters apply to books in the current folder.
+  Folders remain visible under every filter, even if they contain no matching
+  books. The guide appears only at the root under All books. Launching the app
+  starts at the root; returning from a book keeps you in its containing folder.
+- Bookmarks, progress, and cover previews use paths relative to the library
+  root. For example, `Series A/Volume 1.epub` and `Series B/Volume 1.epub` have
+  independent saves. Existing root-level saves keep their previous identities.
+  Moving a book or renaming a folder changes the affected save identities;
+  progress is not automatically migrated. Hidden names, links, and unsupported
+  file types are omitted. Relative paths are limited to 768 UTF-8 bytes and
+  may be further limited by the Vita filesystem.
 - Six books per page, with a selected-book cover preview, author, and chapter
   count. EPUB 3 `cover-image` and EPUB 2 `meta name="cover"` references are
   supported. TXT books and books without readable covers get a drawn placeholder.
@@ -98,10 +116,29 @@ bookmarks are disabled.
   weighting chapters equally, then using the text offset within the current
   chapter; they are not a precise word-count percentage. TXT progress uses its
   text offset. Legacy saves show Continue reading until reopened.
-- Metadata scanning is synchronous on launch and refresh. Only the selected
+- Metadata scanning is synchronous on launch, folder entry, and refresh, and
+  reads only the current folder's books. Only the selected
   cover is decoded, and changing selection releases the previous cover. Broken
   books remain listed with an error so one file does not hide the rest of the
   library. There is no persistent metadata cache yet.
+
+For example, copy a collection with VitaShell using this structure:
+
+```text
+ux0:data/NovelReader/books/
+  Standalone.epub
+  Series A/
+    Volume 1.epub
+    Volume 2.epub
+    Extras/
+      Side Story.txt
+  Series B/
+    Volume 1.epub
+```
+
+Empty or unavailable folders can be left using Circle/Up. Refresh rescans the
+current folder after files are copied, removed, or renamed. Folder browsing does
+not combine separate files into a single book.
 
 ## EPUB reading
 
@@ -227,8 +264,8 @@ ctest --test-dir build/host --output-on-failure
   spine/navigation parsing, and XHTML conversion; no archive extraction to disk.
 - [Vita frontend](src/main.cpp): filesystem library scan, system font rendering,
   library controls, image viewing, controller navigation, and reader settings.
-- [Library logic](src/library.cpp): deterministic sorting/filtering and saved
-  progress estimates.
+- [Library logic](src/library.cpp): folder path validation, folders-first
+  sorting/filtering, and saved progress estimates.
 - [Mixed text/image layout](src/layout.cpp): variable-height pagination,
   dedicated illustration pages, and compatible text/image anchors.
 - [Portable input logic](src/controls.cpp): analog dead zones/repeats, touch
@@ -242,7 +279,8 @@ ctest --test-dir build/host --output-on-failure
   spine order, navigation labels, formatting, legacy saves, lazy chapter reads,
   corrupt ZIP/XML, encrypted chapters, path handling, and expansion limits.
 - [Library and image tests](tests/library_tests.cpp): filters, sorting, progress
-  estimates, preference/save migration, image dimensions, and malformed headers.
+  estimates, preference/save migration, folder boundaries, duplicate-name saves,
+  image dimensions, and malformed headers.
   Desktop tests cover transport and headers; actual GPU image decoding and
   zoom/pan controls need Vita hardware testing.
 - [Inline layout tests](tests/layout_tests.cpp): mixed pages, image sizing,

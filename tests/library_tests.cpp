@@ -45,6 +45,49 @@ int main() {
               std::vector<std::size_t>({2}), "Finished filter");
         items[2].progress = {};
         check(reader::library_order(items, reader::LibrarySort::Title, reader::LibraryFilter::Finished).empty(), "Empty filter");
+        reader::LibraryItem folder;
+        folder.filename = "Series"; folder.title = "Series"; folder.directory = true;
+        items.push_back(folder);
+        folder.filename = "Arc/alpha.epub"; folder.title = "alpha.epub";
+        items.push_back(folder);
+        for (const auto sort : {reader::LibrarySort::Title, reader::LibrarySort::Recent, reader::LibrarySort::Progress}) {
+            for (const auto filter : {reader::LibraryFilter::All, reader::LibraryFilter::Reading, reader::LibraryFilter::Finished}) {
+                const auto order = reader::library_order(items, sort, filter);
+                check(order.size() >= 2 && order[0] == 5 && order[1] == 4,
+                      "Folders must remain alphabetically first and reachable under every filter");
+            }
+        }
+        check(reader::child_library_folder("", "Series") == "Series" &&
+              reader::child_library_folder("Series", "Arc 1") == "Series/Arc 1", "Nested folder path construction");
+        check(reader::parent_library_folder("Series/Arc 1") == "Series" &&
+              reader::parent_library_folder("Series") == "" && reader::parent_library_folder("") == "",
+              "Parent navigation escaped or lost library root");
+        check(reader::child_library_folder("", "\xe6\x97\xa5\xe6\x9c\xac") == "\xe6\x97\xa5\xe6\x9c\xac", "UTF-8 folder names rejected");
+        for (const auto& invalid : {"", ".", "..", ".hidden", "../escape", "a/b", "a\\b", "ux0:escape"})
+            check(!reader::valid_library_component(invalid), "Invalid library path component accepted");
+        bool rejected = false;
+        try { reader::child_library_folder("../outside", "Volume.txt"); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        check(rejected, "Relative path traversal accepted");
+        rejected = false;
+        try { reader::parent_library_folder("/absolute"); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        check(rejected, "Absolute folder navigation accepted");
+        rejected = false;
+        try { reader::child_library_folder(std::string(760, 'a'), "long-name.txt"); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        check(rejected, "Unbounded folder path accepted");
+        const auto root_id = reader::progress_path(directory, reader::child_library_folder("", "Volume.txt"));
+        const auto first_id = reader::progress_path(directory, reader::child_library_folder("Series A", "Volume.txt"));
+        const auto second_id = reader::progress_path(directory, reader::child_library_folder("Series B", "Volume.txt"));
+        check(root_id == reader::progress_path(directory, "Volume.txt"), "Root save identity changed");
+        check(root_id != first_id && first_id != second_id && root_id != second_id, "Duplicate filenames share folder progress");
+        check(reader::save_progress(root_id, {10, true, 1}) && reader::save_progress(first_id, {20, true, 2}) &&
+              reader::save_progress(second_id, {30, true, 3}), "Could not save folder-specific progress");
+        check(reader::load_progress(root_id).offset == 10 && reader::load_progress(first_id).offset == 20 &&
+              reader::load_progress(second_id).offset == 30 && reader::load_progress(first_id).bookmark == 2,
+              "Folder reading progress or bookmarks were overwritten");
+        std::remove(root_id.c_str()); std::remove(first_id.c_str()); std::remove(second_id.c_str());
         items[0].progress = {0, false, 0, 1, 0};
         check(reader::reading_started(items[0].progress), "Legacy chapter resume not recognized");
         check(reader::reading_started({0, false, 0, 0, 0, 0, 100}), "First-page book not recognized as started");

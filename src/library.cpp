@@ -1,8 +1,42 @@
 #include "reader.hpp"
 #include <algorithm>
 #include <cctype>
+#include <stdexcept>
 
 namespace reader {
+bool valid_library_component(const std::string& name) {
+    if (name.empty() || name.front() == '.' || name.find_first_of("/\\:") != std::string::npos || !valid_utf8(name)) return false;
+    for (unsigned char ch : name) if (ch < 0x20 || ch == 0x7f) return false;
+    return true;
+}
+namespace {
+void validate_folder(const std::string& folder) {
+    if (folder.size() > 768) throw std::invalid_argument("Folder path is too long.");
+    if (folder.empty()) return;
+    std::size_t at = 0;
+    while (at < folder.size()) {
+        const auto end = folder.find('/', at);
+        if (!valid_library_component(folder.substr(at, end == std::string::npos ? end : end - at)))
+            throw std::invalid_argument("Invalid library folder path.");
+        if (end == std::string::npos) return;
+        at = end + 1;
+        if (at == folder.size()) throw std::invalid_argument("Invalid library folder path.");
+    }
+}
+}
+std::string child_library_folder(const std::string& folder, const std::string& name) {
+    validate_folder(folder);
+    if (!valid_library_component(name)) throw std::invalid_argument("Invalid library folder name.");
+    auto result = folder.empty() ? name : folder + '/' + name;
+    validate_folder(result);
+    return result;
+}
+std::string parent_library_folder(const std::string& folder) {
+    validate_folder(folder);
+    const auto slash = folder.find_last_of('/');
+    return slash == std::string::npos ? "" : folder.substr(0, slash);
+}
+
 bool reading_started(const Progress& progress) {
     return progress.last_read > 0 || progress.percent >= 0 || progress.offset > 0 || progress.chapter > 0;
 }
@@ -19,6 +53,7 @@ int reading_percent(std::size_t chapter, std::size_t chapters, std::size_t offse
 std::vector<std::size_t> library_order(const std::vector<LibraryItem>& items, LibrarySort sort, LibraryFilter filter) {
     std::vector<std::size_t> order;
     for (std::size_t i = 0; i < items.size(); ++i) {
+        if (items[i].directory) { order.push_back(i); continue; }
         if (filter == LibraryFilter::Reading && (items[i].guide || !reading_started(items[i].progress) || items[i].progress.percent == 100)) continue;
         if (filter == LibraryFilter::Finished && (items[i].guide || items[i].progress.percent != 100)) continue;
         order.push_back(i);
@@ -29,10 +64,11 @@ std::vector<std::size_t> library_order(const std::vector<LibraryItem>& items, Li
     };
     std::sort(order.begin(), order.end(), [&](std::size_t left, std::size_t right) {
         const auto& a = items[left]; const auto& b = items[right];
+        if (a.directory != b.directory) return a.directory;
         if (a.guide != b.guide) return !a.guide;
-        if (sort == LibrarySort::Recent && a.progress.last_read != b.progress.last_read)
+        if (!a.directory && sort == LibrarySort::Recent && a.progress.last_read != b.progress.last_read)
             return a.progress.last_read > b.progress.last_read;
-        if (sort == LibrarySort::Progress && a.progress.percent != b.progress.percent)
+        if (!a.directory && sort == LibrarySort::Progress && a.progress.percent != b.progress.percent)
             return a.progress.percent > b.progress.percent;
         const auto title_a = folded(a.title), title_b = folded(b.title);
         return title_a == title_b ? a.filename < b.filename : title_a < title_b;

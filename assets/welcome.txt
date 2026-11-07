@@ -8,6 +8,10 @@ Press CROSS to open a book. Your last reading position is restored automatically
 
 In the library, SQUARE cycles Title, Recent, and Progress sorting. L and R switch between All books, Reading, and Finished. Your sort and filter are saved. EPUB titles and authors are read during scanning; the selected book's cover appears beside the list.
 
+You can organize multiple books into folders inside ux0:data/NovelReader/books/. Folders appear before books. Press CROSS or tap a folder to open it, then choose any book inside. Nested folders work too. CIRCLE or the touch Up button returns to the parent folder. Returning from a book keeps you in its folder.
+
+Reading and Finished filters apply to books in the current folder. Folders stay visible under every filter so you can always browse deeper. Each book's save uses its relative path, so Series A/Volume 1.epub and Series B/Volume 1.epub have separate progress and bookmarks. Moving a book or renaming its folder starts a new save identity. Existing root-level saves still work.
+
 Library progress bars show saved reading progress. EPUB percentages estimate progress by weighting chapters equally. Finished means the final page was displayed. Moving back to an earlier page updates that status.
 
 Getting comfortable
@@ -34,7 +38,7 @@ In settings, tap a row to select it, then use the Decrease, Increase, and Apply 
 
 Preparing your books
 
-This version reads plain UTF-8 text, with or without a UTF-8 byte order mark. Both Windows and Unix line endings are supported. TXT books may be up to 8 MiB each. Subfolders are not scanned yet.
+This version reads plain UTF-8 text, with or without a UTF-8 byte order mark. Both Windows and Unix line endings are supported. TXT books may be up to 8 MiB each. Refresh rescans the current folder after you copy or rename files. The reader starts at the library root when launched.
 
 EPUB chapters load one at a time in the book's reading order. The reader preserves paragraphs, headings, bold text, and underlined emphasis. Chapter documents must be well-formed UTF-8 XHTML and at most 2 MiB each.
 

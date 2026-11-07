@@ -78,11 +78,15 @@ struct Progress {
 enum class LibrarySort { Title, Recent, Progress };
 enum class LibraryFilter { All, Reading, Finished };
 struct LibraryItem {
-    std::string filename, title, path, author, cover_path, error;
+    std::string filename, title, path, author, cover_path, error; // filename is the library-relative save identity.
     std::size_t chapters = 1;
     Progress progress;
     bool guide = false;
+    bool directory = false;
 };
+bool valid_library_component(const std::string& name);
+std::string child_library_folder(const std::string& folder, const std::string& name);
+std::string parent_library_folder(const std::string& folder);
 std::vector<std::size_t> library_order(const std::vector<LibraryItem>& items, LibrarySort sort, LibraryFilter filter);
 bool reading_started(const Progress& progress);
 int reading_percent(std::size_t chapter, std::size_t chapters, std::size_t offset,
