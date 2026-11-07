@@ -8,7 +8,7 @@ if(NOT NOVELREADER_HOST_TESTS AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VITASDK}/share/vita.toolchain.cmake" CACHE PATH "Vita toolchain")
 endif()
 
-project(NovelReader VERSION 0.4.0 LANGUAGES C CXX)
+project(NovelReader VERSION 0.5.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -24,7 +24,7 @@ else()
     target_link_libraries(epub_dependencies PUBLIC z)
 endif()
 
-add_library(reader_core src/reader.cpp src/epub.cpp src/library.cpp src/image_info.cpp src/layout.cpp)
+add_library(reader_core src/reader.cpp src/epub.cpp src/library.cpp src/image_info.cpp src/layout.cpp src/controls.cpp)
 target_link_libraries(reader_core PRIVATE epub_dependencies)
 target_include_directories(reader_core PUBLIC include)
 target_compile_options(reader_core PRIVATE -Wall -Wextra -Wpedantic)
@@ -47,17 +47,21 @@ if(NOVELREADER_HOST_TESTS)
     target_link_libraries(layout_tests PRIVATE reader_core)
     target_compile_options(layout_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME inline_layout COMMAND layout_tests)
+    add_executable(controls_tests tests/controls_tests.cpp)
+    target_link_libraries(controls_tests PRIVATE reader_core)
+    target_compile_options(controls_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME analog_and_touch COMMAND controls_tests)
 else()
     include("${VITASDK}/share/vita.cmake" REQUIRED)
     add_executable(novelreader src/main.cpp src/vita_images.cpp)
     target_compile_options(novelreader PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(novelreader PRIVATE reader_core vita2d
-        SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub
+        SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub SceTouch_stub
         ScePgf_stub ScePvf_stub SceCommonDialog_stub SceAppMgr_stub
         SceIofilemgr_stub ScePower_stub SceProcessmgr_stub
         freetype png turbojpeg jpeg z m)
     vita_create_self(eboot.bin novelreader UNSAFE)
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
-        VERSION "00.40" NAME "Novel Reader"
+        VERSION "00.50" NAME "Novel Reader"
         FILE assets/welcome.txt welcome.txt)
 endif()

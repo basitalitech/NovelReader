@@ -1,5 +1,6 @@
 #include "reader.hpp"
 #include "vita_images.hpp"
+#include "controls.hpp"
 
 #include <psp2/ctrl.h>
 #include <psp2/io/dirent.h>
@@ -7,11 +8,13 @@
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/touch.h>
 #include <vita2d.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <exception>
+#include <cmath>
 #include <ctime>
 #include <memory>
 #include <string>
@@ -69,6 +72,7 @@ public:
         else if (screen_ == Screen::Illustrations) draw_illustrations();
         else if (screen_ == Screen::Image) draw_image();
         else draw_settings();
+        draw_toolbar();
         vita2d_end_drawing();
         vita2d_swap_buffers();
         vita2d_wait_rendering_done();
@@ -82,6 +86,8 @@ public:
         if (screen_ == Screen::Library) {
             if ((pressed & SCE_CTRL_UP) && selected_ > 0) --selected_;
             if ((pressed & SCE_CTRL_DOWN) && selected_ + 1 < order_.size()) ++selected_;
+            if ((pressed & SCE_CTRL_LEFT) && !order_.empty()) selected_ = selected_ > 6 ? selected_ - 6 : 0;
+            if ((pressed & SCE_CTRL_RIGHT) && !order_.empty()) selected_ = std::min(selected_ + 6, order_.size() - 1);
             if (pressed & SCE_CTRL_SQUARE) {
                 const auto keep = selected_filename();
                 sort_ = static_cast<reader::LibrarySort>((static_cast<int>(sort_) + 1) % 3);
@@ -176,14 +182,16 @@ public:
         } else if (screen_ == Screen::Illustrations) {
             if ((pressed & SCE_CTRL_UP) && illustration_selected_ > 0) --illustration_selected_;
             if ((pressed & SCE_CTRL_DOWN) && illustration_selected_ + 1 < book_.illustrations.size()) ++illustration_selected_;
+            if ((pressed & SCE_CTRL_LEFT) && !book_.illustrations.empty()) illustration_selected_ = illustration_selected_ > 6 ? illustration_selected_ - 6 : 0;
+            if ((pressed & SCE_CTRL_RIGHT) && !book_.illustrations.empty()) illustration_selected_ = std::min(illustration_selected_ + 6, book_.illustrations.size() - 1);
             if (pressed & SCE_CTRL_CIRCLE) { screen_ = Screen::Contents; message_.clear(); }
-            if ((pressed & SCE_CTRL_CROSS) && !book_.illustrations.empty()) show_illustration(illustration_selected_);
+            if ((pressed & SCE_CTRL_CROSS) && !book_.illustrations.empty()) show_illustration(illustration_selected_, Screen::Illustrations);
         } else if (screen_ == Screen::Image) {
-            if (pressed & SCE_CTRL_CIRCLE) { release_image(); screen_ = Screen::Illustrations; message_.clear(); }
+            if (pressed & SCE_CTRL_CIRCLE) { release_image(); screen_ = image_return_; message_.clear(); }
             else {
-                if ((pressed & SCE_CTRL_LTRIGGER) && illustration_selected_ > 0) show_illustration(illustration_selected_ - 1);
+                if ((pressed & SCE_CTRL_LTRIGGER) && illustration_selected_ > 0) show_illustration(illustration_selected_ - 1, image_return_);
                 if ((pressed & SCE_CTRL_RTRIGGER) && illustration_selected_ + 1 < book_.illustrations.size())
-                    show_illustration(illustration_selected_ + 1);
+                    show_illustration(illustration_selected_ + 1, image_return_);
                 if (pressed & SCE_CTRL_CROSS) zoom_ = std::min(4.0f, zoom_ * 1.25f);
                 if (pressed & SCE_CTRL_SQUARE) zoom_ = std::max(1.0f, zoom_ / 1.25f);
                 if (pressed & SCE_CTRL_TRIANGLE) { zoom_ = 1.0f; pan_x_ = pan_y_ = 0; }
@@ -216,7 +224,122 @@ public:
         return true;
     }
 
+    Screen screen() const { return screen_; }
+    void pan_image(float dx, float dy) {
+        if (screen_ != Screen::Image) return;
+        pan_x_ += dx; pan_y_ += dy; clamp_pan();
+    }
+    void transform_image(const reader::controls::Gesture& gesture) {
+        pan_x_ += gesture.dx; pan_y_ += gesture.dy;
+        const auto next = std::max(1.0f, std::min(4.0f, zoom_ * gesture.scale));
+        const auto ratio = next / zoom_;
+        // Keep the image point beneath the pinch midpoint stationary.
+        pan_x_ = gesture.x - 480 - (gesture.x - 480 - pan_x_) * ratio;
+        pan_y_ = gesture.y - 271 - (gesture.y - 271 - pan_y_) * ratio;
+        zoom_ = next; clamp_pan();
+    }
+
+    bool gesture(const reader::controls::Gesture& gesture) {
+        using reader::controls::GestureKind;
+        if (gesture.kind == GestureKind::None) return true;
+        const auto x = static_cast<int>(gesture.x), y = static_cast<int>(gesture.y);
+        if (gesture.kind == GestureKind::Transform) {
+            if (screen_ == Screen::Image && y >= 96 && y < 446) transform_image(gesture);
+            return true;
+        }
+        if (gesture.kind == GestureKind::Hold) {
+            if (screen_ == Screen::Reader && x >= 48 && x < 912 && y >= 96 && y < 446) return input(SCE_CTRL_SQUARE);
+            return true;
+        }
+        if (gesture.kind == GestureKind::Swipe) {
+            const auto start_y = gesture.y - gesture.dy;
+            if (start_y < 96 || start_y >= 446) return true;
+            const bool horizontal = std::abs(gesture.dx) > std::abs(gesture.dy);
+            const bool forward = horizontal ? gesture.dx < 0 : gesture.dy < 0;
+            if (screen_ == Screen::Reader) {
+                if (horizontal) return input(forward ? SCE_CTRL_RIGHT : SCE_CTRL_LEFT);
+                const auto amount = static_cast<std::size_t>(std::max(1, std::min(6, static_cast<int>(std::abs(gesture.dy) / 40))));
+                const auto previous = top_;
+                top_ = forward ? std::min(top_ + amount, lines_.size() - 1) : (top_ > amount ? top_ - amount : 0);
+                if (top_ != previous) { message_.clear(); save(); }
+            } else if (screen_ == Screen::Settings) {
+                return input(horizontal ? (forward ? SCE_CTRL_RIGHT : SCE_CTRL_LEFT) : (forward ? SCE_CTRL_DOWN : SCE_CTRL_UP));
+            } else {
+                auto* selection = screen_ == Screen::Library ? &selected_ :
+                                  screen_ == Screen::Contents ? &contents_selected_ : &illustration_selected_;
+                const auto size = screen_ == Screen::Library ? order_.size() :
+                                  screen_ == Screen::Contents ? publication_.chapters.size() : book_.illustrations.size();
+                if (size) *selection = forward ? std::min(*selection + 6, size - 1) : (*selection > 6 ? *selection - 6 : 0);
+                if (screen_ == Screen::Library) update_cover();
+            }
+            return true;
+        }
+        const auto button = reader::controls::toolbar_hit(x, y, toolbar_count());
+        if (button >= 0) {
+            const unsigned library[] = {SCE_CTRL_SQUARE, SCE_CTRL_RTRIGGER, SCE_CTRL_TRIANGLE, SCE_CTRL_START};
+            const unsigned reader[] = {SCE_CTRL_CIRCLE, SCE_CTRL_SQUARE, SCE_CTRL_SELECT, SCE_CTRL_CROSS, SCE_CTRL_TRIANGLE};
+            const unsigned contents[] = {SCE_CTRL_CIRCLE, SCE_CTRL_SQUARE};
+            const unsigned illustrations[] = {SCE_CTRL_CIRCLE, SCE_CTRL_CROSS};
+            const unsigned settings[] = {SCE_CTRL_LEFT, SCE_CTRL_RIGHT, SCE_CTRL_CIRCLE};
+            const unsigned image[] = {SCE_CTRL_CIRCLE, SCE_CTRL_LTRIGGER, SCE_CTRL_SQUARE, SCE_CTRL_TRIANGLE, SCE_CTRL_CROSS, SCE_CTRL_RTRIGGER};
+            const auto* actions = screen_ == Screen::Library ? library : screen_ == Screen::Reader ? reader :
+                screen_ == Screen::Contents ? contents : screen_ == Screen::Illustrations ? illustrations :
+                screen_ == Screen::Settings ? settings : image;
+            return input(actions[button]);
+        }
+        if (screen_ == Screen::Library) {
+            const auto row = reader::controls::list_row_hit(x, y, 40, 610, 96, 57, 53);
+            const auto index = selected_ / 6 * 6 + (row < 0 ? 6 : row);
+            if (row >= 0 && index < order_.size()) { selected_ = index; return input(SCE_CTRL_CROSS); }
+            if (!order_.empty() && x >= 642 && x < 912 && y >= 96 && y < 396) return input(SCE_CTRL_CROSS);
+        } else if (screen_ == Screen::Contents || screen_ == Screen::Illustrations) {
+            const auto row = reader::controls::list_row_hit(x, y, 40, 920, 100, 53, 49);
+            auto* selection = screen_ == Screen::Contents ? &contents_selected_ : &illustration_selected_;
+            const auto size = screen_ == Screen::Contents ? publication_.chapters.size() : book_.illustrations.size();
+            const auto index = *selection / 6 * 6 + (row < 0 ? 6 : row);
+            if (row >= 0 && index < size) { *selection = index; return input(SCE_CTRL_CROSS); }
+        } else if (screen_ == Screen::Settings) {
+            const auto row = reader::controls::list_row_hit(x, y, 40, 920, 106, 52, 46, 3);
+            if (row >= 0) setting_row_ = row;
+        } else if (screen_ == Screen::Reader && y >= 96 && y < 446 && x >= 48 && x < 912) {
+            int block_y = 96;
+            for (auto at = top_; at < visible_end(); ++at) {
+                const auto& block = lines_[at];
+                if (block.illustration != reader::no_illustration && y >= block_y && y < block_y + block.height &&
+                    (!block.image_width || std::abs(x - 480) <= block.image_width / 2)) {
+                    show_illustration(block.illustration, Screen::Reader); return true;
+                }
+                block_y += block.height;
+            }
+            return input(x < 320 ? SCE_CTRL_LEFT : x >= 640 ? SCE_CTRL_RIGHT : SCE_CTRL_CROSS);
+        } else if (screen_ == Screen::Image && x >= 48 && x < 912 && y >= 96 && y < 446) {
+            auto zoom = gesture;
+            zoom.scale = zoom_ > 1 ? 1 / zoom_ : 2;
+            transform_image(zoom);
+        }
+        return true;
+    }
+
 private:
+    int toolbar_count() const {
+        return screen_ == Screen::Library ? 4 : screen_ == Screen::Reader ? 5 :
+               screen_ == Screen::Contents || screen_ == Screen::Illustrations ? 2 : screen_ == Screen::Settings ? 3 : 6;
+    }
+    void draw_toolbar() const {
+        const std::vector<std::string> labels = screen_ == Screen::Library ? std::vector<std::string>{"Sort", "Filter", "Refresh", "Exit"} :
+            screen_ == Screen::Reader ? std::vector<std::string>{"Library", "Bookmark", "Go to mark", "Contents", "Settings"} :
+            screen_ == Screen::Contents ? std::vector<std::string>{"Back", "Illustrations"} :
+            screen_ == Screen::Illustrations ? std::vector<std::string>{"Contents", "View"} :
+            screen_ == Screen::Settings ? std::vector<std::string>{"Decrease", "Increase", "Apply"} :
+            std::vector<std::string>{"Back", "Previous", "-", "Fit", "+", "Next"};
+        const auto count = static_cast<int>(labels.size());
+        for (int i = 0; i < count; ++i) {
+            const auto left = 40 + 880 * i / count, right = 40 + 880 * (i + 1) / count;
+            vita2d_draw_rectangle(left + 2, 488, right - left - 4, 48, palette().panel);
+            const auto width = vita2d_pgf_text_width(font_, 0.75f, labels[i].c_str());
+            text((left + right - width) / 2, 519, palette().text, 0.75f, labels[i], right - left - 12);
+        }
+    }
     void probe_illustrations(reader::Book& book) {
         for (auto& illustration : book.illustrations) {
             std::string bytes;
@@ -324,7 +447,7 @@ private:
         pan_y_ = std::max(-limit_y, std::min(limit_y, pan_y_));
     }
 
-    void show_illustration(std::size_t index) {
+    void show_illustration(std::size_t index, Screen return_to) {
         message_ = "Opening illustration..."; draw();
         try {
             std::string bytes, error;
@@ -335,7 +458,7 @@ private:
             if (!candidate) { message_ = error; return; }
             release_image(); image_ = candidate;
             illustration_selected_ = index; zoom_ = 1; pan_x_ = pan_y_ = 0;
-            screen_ = Screen::Image; message_.clear();
+            image_return_ = return_to; screen_ = Screen::Image; message_.clear();
         } catch (const std::exception&) { message_ = "Not enough memory for this illustration."; }
     }
     const Palette& palette() const { return palettes[settings_.theme]; }
@@ -534,8 +657,6 @@ private:
         }
         text(48, 471, palette().accent, 0.7f, message_.empty() ?
             "ux0:data/NovelReader/books/  /  " + std::to_string(order_.size()) + " shown" : message_);
-        text(48, 501, palette().muted, 0.7f, "UP/DOWN  Browse   CROSS  Read   SQUARE  Sort   L/R  Filter");
-        text(48, 526, palette().muted, 0.7f, "TRIANGLE  Refresh library   START  Exit");
     }
 
     void draw_reader() const {
@@ -558,10 +679,6 @@ private:
             std::to_string(std::upper_bound(pages_.begin(), pages_.end(), top_) - pages_.begin()) +
             " of " + std::to_string(pages_.size()) : message_;
         text(48, 480, palette().accent, 0.75f, status);
-        text(48, 506, palette().muted, 0.65f, publication_.epub ?
-             "LEFT/RIGHT  Page   L/R  Chapter   CROSS  Contents   TRIANGLE  Settings   CIRCLE  Library" :
-             "L/R or LEFT/RIGHT  Page   UP/DOWN  Scroll   TRIANGLE  Settings   CIRCLE  Library");
-        text(48, 530, palette().muted, 0.65f, "SQUARE  Set bookmark   SELECT  Go to bookmark   UP/DOWN  Scroll   START  Save & exit");
     }
 
     void draw_line(const reader::LayoutBlock& line, int y) const {
@@ -598,8 +715,7 @@ private:
                  std::to_string(i + 1) + ". " + publication_.chapters[i].title);
         }
         text(48, 453, palette().accent, 0.75f, message_);
-        text(48, 485, palette().muted, 0.65f, "UP/DOWN  Choose   LEFT/RIGHT  Browse   CROSS  Open   SQUARE  Illustrations   CIRCLE  Return");
-        text(48, 518, palette().muted, 0.75f,
+        text(48, 480, palette().muted, 0.75f,
              std::to_string(contents_selected_ + 1) + " / " + std::to_string(publication_.chapters.size()) + " chapters");
     }
 
@@ -613,8 +729,7 @@ private:
         }
         if (book_.illustrations.empty()) text(60, 155, palette().muted, 1.0f, "This chapter has no illustrations.");
         text(48, 453, palette().accent, 0.75f, message_);
-        text(48, 490, palette().muted, 0.75f, "UP/DOWN  Choose   CROSS  View   CIRCLE  Contents");
-        text(48, 521, palette().muted, 0.7f, "PNG and JPEG images. Your reading position stays unchanged.");
+        text(48, 480, palette().muted, 0.7f, "Tap an image to view. PNG and JPEG supported.");
     }
 
     void draw_image() const {
@@ -630,8 +745,6 @@ private:
         }
         text(48, 477, palette().accent, 0.7f, message_.empty() ?
              std::to_string(static_cast<int>(zoom_ * 100)) + "% of fit size" : message_);
-        text(48, 505, palette().muted, 0.7f, "CROSS  Zoom in   SQUARE  Zoom out   D-PAD  Pan   TRIANGLE  Fit");
-        text(48, 530, palette().muted, 0.7f, "L/R  Previous/next illustration   CIRCLE  Illustration list");
     }
 
     void draw_settings() const {
@@ -651,7 +764,7 @@ private:
         text(48, 323, palette().muted, 0.75f, "Preview");
         text(48, 365, palette().text, font_scale(), "A quiet evening. One more chapter.");
         text(48, 365 + line_height(), palette().text, font_scale(), "The next adventure waits between the lines.");
-        text(48, 500, palette().muted, 0.75f, "Your reading position is kept when the text size changes.");
+        text(48, 477, palette().muted, 0.75f, "Tap a setting, then adjust below. Your reading position is kept.");
     }
 
     vita2d_pgf* font_;
@@ -676,6 +789,7 @@ private:
     std::size_t chapter_ = 0, contents_selected_ = 0;
     int setting_row_ = 0;
     Screen screen_ = Screen::Library;
+    Screen image_return_ = Screen::Illustrations;
 };
 } // namespace
 
@@ -684,7 +798,12 @@ int main() {
     sceIoMkdir(root.c_str(), 0777);
     sceIoMkdir(books_directory.c_str(), 0777);
     sceIoMkdir(progress_directory.c_str(), 0777);
-    sceCtrlSetSamplingMode(SCE_CTRL_MODE_DIGITAL);
+    sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+    const bool touch_enabled = sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START) >= 0;
+    SceTouchPanelInfo panel{};
+    if (sceTouchGetPanelInfo(SCE_TOUCH_PORT_FRONT, &panel) < 0 || panel.maxDispX <= panel.minDispX || panel.maxDispY <= panel.minDispY) {
+        panel.minDispX = panel.minDispY = 0; panel.maxDispX = 1919; panel.maxDispY = 1087;
+    }
     if (vita2d_init() < 0) { sceKernelExitProcess(1); return 1; }
     vita2d_set_vblank_wait(1);
     auto* font = vita2d_load_default_pgf();
@@ -692,28 +811,66 @@ int main() {
 
     {
         App app(font);
-        unsigned previous = 0;
-        std::uint64_t repeat_at = 0;
+        reader::controls::Repeat repeat;
+        reader::controls::Stick left_stick, right_stick;
+        reader::controls::Touch touch;
+        std::vector<reader::controls::Point> points;
+        points.reserve(SCE_TOUCH_MAX_REPORT);
+        std::uint64_t previous_time = 0;
         constexpr unsigned repeatable = SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_LEFT |
                                         SCE_CTRL_RIGHT | SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER;
         bool running = true;
         while (running) {
             SceCtrlData pad{};
-            sceCtrlPeekBufferPositive(0, &pad, 1);
-            auto pressed = pad.buttons & ~previous;
+            pad.lx = pad.ly = pad.rx = pad.ry = 128;
+            const bool pad_ready = sceCtrlPeekBufferPositive(0, &pad, 1) > 0;
             const auto now = sceKernelGetProcessTimeWide();
-            if (pad.buttons != previous) repeat_at = now + 350000;
-            else if ((pad.buttons & repeatable) && now >= repeat_at) {
-                pressed |= pad.buttons & repeatable;
-                repeat_at = now + 140000;
+            const auto seconds = previous_time && now >= previous_time ? std::min<std::uint64_t>(now - previous_time, 50000) / 1000000.0f : 0;
+            previous_time = now;
+            const auto before = app.screen();
+            const auto left = left_stick.direction(pad.lx, pad.ly), right = right_stick.direction(pad.rx, pad.ry);
+            const auto buttons = [](unsigned directions) {
+                unsigned result = 0;
+                if (directions & reader::controls::Left) result |= SCE_CTRL_LEFT;
+                if (directions & reader::controls::Right) result |= SCE_CTRL_RIGHT;
+                if (directions & reader::controls::Up) result |= SCE_CTRL_UP;
+                if (directions & reader::controls::Down) result |= SCE_CTRL_DOWN;
+                return result;
+            };
+            auto held = pad.buttons | (before == Screen::Image ? 0 : buttons(left | right));
+            if ((held & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) == (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) held &= ~(SCE_CTRL_LEFT | SCE_CTRL_RIGHT);
+            if ((held & (SCE_CTRL_UP | SCE_CTRL_DOWN)) == (SCE_CTRL_UP | SCE_CTRL_DOWN)) held &= ~(SCE_CTRL_UP | SCE_CTRL_DOWN);
+            const auto pressed = pad_ready ? repeat.sample(held, repeatable, now) : 0;
+            reader::controls::Gesture gesture;
+            if (touch_enabled) {
+                SceTouchData data{};
+                if (sceTouchPeek(SCE_TOUCH_PORT_FRONT, &data, 1) > 0 && !pressed) {
+                    points.clear();
+                    for (unsigned i = 0; i < std::min<unsigned>(data.reportNum, SCE_TOUCH_MAX_REPORT); ++i)
+                        points.push_back({data.report[i].id,
+                            reader::controls::display_coordinate(data.report[i].x, panel.minDispX, panel.maxDispX, 960),
+                            reader::controls::display_coordinate(data.report[i].y, panel.minDispY, panel.maxDispY, 544)});
+                    gesture = touch.sample(points, now, before == Screen::Image);
+                } else touch.cancel_until_release();
             }
-            previous = pad.buttons;
             running = app.input(pressed);
+            if (!running) break;
+            if (before == Screen::Image && app.screen() == Screen::Image && pad_ready) {
+                const auto x = (left ? reader::controls::axis(pad.lx) : 0) + (right ? reader::controls::axis(pad.rx) : 0);
+                const auto y = (left ? reader::controls::axis(pad.ly) : 0) + (right ? reader::controls::axis(pad.ry) : 0);
+                app.pan_image(-std::max(-1.0f, std::min(1.0f, x)) * 480 * seconds,
+                              -std::max(-1.0f, std::min(1.0f, y)) * 480 * seconds);
+            }
+            if (app.screen() == before) running = app.gesture(gesture);
+            if (app.screen() != before) {
+                left_stick.cancel_until_neutral(); right_stick.cancel_until_neutral(); touch.cancel_until_release();
+            }
             app.draw();
         }
     }
     vita2d_free_pgf(font);
     vita2d_fini();
+    if (touch_enabled) sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_STOP);
     sceKernelExitProcess(0);
     return 0;
 }

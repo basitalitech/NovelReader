@@ -1,9 +1,9 @@
 # Novel Reader for PS Vita
 
-A local light novel reader built with C++14, VitaSDK, and vita2d. Version 0.4
+A local light novel reader built with C++14, VitaSDK, and vita2d. Version 0.5
 reads **UTF-8 TXT and DRM-free EPUB** books entirely offline, with chapter
 navigation, cover previews, library filters, inline illustrations, and a zoomable
-illustration viewer.
+illustration viewer, analog-stick navigation, and front touchscreen controls.
 Online sources and Lua parsers are future work.
 
 ## Install and read
@@ -35,6 +35,37 @@ opening a book. Uppercase `.TXT` and `.EPUB` extensions work.
 | Reader | Triangle: settings; Circle: library |
 | Settings | Up/Down: select; Left/Right: adjust; Circle/Cross/Triangle: apply |
 | All screens | Start: save and exit |
+
+## Analog and touch controls
+
+Both analog sticks navigate menus and the reader: vertical movement selects
+items or moves through text/illustrations, while horizontal movement browses
+list pages or turns reading pages. Settings use vertical selection and horizontal
+adjustment. In the image viewer, either stick pans smoothly; the D-pad still
+provides discrete pan steps. Sticks have a dead zone, axis hysteresis, and the
+same 350 ms initial / 140 ms repeat timing as directional buttons. After a
+screen transition, return the stick to center before moving again.
+
+The **front touchscreen** supports:
+
+| Screen | Touch controls |
+| --- | --- |
+| Library | Tap a book or selected cover to open; swipe up/left or down/right to browse six entries at a time |
+| Reader | Swipe left/right for next/previous page; swipe up/down to move through text and images |
+| Reader | Tap an inline illustration to zoom it; other left/right body taps turn pages, center taps open contents |
+| Reader | Hold and release on the reading area to save a bookmark |
+| Contents / illustration list | Tap an entry to open; swipe to browse six entries |
+| Settings | Tap a row to select, then use Decrease/Increase and Apply |
+| Image viewer | Drag to pan; pinch to zoom around the fingers' midpoint; tap the image to toggle fit/2× zoom |
+
+Every screen has a touch toolbar along the bottom. It provides library sorting,
+filters, refresh and exit; reader bookmarks, contents and settings; and image
+navigation/zoom controls. Viewer **Back** returns directly to reading when opened
+by tapping an inline image, or to the illustration list when opened from there.
+Touch gestures act on release outside the image viewer, where drag and pinch
+updates are live. Swiping a list never opens the row under the finger. Physical
+button/directional actions take priority over an active touch gesture; changing
+screens cancels it until the fingers lift. Rear touch is not used.
 
 Reading progress saves on navigation, bookmark changes, and return to the
 library. Each book has one bookmark and an independent reading position. EPUB
@@ -122,9 +153,10 @@ filenames. External images are not fetched.
 The viewer supports embedded PNG and JPEG images, fits them to the screen, and
 zooms from 1× to 4× the fitted size. Pan is clamped to the image edges; smaller
 axes stay centered. The image is clipped to the viewing area, leaving controls
-visible. Viewing images does not move the reading position or bookmark. The
-reader still uses **Cross** for contents; choose **Square**, select an image, and
-press **Cross** to zoom it.
+visible. Viewing images does not move the reading position or bookmark. Tap an
+inline image to zoom it directly, or use **Cross → Square** to choose an image
+from the chapter list. **Circle** or the touch Back button returns to the screen
+that opened the viewer.
 
 Each image is limited to 8 MiB encoded, 4,096 pixels per side, and 4 megapixels
 total. Headers are checked before GPU allocation; the PNG/JPEG decoder then
@@ -178,7 +210,7 @@ ctest --test-dir build/host --output-on-failure
   stored/deflated entries are accepted and their checksums verified. Encrypted
   chapter content is unsupported; font obfuscation does not block text reading.
 - Horizontal text; glyph coverage follows the Vita system font. No PDF, TXT
-  chapter detection, search, or touch controls yet. Images flow between text
+  chapter detection or search yet. Images flow between text
   paragraphs; publisher CSS positioning and text wrapping around images are
   not supported.
 - Layout is synchronous when opening a book or applying settings. Large books
@@ -199,6 +231,9 @@ ctest --test-dir build/host --output-on-failure
   progress estimates.
 - [Mixed text/image layout](src/layout.cpp): variable-height pagination,
   dedicated illustration pages, and compatible text/image anchors.
+- [Portable input logic](src/controls.cpp): analog dead zones/repeats, touch
+  coordinate scaling, gesture recognition, and touch hit testing. The Vita
+  frontend polls front touch through `SceTouch_stub` and enables analog sampling.
 - [Image validation](src/image_info.cpp) and [Vita decoder](src/vita_images.cpp):
   bounded image headers and PNG/TurboJPEG decoding into GPU textures.
 - [Core tests](tests/reader_tests.cpp): malformed text, wrapping, reflow anchors,
@@ -213,6 +248,10 @@ ctest --test-dir build/host --output-on-failure
 - [Inline layout tests](tests/layout_tests.cpp): mixed pages, image sizing,
   dedicated pages, unavailable images, image-only chapters, page navigation,
   UTF-8 text, bookmark anchors, and font reflow.
+- [Input tests](tests/controls_tests.cpp): stick drift/hysteresis, repeat timing,
+  touch bounds, taps, swipes, long presses, reordered pinch reports, drag,
+  multitouch cancellation, and screen-transition suppression. Hardware testing
+  is still needed to tune gesture feel and confirm touch calibration.
 
 Next local milestones: a metadata/thumbnail cache for larger libraries, more
 image formats/downsampling, and search.

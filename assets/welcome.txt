@@ -12,6 +12,8 @@ Library progress bars show saved reading progress. EPUB percentages estimate pro
 
 Getting comfortable
 
+Either analog stick can navigate lists and the reader. Move vertically to select items or move through text; move horizontally to browse lists or turn pages. Return the stick to center after changing screens. In the image viewer, either stick pans smoothly.
+
 Use LEFT and RIGHT to turn pages. UP and DOWN move one text line or illustration at a time. Hold a direction to keep moving. In TXT books, the shoulder buttons also turn pages.
 
 In EPUB books, the shoulder buttons open the previous or next chapter. CROSS opens the contents menu. Choose a chapter with UP and DOWN, browse with LEFT and RIGHT, then press CROSS to open it. CIRCLE returns to reading. Page turning also crosses chapter boundaries automatically.
@@ -21,6 +23,14 @@ Press TRIANGLE while reading to change the font size, line spacing, or theme. Ch
 Press SQUARE to set a bookmark. Press SELECT to jump back to it, including across EPUB chapters. Each book has one bookmark in addition to its automatically saved reading position.
 
 Press CIRCLE to return to your library. Press START to save and exit. Reading positions are saved as you move, so there is no separate save menu.
+
+Using the touchscreen
+
+Tap a book in the library to open it. Swipe lists to browse six entries at a time. The buttons along the bottom of every screen work by touch, including sorting, filtering, bookmarks, settings, and exit.
+
+While reading, swipe left for the next page and right for the previous page. Swipe vertically to move through the text. Tap an inline illustration to open its zoom viewer. Other taps on the left and right sides turn pages; a center tap opens contents. Hold and release on the reading area to save a bookmark.
+
+In settings, tap a row to select it, then use the Decrease, Increase, and Apply buttons. Rear touch is not used.
 
 Preparing your books
 
@@ -34,7 +44,9 @@ Illustrations now appear between the surrounding paragraphs as you read. Small i
 
 While reading an EPUB, press CROSS for contents, then SQUARE for illustrations in the current chapter. Choose an image and press CROSS to view it. Your reading position and bookmark stay unchanged.
 
-In the viewer, CROSS zooms in, SQUARE zooms out, and the D-pad pans. TRIANGLE fits the image to the screen. L and R show the previous and next image in the chapter. CIRCLE returns to the image list.
+In the viewer, CROSS zooms in, SQUARE zooms out, and the D-pad pans. TRIANGLE fits the image to the screen. L and R show the previous and next image in the chapter. CIRCLE returns to the screen that opened the viewer.
+
+You can also drag an image to pan and pinch to zoom. Tap the image to toggle between fit and 2x zoom, or use the touch toolbar. Back returns to reading if you opened the image by tapping it inline, or to the image list if you opened it there.
 
 PNG and JPEG are supported, up to 8 MiB encoded, 4096 pixels per side, and 4 megapixels total. Missing, damaged, or unsupported images show a labeled placeholder. Existing reading positions and bookmarks still work, including positions on illustrations.
 
