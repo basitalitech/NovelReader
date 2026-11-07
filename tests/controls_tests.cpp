@@ -1,4 +1,5 @@
 #include "controls.hpp"
+#include "ui.hpp"
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -47,6 +48,30 @@ int main() {
         check(list_row_hit(100, 150, 40, 610, 96, 57, 53) == -1 &&
               list_row_hit(700, 100, 40, 610, 96, 57, 53) == -1 &&
               list_row_hit(100, 440, 40, 610, 96, 57, 53) == -1, "Row gap or blank area selected a book");
+
+        for (int row = 0; row < 6; ++row) {
+            const int y = reader::ui::library_top + row * reader::ui::library_pitch;
+            check(list_row_hit(100,y,40,610,reader::ui::library_top,reader::ui::library_pitch,
+                reader::ui::library_row_height) == row, "Modern library row is not touchable");
+            check(list_row_hit(300,reader::ui::menu_top + row * reader::ui::menu_pitch,
+                reader::ui::menu_left,reader::ui::menu_right,reader::ui::menu_top,reader::ui::menu_pitch,44) == row,
+                "Overflow menu row is not touchable");
+        }
+        std::size_t chapter = 99;
+        check(reader::ui::chapter_number("1",20000,chapter) && chapter == 0, "Jump to first chapter");
+        check(reader::ui::chapter_number("20000",20000,chapter) && chapter == 19999, "Jump to last online chapter");
+        for (const auto& invalid : {"", "0", "20001", "-1", "1.5", "1x", "999999999999999999999"})
+            check(!reader::ui::chapter_number(invalid,20000,chapter), "Invalid chapter number accepted");
+        check(!reader::ui::chapter_number("1",0,chapter), "Jump accepted an empty contents list");
+        std::vector<reader::LibraryItem> collection(4);
+        check(reader::ui::recent_book(collection) == collection.size(), "New library has a resume target");
+        collection[0].progress.last_read = 10;
+        collection[1].guide = true; collection[1].progress.last_read = 40;
+        collection[2].error = "Missing file"; collection[2].progress.last_read = 50;
+        collection[3].progress.last_read = 30;
+        check(reader::ui::recent_book(collection) == 3, "Resume did not select the latest readable book");
+        collection[3].directory = true;
+        check(reader::ui::recent_book(collection) == 0, "Resume selected a directory");
 
         Touch touch;
         check(touch.sample({{1, 100, 100}}, 1000, false).kind == GestureKind::None, "Touch activated before release");

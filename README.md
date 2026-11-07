@@ -22,7 +22,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Screen | Controls |
 | --- | --- |
 | Library | Up/Down: browse; Cross: read book; Triangle: import local books |
-| Library | Square: cycle Title/Recent/Progress sorting; L/R: cycle All/Reading/Finished filters |
+| Library | Square: choose Title/Recent/Progress sorting; L/R: switch All/Reading/Finished tabs |
 | Library | Select: online sources |
 | Import | Cross: open folder/import book; Circle: parent folder or Library at root; Triangle: refresh |
 | Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
@@ -30,6 +30,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | TXT reader | L/R: turn page |
 | Contents | Up/Down: choose chapter; Left/Right: browse six entries; Cross: open; Circle: return |
 | Contents | Square: illustrations in the current reading chapter |
+| Contents | Triangle: enter a chapter number and focus that entry |
 | Illustrations | Up/Down: choose; Cross: view; Circle: contents |
 | Image viewer | Cross: zoom in; Square: zoom out; D-pad: pan; Triangle: fit |
 | Image viewer | L/R: previous/next image in chapter; Circle: illustration list |
@@ -37,6 +38,38 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Reader | Triangle: settings; Circle: library |
 | Settings | Up/Down: select; Left/Right: adjust; Circle/Cross/Triangle: apply |
 | All screens | Start: save and exit |
+| Menus / reader / image viewer | L+R together: More actions; Up/Down: choose; Cross: confirm; Circle: close |
+
+## Interface
+
+Library keeps six readable rows beside a selected-cover preview. **All, Reading,
+and Finished** are visible, tappable tabs; the sort chooser shows all three modes
+and starts on the active mode. A **Resume** card shows the most recently read
+available book, its saved chapter, and progress. Tap it, or choose **More → Resume
+last read**, to continue directly, including online novels. The initial selection
+also starts on the last-read book when it is visible in the saved filter. Missing
+books and the welcome guide are excluded from Resume. Books without covers use
+typographic title covers.
+
+Reading starts in **immersive mode**, with a taller reading area and a small
+chapter/page footer. Tap the center of the text to reveal or hide the header and
+action bar, or use **L+R → Show/Hide reading controls**. Tapping an illustration
+still opens its viewer. Changing control visibility reflows text and illustrations
+while preserving the current text/image anchor and bookmark. Visibility is kept
+for the current app session. Physical reading shortcuts work in either mode.
+
+Action bars contain up to four relevant actions, with drawn controller symbols.
+**More** holds occasional actions such as bookmarks, downloading all chapters,
+refreshing, zoom controls, and exit. It works by touch or **L+R together**; menus
+consume input until closed. Short confirmations disappear after about three
+seconds. Errors stay visible until navigation or another action replaces them.
+
+Reading settings show size/font/spacing steppers, three tappable theme swatches,
+and a larger live preview. Tap a row to select it, tap its minus/plus area to
+adjust, or use the directional buttons. Apply returns to the same reading anchor.
+Chapter lists distinguish the reading chapter from the focused entry; **Jump to
+chapter** uses a numeric system keyboard and focuses the requested chapter without
+opening it. Choose it with Triangle in Contents or More in online Chapters.
 
 ## Online novels
 
@@ -55,7 +88,7 @@ on demand; failed requests leave the current chapter and position intact.
 | Sources | Up/Down: choose; Cross: browse; Circle: local library |
 | Catalog | Up/Down: choose; Left/Right: move six entries; Cross: details |
 | Catalog | Square: search; Select: initial catalog; Triangle: next source page, or retry the current page |
-| Novel details | Cross: chapters; Square: add to library; Select: resume saved position; Triangle: refresh chapter list |
+| Novel details | Cross: chapters; Square: add to library; Select: start/resume reading; Triangle: refresh chapter list |
 | Chapters | Up/Down: choose; Left/Right: move six entries; Cross: read; Square: download selected chapter |
 | Chapters | Select: download all public chapters; Triangle: refresh; Circle: details |
 | Request/download in progress | Circle: cancel; Start: cancel, save, and exit |
@@ -68,11 +101,17 @@ chapters. Repeat the download action to retry: valid completed chapters are
 skipped. Interrupted individual chapters restart from the beginning. Cancellation
 during connection setup may wait for the network timeout.
 Worker startup failures display the underlying error.
+Novel details include a primary **Start reading / Resume** action, saved chapter,
+library membership, and offline chapter count. Online favorites open this details
+screen from Library. Chapter rows show **Offline**, **Locked**, or a download hint.
+Requests show an activity indicator; downloads show a progress bar and completed
+count. Failed requests expose **More → Retry failed request** (also reachable with
+L+R), preserving the original operation and completed downloads.
 
-On novel details, press **Square / Add to library** to save a favorite. Browsing
+On novel details, press **Square** or choose **More → Add to library** to save a favorite. Browsing
 a novel or downloading chapters does not automatically add it to Library. Added
 novels appear alongside imported local books without source folders. Open one
-to select a chapter; downloaded chapters are available offline. Chapter
+to resume or select a chapter; downloaded chapters are available offline. Chapter
 text is stored in a hidden `.chapters` directory alongside the indexes; keep that
 directory together with the `.nvr` indexes when copying downloads. Novel and chapter
 filenames use hashes of their source URLs. Progress and bookmarks track stable
@@ -110,17 +149,17 @@ The **front touchscreen** supports:
 
 | Screen | Touch controls |
 | --- | --- |
-| Library | Tap a book or selected preview to open; Import opens the local file browser; swipe to browse six entries |
+| Library | Tap a book or selected preview to open; tap Resume to continue the last-read book; tap filter tabs or Sort; swipe to browse six entries |
 | Reader | Swipe left/right for next/previous page; swipe up/down to move through text and images |
-| Reader | Tap an inline illustration to zoom it; other left/right body taps turn pages, center taps open contents |
+| Reader | Tap an inline illustration to zoom it; other left/right body taps turn pages, center taps show/hide controls |
 | Reader | Hold and release on the reading area to save a bookmark |
 | Contents / illustration list | Tap an entry to open; swipe to browse six entries |
-| Settings | Tap a row to select, then use Decrease/Increase and Apply |
+| Settings | Tap a row to select, its minus/plus areas to adjust, or a theme swatch; Apply returns to reading |
 | Image viewer | Drag to pan; pinch to zoom around the fingers' midpoint; tap the image to toggle fit/2× zoom |
 
-Every screen has a touch toolbar along the bottom. It provides library sorting,
-filters, refresh and exit; reader bookmarks, contents and settings; and image
-navigation/zoom controls. Viewer **Back** returns directly to reading when opened
+Screens have a compact touch toolbar along the bottom, hidden during immersive
+reading. More menus provide secondary actions, including exit, bookmarks, and
+image zoom. Viewer **Back** returns directly to reading when opened
 by tapping an inline image, or to the illustration list when opened from there.
 Touch gestures act on release outside the image viewer, where drag and pinch
 updates are live. Swiping a list never opens the row under the finger. Physical
@@ -155,7 +194,7 @@ bookmarks are disabled.
   entries. Circle at the import root returns to Library. Triangle refreshes the
   import browser after copying files with VitaShell.
 - **Select / Online** opens supported internet sources. Search or browse, open
-  novel details, and choose **Square / Add to library**. This saves the favorite
+  novel details, and press **Square** or choose **More → Add to library**. This saves the favorite
   without downloading every chapter. Use the chapter screen to download one or
   all public chapters. Adding favorites requires a successfully loaded index.
 - Imported books retain their relative paths for progress and bookmarks, including
@@ -166,7 +205,7 @@ bookmarks are disabled.
   Only the selected cover is decoded. Broken or missing files stay visible with
   an error. Metadata is read on launch and return from online browsing or import;
   there is no persistent metadata cache yet.
-- Square cycles Title/Recent/Progress sorting; L/R cycles All/Reading/Finished.
+- Square opens a Title/Recent/Progress chooser; L/R switches All/Reading/Finished.
   Preferences survive restarts. Title sorting ignores ASCII case. Recent uses
   last-read time; Progress puts highest percentages first. The guide appears last
   under All and is omitted from Reading/Finished.
@@ -332,6 +371,8 @@ ctest --test-dir build/host --output-on-failure
 - [Portable input logic](src/controls.cpp): analog dead zones/repeats, touch
   coordinate scaling, gesture recognition, and touch hit testing. The Vita
   frontend polls front touch through `SceTouch_stub` and enables analog sampling.
+- [Interface rules](include/ui.hpp): reading-area geometry, recent-book selection,
+  shared menu/library hit regions, and validated chapter-number navigation.
 - [Image validation](src/image_info.cpp) and [Vita decoder](src/vita_images.cpp):
   bounded image headers and PNG/TurboJPEG decoding into GPU textures.
 - [Core tests](tests/reader_tests.cpp): malformed text, wrapping, reflow anchors,

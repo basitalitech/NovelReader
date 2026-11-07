@@ -6,7 +6,7 @@ Copy UTF-8 .txt novels or DRM-free .epub books into ux0:data/NovelReader/books/ 
 
 Press CROSS to open a book. Your last reading position is restored automatically. Books stay on your memory card and work entirely offline.
 
-In the library, SQUARE cycles Title, Recent, and Progress sorting. L and R switch between All books, Reading, and Finished. Your sort and filter are saved. EPUB titles and authors are read during scanning; the selected book's cover appears beside the list.
+In the library, SQUARE opens a chooser for Title, Recent, and Progress sorting. L and R switch between the visible All, Reading, and Finished tabs; you can also tap them. Your sort and filter are saved. EPUB titles and authors are read during scanning; the selected book's cover appears beside the list. Books without artwork get a title cover. Tap the Resume card, or choose Resume last read in More, to continue your most recently read book.
 
 Library shows your imported books and favorite online novels together, without folders. The Import browser lets you browse folders inside ux0:data/NovelReader/books/. CROSS opens a folder or imports a book. CIRCLE goes up a folder, or returns to Library at the import root. TRIANGLE refreshes the import browser after copying files. Imports keep files in place and repeated imports do not add duplicates.
 
@@ -16,11 +16,15 @@ Library progress bars show saved reading progress. EPUB percentages estimate pro
 
 Getting comfortable
 
+Reading starts in immersive mode, with more room for text and illustrations. Tap the center of the text to show or hide reading controls. Your position and bookmark stay anchored when the page reflows. Physical reading shortcuts always work. Control visibility is kept until the app exits.
+
+Press L and R together to open More actions. Use UP and DOWN to choose, CROSS to confirm, and CIRCLE to close. You can also tap More on action bars. More holds occasional actions such as bookmarks, download all, zoom controls, and exit. Brief confirmations disappear automatically; errors stay until navigation or another action replaces them.
+
 Either analog stick can navigate lists and the reader. Move vertically to select items or move through text; move horizontally to browse lists or turn pages. Return the stick to center after changing screens. In the image viewer, either stick pans smoothly.
 
 Use LEFT and RIGHT to turn pages. UP and DOWN move one text line or illustration at a time. Hold a direction to keep moving. In TXT books, the shoulder buttons also turn pages.
 
-In EPUB books, the shoulder buttons open the previous or next chapter. CROSS opens the contents menu. Choose a chapter with UP and DOWN, browse with LEFT and RIGHT, then press CROSS to open it. CIRCLE returns to reading. Page turning also crosses chapter boundaries automatically.
+In EPUB books, the shoulder buttons open the previous or next chapter. CROSS opens the contents menu. Choose a chapter with UP and DOWN, browse with LEFT and RIGHT, then press CROSS to open it. The reading chapter has its own label, separate from the focused row. TRIANGLE opens a numeric keyboard to jump to a chapter number. CIRCLE returns to reading. Page turning also crosses chapter boundaries automatically.
 
 Press TRIANGLE while reading to change the font size, reading font, line spacing, or theme. Choose Literata for serif reading, Atkinson Hyperlegible Next for sans-serif reading, or Vita system. Menus use Source Sans 3. Your font choice is saved across restarts. Choose Night, Paper, or Sepia for the theme. Your position is preserved when the text reflows.
 
@@ -30,11 +34,11 @@ Press CIRCLE to return to your library. Press START to save and exit. Reading po
 
 Using the touchscreen
 
-Tap a book in the library to open it. Swipe lists to browse six entries at a time. The buttons along the bottom of every screen work by touch, including sorting, filtering, bookmarks, settings, and exit.
+Tap a book in the library to open it. Swipe lists to browse six entries at a time. The compact buttons along the bottom work by touch. More opens secondary actions. Reveal reading controls with a center tap when the action bar is hidden.
 
-While reading, swipe left for the next page and right for the previous page. Swipe vertically to move through the text. Tap an inline illustration to open its zoom viewer. Other taps on the left and right sides turn pages; a center tap opens contents. Hold and release on the reading area to save a bookmark.
+While reading, swipe left for the next page and right for the previous page. Swipe vertically to move through the text. Tap an inline illustration to open its zoom viewer. Other taps on the left and right sides turn pages; a center tap shows or hides controls. Use CROSS or the Contents action for chapters. Hold and release on the reading area to save a bookmark.
 
-In settings, tap a row to select it, then use the Decrease, Increase, and Apply buttons. Rear touch is not used.
+In settings, tap a row to select it, then its minus/plus areas or the Decrease/Increase buttons to adjust. Tap Night, Paper, or Sepia swatches to change theme. The large live preview shows your chosen reading font and spacing. Apply returns to your reading position. Rear touch is not used.
 
 Preparing your books
 
@@ -62,9 +66,9 @@ Press SELECT in the library, or tap Online, to browse public novels from Novgo, 
 
 Choose a source, then use SQUARE to search with the system keyboard. Open a novel with CROSS for details, and press CROSS again for its chapters. CROSS reads and saves a chapter. SQUARE downloads the selected chapter, and SELECT downloads all public chapters. Locked chapters require login or purchase and are not downloaded in this version.
 
-While a request runs, CIRCLE cancels it. Completed chapters are kept. Repeat a download action to retry after a failure; completed chapters are skipped. START cancels, saves, and exits.
+While a request runs, CIRCLE cancels it. The progress bar shows completed downloads; completed chapters are kept. After a failure, choose Retry failed request in More, or repeat a download action. Completed chapters are skipped. START cancels, saves, and exits. Online chapter lists also offer Jump to chapter in More.
 
-On a novel's details screen, SQUARE or Add to library saves it as a favorite alongside your local books. Browsing and downloading do not automatically add a favorite. Open a saved novel from Library to choose an offline chapter. SELECT on its details screen resumes your saved position. The usual reader controls, settings, bookmarks, and chapter navigation work. Missing public chapters download on demand when Wi-Fi is connected.
+On a novel's details screen, SQUARE or More then Add to library saves it as a favorite alongside your local books. Browsing and downloading do not automatically add a favorite. Open a saved novel from Library for its details, offline count, and Start reading or Resume action. SELECT starts or resumes reading; CROSS opens chapters with Offline and Locked labels. The usual reader controls, settings, bookmarks, and chapter navigation work. Missing public chapters download on demand when Wi-Fi is connected.
 
 Online chapters are plain text with paragraph breaks. Website layout changes or browser verification can temporarily stop a source; the app shows an error and keeps downloaded chapters. Library caching, more image formats, and local text search remain future improvements.
 

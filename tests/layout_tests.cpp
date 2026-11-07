@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "ui.hpp"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -68,6 +69,22 @@ int main() {
         const auto after = book.text.find("After");
         check(reflow.blocks[reader::block_at_offset(reflow.blocks, after)].text == "After.", "Text anchor lost on reflow");
         check(reader::block_at_offset(reflow.blocks, book.text.size() + 99) == reflow.blocks.size() - 1, "Stale save not clamped");
+
+        // Revealing controls changes image sizing and page boundaries, preserving anchors.
+        const auto expanded = reader::ui::reading_area(true), controls = reader::ui::reading_area(false);
+        check(expanded.height > controls.height && expanded.top + expanded.height < 510,
+              "Immersive body overlaps progress/footer");
+        auto expanded_layout = reader::layout_book(book,864,expanded.height,35,columns);
+        auto controls_layout = reader::layout_book(book,864,controls.height,35,columns);
+        verify_pages(expanded_layout,expanded.height); verify_pages(controls_layout,controls.height);
+        for (const auto offset : {anchor,after}) {
+            const auto expanded_at = reader::block_at_offset(expanded_layout.blocks,offset);
+            const auto controls_at = reader::block_at_offset(controls_layout.blocks,offset);
+            check(expanded_layout.blocks[expanded_at].offset == controls_layout.blocks[controls_at].offset,
+                  "Control visibility changed a saved text or image anchor");
+        }
+        check(expanded_layout.blocks[1].image_height > controls_layout.blocks[1].image_height,
+              "Immersive illustration did not use the extra height");
 
         book = illustrated(0, 0);
         book.illustrations[0].error = "Missing image";
