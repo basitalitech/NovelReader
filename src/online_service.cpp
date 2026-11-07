@@ -23,6 +23,7 @@ void directories(const std::string& path) {
     }
 }
 struct Network {
+    std::atomic<bool> control_ready{false};
 #ifdef __vita__
     std::vector<unsigned char> memory;
     bool net=false, ctl=false, module=false;
@@ -33,10 +34,26 @@ struct Network {
 #ifdef __vita__
         if(!module) { if(sceSysmoduleLoadModule(SCE_SYSMODULE_NET)<0) throw std::runtime_error("Could not load networking."); module=true; }
         if(!net) { memory.resize(2*1024*1024); SceNetInitParam p{memory.data(),static_cast<int>(memory.size()),0}; if(sceNetInit(&p)<0) throw std::runtime_error("Could not initialize networking."); net=true; }
-        if(!ctl) { if(sceNetCtlInit()<0) throw std::runtime_error("Could not initialize Wi-Fi control."); ctl=true; }
+        if(!ctl) {
+            if(sceNetCtlInit()<0) throw std::runtime_error("Could not initialize Wi-Fi control.");
+            ctl=true;
+            control_ready.store(true,std::memory_order_release);
+        }
 #endif
         if(curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK) throw std::runtime_error("Could not initialize HTTPS.");
         initialized=true;
+    }
+    int connection_state() const {
+#ifdef __vita__
+        // The status bar draws before any online operation. Calling a NET
+        // export before its sysmodule and NetCtl are initialized can abort
+        // that first frame. Publish readiness from the worker before querying.
+        if(!control_ready.load(std::memory_order_acquire)) return -1;
+        int state=0;
+        return sceNetCtlInetGetState(&state)>=0 ? state : -1;
+#else
+        return -1;
+#endif
     }
     ~Network() {
         if(initialized) curl_global_cleanup();
@@ -194,6 +211,7 @@ bool Service::start(const Request& request) {
     return true;
 }
 void Service::cancel() { impl_->canceled=true; }
+int Service::connection_state() const { return impl_->network.connection_state(); }
 Update Service::poll() {
     std::lock_guard<std::mutex> lock(impl_->mutex);
     if(impl_->state.done) { auto result=std::move(impl_->state); impl_->state={}; return result; }

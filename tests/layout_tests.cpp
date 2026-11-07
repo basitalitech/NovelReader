@@ -72,6 +72,10 @@ int main() {
 
         // Revealing controls changes image sizing and page boundaries, preserving anchors.
         const auto expanded = reader::ui::reading_area(true), controls = reader::ui::reading_area(false);
+        check(controls.top>=72 && controls.top+controls.height<454,
+              "Reading text overlaps the title or progress bar");
+        check(reader::ui::image_top>=144 && reader::ui::image_top+reader::ui::image_height<reader::ui::toolbar_top,
+              "Image viewer overlaps its heading or controller legend");
         check(expanded.height > controls.height && expanded.top + expanded.height < 510,
               "Immersive body overlaps progress/footer");
         auto expanded_layout = reader::layout_book(book,864,expanded.height,35,columns);

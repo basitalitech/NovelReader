@@ -59,6 +59,9 @@ public:
     bool start(const Request& request);
     void cancel();
     Update poll();
+    // -1 until networking is initialized (or when status is unavailable).
+    // Safe for the frontend to poll before the first online request.
+    int connection_state() const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

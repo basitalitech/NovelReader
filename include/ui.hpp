@@ -4,15 +4,24 @@
 // Shared display geometry and navigation rules, independent of Vita APIs.
 namespace reader { namespace ui {
 struct ReadingArea { int top, height; };
-inline ReadingArea reading_area(bool immersive) { return immersive ? ReadingArea{24, 476} : ReadingArea{104, 336}; }
+inline ReadingArea reading_area(bool immersive) { return immersive ? ReadingArea{24, 476} : ReadingArea{88, 348}; }
 constexpr int page_size = 4;
-constexpr int library_top = 124, library_pitch = 80, library_row_height = 76;
+constexpr int library_top = 144, library_pitch = 80, library_row_height = 76;
 constexpr int list_left = 24, list_right = 856;
-constexpr int toolbar_top = 464, toolbar_height = 72;
+constexpr int toolbar_top = 500, toolbar_height = 44;
+constexpr int image_top = 144, image_height = 340, image_center_y = image_top + image_height/2;
 struct Rect {
     int x, y, width, height;
     bool contains(int px, int py) const { return px >= x && px < x + width && py >= y && py < y + height; }
 };
+constexpr int sidebar_width = 208;
+constexpr int grid_columns = 4, grid_page_size = 8;
+inline Rect sidebar_item(int index) { return {12, 108 + index * 56, 184, 46}; }
+inline Rect grid_book(int index) { return {244 + (index % 4) * 168, 142 + (index / 4) * 176, 140, 164}; }
+inline int grid_hit(int x, int y, int count) {
+    for (int i=0; i<count && i<grid_page_size; ++i) if (grid_book(i).contains(x,y)) return i;
+    return -1;
+}
 inline Rect toolbar_button(int index, int count) {
     if (count <= 0 || index < 0 || index >= count) return {0,0,0,0};
     const int left = 24 + 912 * index / count, right = 24 + 912 * (index+1) / count;

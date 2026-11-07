@@ -222,6 +222,7 @@ Settings load_settings(const std::string& path) {
     if (magic != "NRS1" && !(input >> result.library_sort >> result.library_filter)) return {};
     if ((magic == "NRS3" || magic == "NRS4") && !(input >> result.reading_font)) return {};
     if (magic == "NRS4" && !(input >> result.immersive)) return {};
+    if (magic != "NRS4") result.immersive = 1; // Preserve the view used by older installations.
     result.font = bounded(result.font);
     result.spacing = bounded(result.spacing);
     result.theme = bounded(result.theme);

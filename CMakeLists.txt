@@ -51,6 +51,13 @@ if(NOVELREADER_HOST_TESTS)
     target_compile_definitions(online_tests PRIVATE NOVELREADER_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets")
     target_compile_options(online_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME online_sources COMMAND online_tests)
+    # Exercise the actual Vita initialization path without Vita hardware or HTTP.
+    add_executable(vita_network_tests tests/vita_network_tests.cpp src/online_service.cpp)
+    target_include_directories(vita_network_tests PRIVATE tests/vita_stubs)
+    target_compile_definitions(vita_network_tests PRIVATE __vita__ NOVELREADER_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    target_link_libraries(vita_network_tests PRIVATE reader_online CURL::libcurl Threads::Threads)
+    target_compile_options(vita_network_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME vita_network_startup COMMAND vita_network_tests)
     add_executable(reader_tests tests/reader_tests.cpp)
     target_link_libraries(reader_tests PRIVATE reader_core)
     target_compile_options(reader_tests PRIVATE -Wall -Wextra -Wpedantic)
@@ -77,7 +84,7 @@ else()
     if(NOT NOVELREADER_FREETYPE_INCLUDE)
         message(FATAL_ERROR "VitaSDK FreeType headers are required for bundled fonts")
     endif()
-    add_executable(novelreader src/main.cpp src/vita_images.cpp src/vita_fonts.cpp)
+    add_executable(novelreader src/main.cpp src/vita_images.cpp src/vita_fonts.cpp src/vita_ui.cpp)
     target_include_directories(novelreader PRIVATE "${NOVELREADER_FREETYPE_INCLUDE}")
     # Leave space for vita-elf-create's import metadata between load segments.
     target_link_options(novelreader PRIVATE -Wl,--defsym=__sce_headroom=0x10000)
@@ -95,6 +102,7 @@ else()
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
         VERSION "00.70" NAME "Novel Reader"
         FILE assets/welcome.txt welcome.txt
+        FILE assets/ui/moonlit.png ui/moonlit.png
         FILE assets/fonts/SourceSans3-Regular.ttf fonts/SourceSans3-Regular.ttf
         FILE assets/fonts/SourceSans3-Semibold.ttf fonts/SourceSans3-Semibold.ttf
         FILE assets/fonts/Literata-Regular.ttf fonts/Literata-Regular.ttf

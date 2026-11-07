@@ -39,9 +39,9 @@ int main() {
               display_coordinate(960, 0, 1919, 960) == 480, "Touch display scaling");
         check(display_coordinate(50, 100, 2019, 960) == 0 && display_coordinate(3000, 100, 2019, 960) == 959,
               "Touch coordinate clamping");
-        check(toolbar_hit(28,464,4)==0 && toolbar_hit(931,535,4)==3,"Native toolbar boundary hit");
+        check(toolbar_hit(28,500,4)==0 && toolbar_hit(931,543,4)==3,"Native toolbar boundary hit");
         check(toolbar_hit(180,500,6)==1 && toolbar_hit(176,500,6)==-1,"Toolbar gap activated an action");
-        check(toolbar_hit(936,500,4)==-1 && toolbar_hit(100,463,4)==-1 && toolbar_hit(100,536,4)==-1,
+        check(toolbar_hit(936,500,4)==-1 && toolbar_hit(100,499,4)==-1 && toolbar_hit(100,544,4)==-1,
               "Toolbar hit outside bounds");
         check(list_row_hit(100, 96, 40, 610, 96, 57, 53) == 0 &&
               list_row_hit(100, 153, 40, 610, 96, 57, 53) == 1, "Library row selection");
@@ -65,7 +65,7 @@ int main() {
               "Last options page exposes an invalid action");
         for (int count=1;count<=6;++count) for (int item=0;item<count;++item) {
             const auto target=reader::ui::toolbar_button(item,count);
-            check(target.height>=64 && target.width>=140,"Toolbar target is too small");
+            check(target.height>=44 && target.width>=140,"Toolbar target is too small");
             check(toolbar_hit(target.x,target.y,count)==item &&
                 toolbar_hit(target.x+target.width-1,target.y+target.height-1,count)==item,
                 "Visible toolbar and hit regions disagree");
@@ -74,6 +74,21 @@ int main() {
               "Four-row list boundaries are wrong");
         check(reader::ui::library_top+reader::ui::page_size*reader::ui::library_pitch<reader::ui::toolbar_top,
               "Book rows overlap toolbar");
+        for(int i=0;i<reader::ui::grid_page_size;++i) {
+            const auto cover=reader::ui::grid_book(i);
+            check(reader::ui::grid_hit(cover.x+cover.width/2,cover.y+cover.height/2,8)==i,
+                  "Cover grid selects the wrong book");
+            check(cover.x>reader::ui::sidebar_width && cover.y+cover.height<reader::ui::toolbar_top,
+                  "Cover overlaps navigation or footer");
+            check(reader::ui::grid_hit(cover.x+cover.width,cover.y,8)==-1,"Cover gutter opens a book");
+        }
+        check(reader::ui::grid_hit(412,142,1)==-1 && reader::ui::grid_hit(100,200,8)==-1,
+              "Empty grid cells or sidebar open a book");
+        for(int i=0;i<6;++i) {
+            const auto nav=reader::ui::sidebar_item(i);
+            check(nav.x>=0 && nav.x+nav.width<reader::ui::sidebar_width && nav.y+nav.height<reader::ui::toolbar_top,
+                  "Sidebar navigation overlaps content");
+        }
         for (std::size_t lines=1;lines<=5;++lines)
             check(reader::ui::feedback_height(lines,false,true)-16>=64,"A short error makes Retry too small to tap");
         std::size_t chapter = 99;
