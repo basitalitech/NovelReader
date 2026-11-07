@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -10,14 +11,17 @@ namespace reader {
 constexpr std::size_t max_book_bytes = 8 * 1024 * 1024;
 constexpr std::size_t max_chapters = 4096;
 constexpr std::size_t max_chapter_bytes = 2 * 1024 * 1024;
+constexpr std::size_t max_image_bytes = 8 * 1024 * 1024;
 
 enum TextStyle : unsigned { Plain = 0, Emphasis = 1, Strong = 2, Heading = 4 };
 struct StyleSpan { std::size_t begin, end; unsigned style; };
+struct Illustration { std::size_t offset; std::string label, path; };
 
 struct Book {
     std::string title;
     std::string text; // Normalized UTF-8; positions always refer to these bytes.
     std::vector<StyleSpan> styles;
+    std::vector<Illustration> illustrations;
 };
 
 struct Chapter { std::string title, path; };
@@ -25,6 +29,7 @@ struct Publication {
     std::string title, author, path;
     bool epub = false;
     std::vector<Chapter> chapters; // OPF spine order; chapter contents load on demand.
+    std::string cover_path;
 };
 
 struct Line {
@@ -36,6 +41,8 @@ struct Settings {
     int font = 1;    // Small, medium, large.
     int spacing = 1; // Compact, normal, relaxed.
     int theme = 0;   // Night, paper, sepia.
+    int library_sort = 0;
+    int library_filter = 0;
 };
 
 struct Progress {
@@ -44,7 +51,29 @@ struct Progress {
     std::size_t bookmark = 0;
     std::size_t chapter = 0;
     std::size_t bookmark_chapter = 0;
+    int percent = -1; // Unknown for legacy saves; EPUB estimate weights chapters equally.
+    std::uint64_t last_read = 0; // Unix time, updated by the frontend on reading actions.
 };
+
+enum class LibrarySort { Title, Recent, Progress };
+enum class LibraryFilter { All, Reading, Finished };
+struct LibraryItem {
+    std::string filename, title, path, author, cover_path, error;
+    std::size_t chapters = 1;
+    Progress progress;
+    bool guide = false;
+};
+std::vector<std::size_t> library_order(const std::vector<LibraryItem>& items, LibrarySort sort, LibraryFilter filter);
+bool reading_started(const Progress& progress);
+int reading_percent(std::size_t chapter, std::size_t chapters, std::size_t offset,
+                    std::size_t text_size, bool final_page);
+
+enum class ImageFormat { Png, Jpeg };
+struct ImageInfo { ImageFormat format = ImageFormat::Png; unsigned width = 0, height = 0; };
+// Validates headers/dimensions before decoding; the image decoder still validates the full stream.
+bool inspect_image(const std::string& bytes, ImageInfo& image, std::string& error);
+bool load_epub_image(const std::string& archive_path, const std::string& image_path,
+                     std::string& bytes, std::string& error);
 
 using Measure = std::function<int(const std::string&)>;
 

@@ -132,7 +132,7 @@ bool load_book(const std::string& path, Book& book, std::string& error) {
     if (normalized.find_first_not_of(" \n") == std::string::npos) {
         error = "This book contains no readable text."; return false;
     }
-    book = {title_from_filename(path), std::move(normalized), {}};
+    book = {title_from_filename(path), std::move(normalized), {}, {}};
     return true;
 }
 
@@ -187,19 +187,24 @@ Progress load_progress(const std::string& path) {
     std::uint64_t chapter = 0, bookmark_chapter = 0;
     int has_bookmark = 0;
     if (!(input >> magic >> offset >> has_bookmark >> bookmark) ||
-        (magic != "NRP1" && magic != "NRP2") ||
+        (magic != "NRP1" && magic != "NRP2" && magic != "NRP3") ||
         offset > max_book_bytes * 4 || bookmark > max_book_bytes * 4 ||
         (has_bookmark != 0 && has_bookmark != 1)) return {};
-    if (magic == "NRP2" && (!(input >> chapter >> bookmark_chapter) ||
+    if (magic != "NRP1" && (!(input >> chapter >> bookmark_chapter) ||
         chapter >= max_chapters || bookmark_chapter >= max_chapters)) return {};
+    int percent = -1;
+    std::uint64_t last_read = 0;
+    if (magic == "NRP3" && (!(input >> percent >> last_read) || percent < -1 || percent > 100 ||
+        last_read > UINT64_C(32503680000))) return {};
     return {static_cast<std::size_t>(offset), has_bookmark == 1, static_cast<std::size_t>(bookmark),
-            static_cast<std::size_t>(chapter), static_cast<std::size_t>(bookmark_chapter)};
+            static_cast<std::size_t>(chapter), static_cast<std::size_t>(bookmark_chapter), percent, last_read};
 }
 
 bool save_progress(const std::string& path, const Progress& progress) {
     std::ostringstream output;
-    output << "NRP2\n" << progress.offset << ' ' << progress.has_bookmark << ' ' << progress.bookmark
-           << ' ' << progress.chapter << ' ' << progress.bookmark_chapter << '\n';
+    output << "NRP3\n" << progress.offset << ' ' << progress.has_bookmark << ' ' << progress.bookmark
+           << ' ' << progress.chapter << ' ' << progress.bookmark_chapter << ' ' << progress.percent
+           << ' ' << progress.last_read << '\n';
     return atomic_write(path, output.str());
 }
 
@@ -207,17 +212,22 @@ Settings load_settings(const std::string& path) {
     std::ifstream input(path);
     std::string magic;
     Settings result;
-    if (!(input >> magic >> result.font >> result.spacing >> result.theme) || magic != "NRS1") return {};
+    if (!(input >> magic >> result.font >> result.spacing >> result.theme) ||
+        (magic != "NRS1" && magic != "NRS2")) return {};
+    if (magic == "NRS2" && !(input >> result.library_sort >> result.library_filter)) return {};
     result.font = bounded(result.font);
     result.spacing = bounded(result.spacing);
     result.theme = bounded(result.theme);
+    result.library_sort = bounded(result.library_sort);
+    result.library_filter = bounded(result.library_filter);
     return result;
 }
 
 bool save_settings(const std::string& path, const Settings& settings) {
     std::ostringstream output;
-    output << "NRS1\n" << bounded(settings.font) << ' ' << bounded(settings.spacing) << ' '
-           << bounded(settings.theme) << '\n';
+    output << "NRS2\n" << bounded(settings.font) << ' ' << bounded(settings.spacing) << ' '
+           << bounded(settings.theme) << ' ' << bounded(settings.library_sort) << ' '
+           << bounded(settings.library_filter) << '\n';
     return atomic_write(path, output.str());
 }
 

@@ -1,9 +1,9 @@
 # Novel Reader for PS Vita
 
-A local light novel reader built with C++14, VitaSDK, and vita2d. Version 0.2
+A local light novel reader built with C++14, VitaSDK, and vita2d. Version 0.3
 reads **UTF-8 TXT and DRM-free EPUB** books entirely offline, with chapter
-navigation and saved reading positions. Online sources and Lua parsers are
-future work.
+navigation, cover previews, library filters, and a zoomable illustration viewer.
+Online sources and Lua parsers are future work.
 
 ## Install and read
 
@@ -14,17 +14,22 @@ future work.
 
 The bundled welcome guide is always available in the library. Books are scanned
 directly in the books folder; subfolders are not scanned. File names become
-library titles, with underscores replaced by spaces. After opening an EPUB, its
-metadata title replaces the filename in the current library session. Its title
-and author appear in the reader. Uppercase `.TXT` and `.EPUB` extensions work.
+library titles for TXT books, with underscores replaced by spaces. EPUB metadata
+is read when scanning the library, so titles and authors are available before
+opening a book. Uppercase `.TXT` and `.EPUB` extensions work.
 
 | Screen | Controls |
 | --- | --- |
 | Library | Up/Down: browse; Cross: read; Triangle: refresh |
+| Library | Square: cycle Title/Recent/Progress sorting; L/R: cycle All/Reading/Finished filters |
 | Reader | Left/Right: turn page; Up/Down: move one line |
 | EPUB reader | L/R: previous/next chapter; Cross: contents |
 | TXT reader | L/R: turn page |
 | Contents | Up/Down: choose chapter; Left/Right: browse six entries; Cross: open; Circle: return |
+| Contents | Square: illustrations in the current reading chapter |
+| Illustrations | Up/Down: choose; Cross: view; Circle: contents |
+| Image viewer | Cross: zoom in; Square: zoom out; D-pad: pan; Triangle: fit |
+| Image viewer | L/R: previous/next image in chapter; Circle: illustration list |
 | Reader | Square: set/replace bookmark; Select: jump to bookmark |
 | Reader | Triangle: settings; Circle: library |
 | Settings | Up/Down: select; Left/Right: adjust; Circle/Cross/Triangle: apply |
@@ -35,13 +40,35 @@ library. Each book has one bookmark and an independent reading position. EPUB
 positions and bookmarks include the chapter and a text offset within it; jumping
 to a bookmark in another chapter opens that chapter. Font and spacing changes
 preserve the text position rather than a page number. Existing TXT saves from
-version 0.1 are read automatically and upgraded on the next save.
+versions 0.1 and 0.2 are read automatically and upgraded on the next save.
 Night, Paper, and Sepia themes are available. Saves live in
 `ux0:data/NovelReader/progress/`; settings live in
 `ux0:data/NovelReader/settings.txt`. Renaming a book gives it a new save identity.
 Replacing a book's contents or changing its chapter order may invalidate its old
 position. Out-of-range saved chapters return to the beginning; out-of-range
 bookmarks are disabled.
+
+## Library
+
+- Six books per page, with a selected-book cover preview, author, and chapter
+  count. EPUB 3 `cover-image` and EPUB 2 `meta name="cover"` references are
+  supported. TXT books and books without readable covers get a drawn placeholder.
+- Title sorting ignores ASCII letter case. Recent sorting uses last-read time;
+  Progress sorting places the highest saved percentages first. Ties resolve by
+  title and filename. The bundled guide is last in All books and omitted from
+  Reading/Finished filters.
+- Sort and filter preferences survive restarts. Reading includes books opened
+  in this version, plus legacy saves with a nonzero position. Finished means
+  the last page of the final chapter has been displayed. Returning to an earlier
+  page changes the saved percentage and Reading/Finished classification.
+- Progress bars show saved progress. EPUB percentages estimate progress by
+  weighting chapters equally, then using the text offset within the current
+  chapter; they are not a precise word-count percentage. TXT progress uses its
+  text offset. Legacy saves show Continue reading until reopened.
+- Metadata scanning is synchronous on launch and refresh. Only the selected
+  cover is decoded, and changing selection releases the previous cover. Broken
+  books remain listed with an error so one file does not hide the rest of the
+  library. There is no persistent metadata cache yet.
 
 ## EPUB reading
 
@@ -62,15 +89,38 @@ bookmarks are disabled.
 - Paragraphs, headings, explicit line breaks, bold, and emphasis are retained.
   Headings use the accent color, bold uses a second glyph pass, and emphasis is
   underlined using the system font. Scripts, styles, and ruby annotations are
-  omitted; ruby base text remains. Images show an illustration/alt-text marker.
-- CSS, custom fonts, exact publisher layouts, and actual image rendering are not
-  supported. XHTML must be well-formed UTF-8 XML. XML/numeric entities and common
+  omitted; ruby base text remains. Images keep an illustration/alt-text marker
+  in the text to preserve existing reading positions. Open **Cross → Square**
+  from the reader to view the current chapter's images.
+- CSS, custom fonts, and exact publisher layouts are not supported. XHTML must
+  be well-formed UTF-8 XML. XML/numeric entities and common
   named XHTML entities are supported; external DTDs are never loaded.
+
+## Illustrations
+
+The illustration list follows image occurrence order in the current chapter,
+including raster images referenced by SVG `<image>` wrappers. Paths are resolved
+relative to the chapter document, including parent directories and URL-encoded
+filenames. External images are not fetched.
+
+The viewer supports embedded PNG and JPEG images, fits them to the screen, and
+zooms from 1× to 4× the fitted size. Pan is clamped to the image edges; smaller
+axes stay centered. The image is clipped to the viewing area, leaving controls
+visible. Viewing images does not move the reading position or bookmark.
+
+Each image is limited to 8 MiB encoded, 4,096 pixels per side, and 4 megapixels
+total. Headers are checked before GPU allocation; the PNG/JPEG decoder then
+validates the full stream. Failed loads keep the current image/reader state and
+show an error. A cover or viewer texture is released when leaving its screen;
+replacing a viewer image temporarily retains the old texture until the new one
+has decoded successfully. Full SVG artwork, GIF, WebP, animation, EXIF rotation,
+and automatic downsampling of larger images are not implemented.
 
 ## Build
 
 Set `VITASDK` to your VitaSDK installation. The installed SDK needs vita2d and
-its FreeType, PNG, JPEG, and zlib dependencies. XML and ZIP readers are vendored;
+its FreeType, PNG (with simplified read API), TurboJPEG, JPEG, and zlib dependencies.
+XML and ZIP readers are vendored;
 see [dependency versions and licenses](third_party/README.md). No downloads are
 made during configuration or building.
 
@@ -103,8 +153,9 @@ ctest --test-dir build/host --output-on-failure
   resulting chapter text. Formatting is capped at 100,000 style spans. ZIP
   stored/deflated entries are accepted and their checksums verified. Encrypted
   chapter content is unsupported; font obfuscation does not block text reading.
-- Horizontal text; glyph coverage follows the Vita system font. No rendered
-  illustrations, PDF, TXT chapter detection, search, or touch controls yet.
+- Horizontal text; glyph coverage follows the Vita system font. No PDF, TXT
+  chapter detection, search, or touch controls yet. Illustrations use a separate
+  viewer rather than inline page layout.
 - Layout is synchronous when opening a book or applying settings. Large books
   can take time to paginate. EPUB pagination is limited to the current chapter.
 - Saves use a temporary file and rename; failed writes are shown in the reader.
@@ -118,15 +169,23 @@ ctest --test-dir build/host --output-on-failure
 - [EPUB loader](src/epub.cpp): bounded ZIP reads, container/package metadata,
   spine/navigation parsing, and XHTML conversion; no archive extraction to disk.
 - [Vita frontend](src/main.cpp): filesystem library scan, system font rendering,
-  controller navigation, and reader settings.
+  library controls, image viewing, controller navigation, and reader settings.
+- [Library logic](src/library.cpp): deterministic sorting/filtering and saved
+  progress estimates.
+- [Image validation](src/image_info.cpp) and [Vita decoder](src/vita_images.cpp):
+  bounded image headers and PNG/TurboJPEG decoding into GPU textures.
 - [Core tests](tests/reader_tests.cpp): malformed text, wrapping, reflow anchors,
   save replacement, corrupt state, and file size limits.
 - [EPUB tests](tests/epub_tests.cpp): generated stored/deflated ZIP fixtures,
   spine order, navigation labels, formatting, legacy saves, lazy chapter reads,
   corrupt ZIP/XML, encrypted chapters, path handling, and expansion limits.
+- [Library and image tests](tests/library_tests.cpp): filters, sorting, progress
+  estimates, preference/save migration, image dimensions, and malformed headers.
+  Desktop tests cover transport and headers; actual GPU image decoding and
+  zoom/pan controls need Vita hardware testing.
 
-Next local milestone: embedded illustrations with zoom, followed by cover art and
-library sorting/progress indicators.
+Next local milestones: a metadata/thumbnail cache for larger libraries, more
+image formats/downsampling, and search.
 Future online sources can use Lua adapters for catalogue/search/chapter fetching.
 Downloaded chapters should enter the local library so offline reading uses the
 same reader. No Lua runtime or network code is included yet.

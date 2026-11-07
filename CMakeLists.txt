@@ -8,7 +8,7 @@ if(NOT NOVELREADER_HOST_TESTS AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VITASDK}/share/vita.toolchain.cmake" CACHE PATH "Vita toolchain")
 endif()
 
-project(NovelReader VERSION 0.2.0 LANGUAGES C CXX)
+project(NovelReader VERSION 0.3.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -24,7 +24,7 @@ else()
     target_link_libraries(epub_dependencies PUBLIC z)
 endif()
 
-add_library(reader_core src/reader.cpp src/epub.cpp)
+add_library(reader_core src/reader.cpp src/epub.cpp src/library.cpp src/image_info.cpp)
 target_link_libraries(reader_core PRIVATE epub_dependencies)
 target_include_directories(reader_core PUBLIC include)
 target_compile_options(reader_core PRIVATE -Wall -Wextra -Wpedantic)
@@ -39,17 +39,21 @@ if(NOVELREADER_HOST_TESTS)
     target_link_libraries(epub_tests PRIVATE reader_core epub_dependencies)
     target_compile_options(epub_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME epub_reader COMMAND epub_tests)
+    add_executable(library_tests tests/library_tests.cpp)
+    target_link_libraries(library_tests PRIVATE reader_core)
+    target_compile_options(library_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME library_and_images COMMAND library_tests)
 else()
     include("${VITASDK}/share/vita.cmake" REQUIRED)
-    add_executable(novelreader src/main.cpp)
+    add_executable(novelreader src/main.cpp src/vita_images.cpp)
     target_compile_options(novelreader PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(novelreader PRIVATE reader_core vita2d
         SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub
         ScePgf_stub ScePvf_stub SceCommonDialog_stub SceAppMgr_stub
         SceIofilemgr_stub ScePower_stub SceProcessmgr_stub
-        freetype png jpeg z m)
+        freetype png turbojpeg jpeg z m)
     vita_create_self(eboot.bin novelreader UNSAFE)
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
-        VERSION "00.20" NAME "Novel Reader"
+        VERSION "00.30" NAME "Novel Reader"
         FILE assets/welcome.txt welcome.txt)
 endif()

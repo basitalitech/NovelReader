@@ -6,6 +6,10 @@ Copy UTF-8 .txt novels or DRM-free .epub books into ux0:data/NovelReader/books/ 
 
 Press CROSS to open a book. Your last reading position is restored automatically. Books stay on your memory card and work entirely offline.
 
+In the library, SQUARE cycles Title, Recent, and Progress sorting. L and R switch between All books, Reading, and Finished. Your sort and filter are saved. EPUB titles and authors are read during scanning; the selected book's cover appears beside the list.
+
+Library progress bars show saved reading progress. EPUB percentages estimate progress by weighting chapters equally. Finished means the final page was displayed. Moving back to an earlier page updates that status.
+
 Getting comfortable
 
 Use LEFT and RIGHT to turn pages. UP and DOWN move one line at a time. Hold a direction to keep moving. In TXT books, the shoulder buttons also turn pages.
@@ -20,14 +24,22 @@ Press CIRCLE to return to your library. Press START to save and exit. Reading po
 
 Preparing your books
 
-This version reads plain UTF-8 text, with or without a UTF-8 byte order mark. Both Windows and Unix line endings are supported. Books may be up to 8 MiB each. Subfolders are not scanned yet.
+This version reads plain UTF-8 text, with or without a UTF-8 byte order mark. Both Windows and Unix line endings are supported. TXT books may be up to 8 MiB each. Subfolders are not scanned yet.
 
-EPUB chapters load one at a time in the book's reading order. The reader preserves paragraphs, headings, bold text, and underlined emphasis. Illustrations appear as text markers for now. Chapter documents must be well-formed UTF-8 XHTML and at most 2 MiB each.
+EPUB chapters load one at a time in the book's reading order. The reader preserves paragraphs, headings, bold text, and underlined emphasis. Chapter documents must be well-formed UTF-8 XHTML and at most 2 MiB each.
 
-Illustration rendering, vertical writing, CSS layouts, and ruby annotations are not implemented yet. Font coverage depends on the Vita system font. Convert other formats to UTF-8 TXT before copying them here.
+Viewing illustrations
+
+While reading an EPUB, press CROSS for contents, then SQUARE for illustrations in the current chapter. Choose an image and press CROSS to view it. Your reading position and bookmark stay unchanged.
+
+In the viewer, CROSS zooms in, SQUARE zooms out, and the D-pad pans. TRIANGLE fits the image to the screen. L and R show the previous and next image in the chapter. CIRCLE returns to the image list.
+
+PNG and JPEG are supported, up to 8 MiB encoded, 4096 pixels per side, and 4 megapixels total. Missing, damaged, or unsupported images show an error. Image markers remain in the reading text so old reading positions continue to work.
+
+Vertical writing, CSS layouts, and ruby annotations are not implemented yet. Font coverage depends on the Vita system font. Convert other formats to UTF-8 TXT before copying them here.
 
 The next chapter
 
-The reader core is separate from the Vita interface. Illustration viewing and library polish are next. Online catalogues and Lua source parsers are planned for future work.
+The reader core is separate from the Vita interface. Library caching, more image formats, and search are future local improvements. Online catalogues and Lua source parsers are planned for future work.
 
 Until then, find a comfortable spot and enjoy your book.

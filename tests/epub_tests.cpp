@@ -132,6 +132,9 @@ int main() {
         check(book.text.find("\xe6\x97\xa5\xe6\x9c\xac") != std::string::npos, "Numeric UTF-8 entities");
         check(book.text.find("Hidden") == std::string::npos && book.text.find("Base") != std::string::npos, "Hidden content filtering");
         check(book.text.find("[Illustration: A moonlit lake]") != std::string::npos, "Image placeholder");
+        check(book.illustrations.size() == 1 && book.illustrations[0].path == "OPS/Images/cover.jpg" &&
+              book.illustrations[0].label == "A moonlit lake" &&
+              book.text.compare(book.illustrations[0].offset, 14, "[Illustration:") == 0, "Illustration path or position");
         check(has_style(book, "First chapter", reader::Heading | reader::Strong), "Heading formatting");
         check(has_style(book, "world", reader::Emphasis | reader::Strong), "Nested emphasis formatting");
         check(reader::load_chapter(publication, 1, book, error) && book.text.find("The end.") != std::string::npos,
@@ -198,6 +201,42 @@ int main() {
         check(!reader::open_publication(path, publication, error), "Malformed XML accepted");
         entries = fixture(); entries[0].text = "not an epub"; zip(path, entries);
         check(!reader::open_publication(path, publication, error), "Wrong mimetype accepted");
+
+        // Header-valid image payload suffices for archive transport tests. The
+        // Vita PNG/JPEG decoder subsequently checks the full encoded stream.
+        std::string image("\x89PNG\r\n\x1a\n", 8);
+        image.append("\0\0\0\x0dIHDR", 8); image.append(17, '\0'); image[19] = 2; image[23] = 1;
+        entries = fixture();
+        replace(entries[2].text, "</manifest>",
+            "<item id=\"cover\" href=\"Images/cover.png\" media-type=\"image/png\" properties=\"cover-image\"/></manifest>");
+        entries.push_back({"OPS/Images/cover.png", image});
+        zip(path, entries);
+        check(reader::open_publication(path, publication, error) && publication.cover_path == "OPS/Images/cover.png", "EPUB3 cover metadata");
+        std::string bytes;
+        check(reader::load_epub_image(path, publication.cover_path, bytes, error) && bytes == image, "Read cover image from archive");
+        replace(entries[2].text, " properties=\"cover-image\"", "");
+        replace(entries[2].text, "</metadata>", "<meta name=\"cover\" content=\"cover\"/></metadata>");
+        zip(path, entries);
+        check(reader::open_publication(path, publication, error) && publication.cover_path == "OPS/Images/cover.png", "EPUB2 cover metadata");
+        entries.back().bad_crc = true; zip(path, entries);
+        check(!reader::load_epub_image(path, "OPS/Images/cover.png", bytes, error), "Damaged image archive checksum accepted");
+        entries.back().bad_crc = false;
+        entries.back().text = std::string(reader::max_image_bytes + 1, 'x'); zip(path, entries);
+        check(!reader::load_epub_image(path, "OPS/Images/cover.png", bytes, error), "Oversized image archive entry accepted");
+        check(!reader::load_epub_image(path, "OPS/Images/missing.png", bytes, error), "Missing image accepted");
+        check(!reader::load_epub_image(path, "../image.png", bytes, error), "Image outside archive root accepted");
+        check(!reader::load_epub_image(path, "https://example.com/image.png", bytes, error), "Remote image accepted");
+        entries = fixture();
+        replace(entries[4].text, "../Images/cover.jpg", "https://example.com/cover.jpg");
+        zip(path, entries);
+        check(reader::open_publication(path, publication, error) && reader::load_chapter(publication, 0, book, error) &&
+              book.illustrations.size() == 1 && book.illustrations[0].path.empty(), "Remote image blocked chapter text");
+        entries = fixture();
+        replace(entries[4].text, "<img alt=\"A moonlit lake\" src=\"../Images/cover.jpg\"/>",
+            "<svg xmlns:xlink=\"http://www.w3.org/1999/xlink\"><image xlink:href=\"../Images/scene%20one.png\"/></svg>");
+        zip(path, entries);
+        check(reader::open_publication(path, publication, error) && reader::load_chapter(publication, 0, book, error) &&
+              book.illustrations.size() == 1 && book.illustrations[0].path == "OPS/Images/scene one.png", "Raster image in SVG wrapper");
         { std::ofstream file(path); file << "not a zip"; }
         check(!reader::open_publication(path, publication, error), "Non-ZIP EPUB accepted");
         std::cout << "EPUB tests passed\n";

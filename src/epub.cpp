@@ -216,6 +216,7 @@ std::string compact(const std::string& input) {
 
 class TextBuilder {
 public:
+    explicit TextBuilder(std::string base) : base_(std::move(base)) { }
     Book book;
     void text(const std::string& input, unsigned style) {
         for (std::size_t i = 0; i < input.size();) {
@@ -258,6 +259,14 @@ public:
         if (tag == "img" || tag == "image") {
             block();
             const auto alt = compact(attr(element, "alt"));
+            if (book.illustrations.size() >= 1024) throw std::runtime_error("Too many illustrations in this chapter.");
+            std::string path;
+            const auto reference = attr(element, tag == "img" ? "src" : "href");
+            if (!reference.empty()) {
+                try { path = resolve(base_, reference); } catch (const std::runtime_error&) { }
+            }
+            book.illustrations.push_back({book.text.size(), alt.empty() ? "Illustration " +
+                std::to_string(book.illustrations.size() + 1) : alt, path});
             text(alt.empty() ? "[Illustration]" : "[Illustration: " + alt + "]", Emphasis);
             block(); return;
         }
@@ -278,6 +287,7 @@ private:
         else book.styles.push_back({begin, book.text.size(), style});
     }
     bool pending_ = false;
+    std::string base_;
 };
 
 void navigation_labels(Archive& archive, const std::string& path, bool ncx,
@@ -355,7 +365,9 @@ bool open_publication(const std::string& path, Publication& publication, std::st
         struct Item { std::string path, media; };
         std::map<std::string, Item> manifest;
         const auto* manifest_xml = child(package.RootElement(), "manifest");
-        std::string nav_path;
+        std::string nav_path, cover_id;
+        if (metadata) for (auto* e = metadata->FirstChildElement(); e; e = e->NextSiblingElement())
+            if (local(e->Name()) == "meta" && attr(e, "name") == "cover") cover_id = attr(e, "content");
         if (manifest_xml) for (auto* e = manifest_xml->FirstChildElement(); e; e = e->NextSiblingElement()) {
             if (local(e->Name()) != "item") continue;
             const auto id = attr(e, "id"), href = attr(e, "href");
@@ -367,6 +379,11 @@ bool open_publication(const std::string& path, Publication& publication, std::st
             if (!manifest.emplace(id, Item{resolved, attr(e, "media-type")}).second)
                 throw std::runtime_error("EPUB manifest contains duplicate IDs.");
             if (token(attr(e, "properties"), "nav")) nav_path = resolved;
+            if (token(attr(e, "properties"), "cover-image")) result.cover_path = resolved;
+        }
+        if (result.cover_path.empty()) {
+            const auto cover = manifest.find(cover_id);
+            if (cover != manifest.end()) result.cover_path = cover->second.path;
         }
         const auto* spine = child(package.RootElement(), "spine");
         if (!spine) throw std::runtime_error("EPUB has no reading order.");
@@ -406,13 +423,30 @@ bool load_chapter(const Publication& publication, std::size_t index, Book& chapt
               "Chapter is not valid UTF-8 XHTML (or may be encrypted).");
         const auto* body = child(document.RootElement(), "body");
         if (!body) throw std::runtime_error("EPUB chapter has no XHTML body.");
-        TextBuilder builder;
+        TextBuilder builder(publication.chapters[index].path);
         builder.walk(body);
         if (builder.book.text.empty()) builder.text("[This section contains no text.]", Emphasis);
         // Whitespace at the end adds no useful pages. Styled offsets remain valid.
         while (!builder.book.text.empty() && builder.book.text.back() == '\n') builder.book.text.pop_back();
         if (builder.book.title.empty()) builder.book.title = publication.chapters[index].title;
         chapter = std::move(builder.book);
+        return true;
+    } catch (const std::exception& exception) { error = exception.what(); return false; }
+}
+
+bool load_epub_image(const std::string& archive_path, const std::string& image_path,
+                     std::string& bytes, std::string& error) {
+    error.clear();
+    try {
+        if (image_path.empty() || image_path.front() == '/' || image_path.find_first_of(":\\") != std::string::npos ||
+            image_path == ".." || image_path.compare(0, 3, "../") == 0 || image_path.find("/../") != std::string::npos ||
+            image_path.find('\0') != std::string::npos)
+            throw std::runtime_error("This illustration has no supported local image path.");
+        Archive archive(archive_path);
+        auto data = archive.read(image_path, max_image_bytes);
+        ImageInfo info;
+        if (!inspect_image(data, info, error)) return false;
+        bytes = std::move(data);
         return true;
     } catch (const std::exception& exception) { error = exception.what(); return false; }
 }

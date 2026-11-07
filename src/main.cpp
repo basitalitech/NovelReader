@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "vita_images.hpp"
 
 #include <psp2/ctrl.h>
 #include <psp2/io/dirent.h>
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <exception>
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -24,7 +26,6 @@ const std::string books_directory = root + "/books";
 const std::string progress_directory = root + "/progress";
 const std::string settings_path = root + "/settings.txt";
 
-struct Entry { std::string filename, title, path; bool started = false; };
 struct Palette { unsigned background, panel, text, muted, accent; };
 constexpr unsigned rgb(unsigned r, unsigned g, unsigned b) {
     return r | (g << 8) | (b << 16) | 0xff000000u;
@@ -38,13 +39,16 @@ const Palette palettes[] = {
      rgb(113, 90, 61), rgb(115, 66, 36)}
 };
 
-enum class Screen { Library, Reader, Settings, Contents };
+enum class Screen { Library, Reader, Settings, Contents, Illustrations, Image };
 
 class App {
 public:
     explicit App(vita2d_pgf* font) : font_(font), settings_(reader::load_settings(settings_path)) {
+        sort_ = static_cast<reader::LibrarySort>(settings_.library_sort);
+        filter_ = static_cast<reader::LibraryFilter>(settings_.library_filter);
         scan();
     }
+    ~App() { release_image(); }
 
     void draw() {
         const auto& color = palette();
@@ -54,6 +58,8 @@ public:
         if (screen_ == Screen::Library) draw_library();
         else if (screen_ == Screen::Reader) draw_reader();
         else if (screen_ == Screen::Contents) draw_contents();
+        else if (screen_ == Screen::Illustrations) draw_illustrations();
+        else if (screen_ == Screen::Image) draw_image();
         else draw_settings();
         vita2d_end_drawing();
         vita2d_swap_buffers();
@@ -67,16 +73,31 @@ public:
         }
         if (screen_ == Screen::Library) {
             if ((pressed & SCE_CTRL_UP) && selected_ > 0) --selected_;
-            if ((pressed & SCE_CTRL_DOWN) && selected_ + 1 < entries_.size()) ++selected_;
+            if ((pressed & SCE_CTRL_DOWN) && selected_ + 1 < order_.size()) ++selected_;
+            if (pressed & SCE_CTRL_SQUARE) {
+                const auto keep = selected_filename();
+                sort_ = static_cast<reader::LibrarySort>((static_cast<int>(sort_) + 1) % 3);
+                refresh_library(keep);
+                save_library_preferences();
+            }
+            if (pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER)) {
+                const auto step = pressed & SCE_CTRL_RTRIGGER ? 1 : 2;
+                filter_ = static_cast<reader::LibraryFilter>((static_cast<int>(filter_) + step) % 3);
+                selected_ = 0; refresh_library("");
+                save_library_preferences();
+            }
             if (pressed & SCE_CTRL_TRIANGLE) scan();
-            if ((pressed & SCE_CTRL_CROSS) && !entries_.empty()) open();
+            update_cover();
+            if ((pressed & SCE_CTRL_CROSS) && !order_.empty()) open();
         } else if (screen_ == Screen::Reader) {
             if (pressed & SCE_CTRL_CIRCLE) {
                 save(); screen_ = Screen::Library;
                 book_ = {};
                 publication_ = {};
                 std::vector<reader::Line>().swap(lines_);
+                refresh_library(active_filename_);
                 active_filename_.clear();
+                update_cover();
             }
             else if (pressed & SCE_CTRL_TRIANGLE) {
                 setting_row_ = 0; previous_settings_ = settings_; screen_ = Screen::Settings;
@@ -130,10 +151,37 @@ public:
             if (pressed & SCE_CTRL_LEFT) contents_selected_ = contents_selected_ > 6 ? contents_selected_ - 6 : 0;
             if (pressed & SCE_CTRL_RIGHT) contents_selected_ = std::min(contents_selected_ + 6, publication_.chapters.size() - 1);
             if (pressed & SCE_CTRL_CIRCLE) { screen_ = Screen::Reader; message_.clear(); }
+            if (pressed & SCE_CTRL_SQUARE) {
+                illustration_selected_ = 0;
+                // Start near the currently visible illustration, if any.
+                for (std::size_t i = 0; i < book_.illustrations.size(); ++i)
+                    if (book_.illustrations[i].offset <= lines_[top_].offset) illustration_selected_ = i;
+                screen_ = Screen::Illustrations; message_.clear();
+            }
             if (pressed & SCE_CTRL_CROSS) {
                 if (contents_selected_ == chapter_ || change_chapter(contents_selected_, 0)) {
                     screen_ = Screen::Reader; save();
                 }
+            }
+        } else if (screen_ == Screen::Illustrations) {
+            if ((pressed & SCE_CTRL_UP) && illustration_selected_ > 0) --illustration_selected_;
+            if ((pressed & SCE_CTRL_DOWN) && illustration_selected_ + 1 < book_.illustrations.size()) ++illustration_selected_;
+            if (pressed & SCE_CTRL_CIRCLE) { screen_ = Screen::Contents; message_.clear(); }
+            if ((pressed & SCE_CTRL_CROSS) && !book_.illustrations.empty()) show_illustration(illustration_selected_);
+        } else if (screen_ == Screen::Image) {
+            if (pressed & SCE_CTRL_CIRCLE) { release_image(); screen_ = Screen::Illustrations; message_.clear(); }
+            else {
+                if ((pressed & SCE_CTRL_LTRIGGER) && illustration_selected_ > 0) show_illustration(illustration_selected_ - 1);
+                if ((pressed & SCE_CTRL_RTRIGGER) && illustration_selected_ + 1 < book_.illustrations.size())
+                    show_illustration(illustration_selected_ + 1);
+                if (pressed & SCE_CTRL_CROSS) zoom_ = std::min(4.0f, zoom_ * 1.25f);
+                if (pressed & SCE_CTRL_SQUARE) zoom_ = std::max(1.0f, zoom_ / 1.25f);
+                if (pressed & SCE_CTRL_TRIANGLE) { zoom_ = 1.0f; pan_x_ = pan_y_ = 0; }
+                if (pressed & SCE_CTRL_LEFT) pan_x_ += 40;
+                if (pressed & SCE_CTRL_RIGHT) pan_x_ -= 40;
+                if (pressed & SCE_CTRL_UP) pan_y_ += 40;
+                if (pressed & SCE_CTRL_DOWN) pan_y_ -= 40;
+                clamp_pan();
             }
         } else {
             if ((pressed & SCE_CTRL_UP) && setting_row_ > 0) --setting_row_;
@@ -159,6 +207,68 @@ public:
     }
 
 private:
+    void save_library_preferences() {
+        settings_.library_sort = static_cast<int>(sort_);
+        settings_.library_filter = static_cast<int>(filter_);
+        if (!reader::save_settings(settings_path, settings_)) message_ = "Could not save library preferences.";
+    }
+    void release_image() {
+        if (image_) { vita2d_wait_rendering_done(); vita2d_free_texture(image_); image_ = nullptr; }
+        cover_key_.clear();
+    }
+    std::string selected_filename() const {
+        return order_.empty() ? "" : entries_[order_[selected_]].filename;
+    }
+    void refresh_library(const std::string& keep) {
+        order_ = reader::library_order(entries_, sort_, filter_);
+        selected_ = order_.empty() ? 0 : std::min(selected_, order_.size() - 1);
+        for (std::size_t i = 0; i < order_.size(); ++i)
+            if (entries_[order_[i]].filename == keep) { selected_ = i; break; }
+        release_image();
+    }
+
+    void update_cover() {
+        if (order_.empty()) { release_image(); cover_message_.clear(); return; }
+        const auto& entry = entries_[order_[selected_]];
+        if (cover_key_ == entry.filename) return;
+        release_image();
+        cover_key_ = entry.filename;
+        cover_message_.clear();
+        if (entry.cover_path.empty()) return;
+        try {
+            std::string bytes;
+            if (reader::load_epub_image(entry.path, entry.cover_path, bytes, cover_message_))
+                image_ = decode_texture(bytes, cover_message_);
+        } catch (const std::exception&) { cover_message_ = "Cover could not be loaded."; }
+    }
+
+    float fit_scale(float width, float height) const {
+        if (!image_) return 1;
+        return std::min(width / vita2d_texture_get_width(image_), height / vita2d_texture_get_height(image_));
+    }
+    void clamp_pan() {
+        if (!image_) return;
+        const auto scale = fit_scale(864, 350) * zoom_;
+        const auto limit_x = std::max(0.0f, (vita2d_texture_get_width(image_) * scale - 864) / 2);
+        const auto limit_y = std::max(0.0f, (vita2d_texture_get_height(image_) * scale - 350) / 2);
+        pan_x_ = std::max(-limit_x, std::min(limit_x, pan_x_));
+        pan_y_ = std::max(-limit_y, std::min(limit_y, pan_y_));
+    }
+
+    void show_illustration(std::size_t index) {
+        message_ = "Opening illustration..."; draw();
+        try {
+            std::string bytes, error;
+            if (!reader::load_epub_image(publication_.path, book_.illustrations[index].path, bytes, error)) {
+                message_ = error; return;
+            }
+            auto* candidate = decode_texture(bytes, error);
+            if (!candidate) { message_ = error; return; }
+            release_image(); image_ = candidate;
+            illustration_selected_ = index; zoom_ = 1; pan_x_ = pan_y_ = 0;
+            screen_ = Screen::Image; message_.clear();
+        } catch (const std::exception&) { message_ = "Not enough memory for this illustration."; }
+    }
     const Palette& palette() const { return palettes[settings_.theme]; }
     float font_scale() const { return 1.0f + settings_.font * 0.2f; }
     int line_height() const { return 26 + settings_.font * 5 + settings_.spacing * 4; }
@@ -186,7 +296,11 @@ private:
     }
 
     void scan() {
+        const auto keep = selected_filename();
+        message_ = "Scanning local books..."; draw();
+        release_image();
         entries_.clear();
+        order_.clear();
         message_.clear();
         const auto directory = sceIoDopen(books_directory.c_str());
         if (directory >= 0) {
@@ -194,40 +308,50 @@ private:
             int result = 0;
             while ((result = sceIoDread(directory, &entry)) > 0) {
                 const std::string name(entry.d_name);
-                if (SCE_S_ISREG(entry.d_stat.st_mode) && reader::is_supported_book(name))
-                    entries_.push_back({name, reader::title_from_filename(name), books_directory + '/' + name});
+                if (SCE_S_ISREG(entry.d_stat.st_mode) && reader::is_supported_book(name)) {
+                    reader::LibraryItem item;
+                    item.filename = name; item.title = reader::title_from_filename(name); item.path = books_directory + '/' + name;
+                    entries_.push_back(std::move(item));
+                }
                 entry = {};
             }
             if (result < 0) message_ = "Could not read the entire books folder.";
             sceIoDclose(directory);
         } else message_ = "Cannot open books folder. Check storage and restart.";
-        std::sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) {
-            return a.title < b.title;
-        });
         // Bundled guide is always available without modifying the user's library.
-        entries_.push_back({"@welcome", "Welcome to Novel Reader", "app0:/welcome.txt"});
+        reader::LibraryItem guide;
+        guide.filename = "@welcome"; guide.title = "Welcome to Novel Reader"; guide.path = "app0:/welcome.txt"; guide.guide = true;
+        entries_.push_back(std::move(guide));
         for (auto& item : entries_) {
-            const auto progress = reader::load_progress(reader::progress_path(progress_directory, item.filename));
-            item.started = progress.offset > 0 || progress.chapter > 0;
+            item.progress = reader::load_progress(reader::progress_path(progress_directory, item.filename));
+            if (reader::is_epub_book(item.filename)) {
+                reader::Publication metadata;
+                if (reader::open_publication(item.path, metadata, item.error)) {
+                    item.title = metadata.title; item.author = metadata.author;
+                    item.cover_path = metadata.cover_path; item.chapters = metadata.chapters.size();
+                }
+            }
         }
-        selected_ = std::min(selected_, entries_.size() - 1);
+        refresh_library(keep);
+        update_cover();
     }
 
     void open() {
+        const auto entry_index = order_[selected_];
         message_ = "Opening book...";
         draw();
         std::string error;
         try {
-            if (!reader::open_publication(entries_[selected_].path, publication_, error)) {
+            if (!reader::open_publication(entries_[entry_index].path, publication_, error)) {
                 message_ = error;
                 return;
             }
-            progress_ = reader::load_progress(reader::progress_path(progress_directory, entries_[selected_].filename));
+            progress_ = reader::load_progress(reader::progress_path(progress_directory, entries_[entry_index].filename));
             if (progress_.chapter >= publication_.chapters.size()) { progress_.chapter = 0; progress_.offset = 0; }
             if (progress_.bookmark_chapter >= publication_.chapters.size()) progress_.has_bookmark = false;
             if (!change_chapter(progress_.chapter, progress_.offset)) { publication_ = {}; return; }
-            active_filename_ = entries_[selected_].filename;
-            entries_[selected_].title = publication_.title;
+            active_filename_ = entries_[entry_index].filename;
+            entries_[entry_index].title = publication_.title;
         } catch (const std::exception&) {
             book_ = {};
             publication_ = {};
@@ -238,7 +362,9 @@ private:
             return;
         }
         message_.clear();
+        release_image();
         screen_ = Screen::Reader;
+        save();
     }
 
     bool change_chapter(std::size_t index, std::size_t offset, bool at_end = false) {
@@ -277,33 +403,66 @@ private:
         if (active_filename_.empty() || lines_.empty()) return;
         progress_.offset = lines_[top_].offset;
         progress_.chapter = chapter_;
+        progress_.percent = reader::reading_percent(chapter_, publication_.chapters.size(),
+            progress_.offset, book_.text.size(), top_ + page_lines() >= lines_.size());
+        const auto now = std::time(nullptr);
+        if (now > 0) progress_.last_read = static_cast<std::uint64_t>(now);
         if (!reader::save_progress(reader::progress_path(progress_directory, active_filename_), progress_))
             message_ = "Could not save progress. Check free space.";
         else
             for (auto& item : entries_)
-                if (item.filename == active_filename_) item.started = progress_.offset > 0 || chapter_ > 0;
+                if (item.filename == active_filename_) item.progress = progress_;
     }
 
     void draw_library() const {
-        heading("Novel Reader", "LOCAL LIBRARY  /  TXT + EPUB");
+        const char* sorts[] = {"Title", "Recent", "Progress"};
+        const char* filters[] = {"All books", "Reading", "Finished"};
+        heading("Novel Reader", std::string(filters[static_cast<int>(filter_)]) + "  /  Sort: " + sorts[static_cast<int>(sort_)]);
         const auto first = (selected_ / 6) * 6;
-        for (std::size_t i = first; i < entries_.size() && i < first + 6; ++i) {
-            const auto y = 96 + static_cast<int>(i - first) * 53;
+        for (std::size_t i = first; i < order_.size() && i < first + 6; ++i) {
+            const auto& item = entries_[order_[i]];
+            const auto y = 96 + static_cast<int>(i - first) * 57;
             if (i == selected_) {
-                vita2d_draw_rectangle(40, y, 880, 49, palette().panel);
-                vita2d_draw_rectangle(40, y, 4, 49, palette().accent);
+                vita2d_draw_rectangle(40, y, 570, 53, palette().panel);
+                vita2d_draw_rectangle(40, y, 4, 53, palette().accent);
             }
-            text(60, y + 25, palette().text, 1.0f, entries_[i].title, 720);
-            text(60, y + 43, palette().muted, 0.65f,
-                 entries_[i].filename == "@welcome" ? "Bundled guide" :
-                 entries_[i].started ? "Continue reading" :
-                 reader::is_epub_book(entries_[i].filename) ? "EPUB  /  On this Vita" : "TXT  /  On this Vita");
+            text(60, y + 24, palette().text, 0.95f, item.title, 525);
+            std::string status = item.guide ? "Guide" : reader::is_epub_book(item.filename) ? "EPUB" : "TXT";
+            if (!item.error.empty()) status += "  /  Could not read metadata";
+            else if (item.progress.percent == 100) status += "  /  Finished";
+            else if (item.progress.percent >= 0) status += "  /  " + std::to_string(item.progress.percent) + "% read";
+            else status += reader::reading_started(item.progress) ? "  /  Continue reading" : "  /  New";
+            text(60, y + 43, palette().muted, 0.65f, status, 525);
+            if (item.progress.percent >= 0) {
+                vita2d_draw_rectangle(60, y + 49, 525, 2, palette().background);
+                vita2d_draw_rectangle(60, y + 49, 525.0f * item.progress.percent / 100, 2, palette().accent);
+            }
         }
-        text(48, 438, palette().muted, 0.7f, "Copy .txt or .epub books to ux0:data/NovelReader/books/");
-        text(48, 463, palette().accent, 0.75f, message_);
-        text(48, 500, palette().muted, 0.75f, "UP/DOWN  Browse     CROSS  Read     TRIANGLE  Refresh     START  Exit");
-        text(48, 525, palette().muted, 0.65f,
-             std::to_string(selected_ + 1) + " / " + std::to_string(entries_.size()) + " books");
+        if (order_.empty()) {
+            text(60, 155, palette().text, 1.0f, "No books in this filter.", 525);
+            text(60, 190, palette().muted, 0.8f, "Use L/R to return to All books.", 525);
+        } else {
+            const auto& item = entries_[order_[selected_]];
+            vita2d_draw_rectangle(642, 96, 270, 300, palette().panel);
+            if (image_) {
+                const auto scale = fit_scale(246, 276);
+                vita2d_draw_texture_scale(image_, 777 - vita2d_texture_get_width(image_) * scale / 2,
+                    246 - vita2d_texture_get_height(image_) * scale / 2, scale, scale);
+            } else {
+                vita2d_draw_rectangle(722, 173, 108, 136, palette().background);
+                vita2d_draw_rectangle(734, 184, 3, 114, palette().accent);
+                for (int line = 0; line < 4; ++line) vita2d_draw_rectangle(750, 211 + line * 18, 62, 2, palette().muted);
+                text(675, 362, palette().muted, 0.75f, item.guide ? "Reader guide" : "No cover available", 230);
+            }
+            text(644, 420, palette().text, 0.8f, item.author.empty() ? "Local library" : item.author, 268);
+            text(644, 442, palette().muted, 0.65f, !item.error.empty() ? item.error :
+                !cover_message_.empty() ? cover_message_ : reader::is_epub_book(item.filename) ?
+                std::to_string(item.chapters) + " chapters" : "UTF-8 text", 268);
+        }
+        text(48, 471, palette().accent, 0.7f, message_.empty() ?
+            "ux0:data/NovelReader/books/  /  " + std::to_string(order_.size()) + " shown" : message_);
+        text(48, 501, palette().muted, 0.7f, "UP/DOWN  Browse   CROSS  Read   SQUARE  Sort   L/R  Filter");
+        text(48, 526, palette().muted, 0.7f, "TRIANGLE  Refresh library   START  Exit");
     }
 
     void draw_reader() const {
@@ -361,9 +520,40 @@ private:
                  std::to_string(i + 1) + ". " + publication_.chapters[i].title);
         }
         text(48, 453, palette().accent, 0.75f, message_);
-        text(48, 485, palette().muted, 0.7f, "UP/DOWN  Choose   LEFT/RIGHT  Browse   CROSS  Open   CIRCLE  Return");
+        text(48, 485, palette().muted, 0.65f, "UP/DOWN  Choose   LEFT/RIGHT  Browse   CROSS  Open   SQUARE  Illustrations   CIRCLE  Return");
         text(48, 518, palette().muted, 0.75f,
              std::to_string(contents_selected_ + 1) + " / " + std::to_string(publication_.chapters.size()) + " chapters");
+    }
+
+    void draw_illustrations() const {
+        heading("Illustrations", "Current chapter: " + publication_.chapters[chapter_].title);
+        const auto first = (illustration_selected_ / 6) * 6;
+        for (auto i = first; i < book_.illustrations.size() && i < first + 6; ++i) {
+            const auto y = 100 + static_cast<int>(i - first) * 53;
+            if (i == illustration_selected_) vita2d_draw_rectangle(40, y, 880, 49, palette().panel);
+            text(60, y + 30, palette().text, 1.0f, std::to_string(i + 1) + ". " + book_.illustrations[i].label);
+        }
+        if (book_.illustrations.empty()) text(60, 155, palette().muted, 1.0f, "This chapter has no illustrations.");
+        text(48, 453, palette().accent, 0.75f, message_);
+        text(48, 490, palette().muted, 0.75f, "UP/DOWN  Choose   CROSS  View   CIRCLE  Contents");
+        text(48, 521, palette().muted, 0.7f, "PNG and JPEG images. Your reading position stays unchanged.");
+    }
+
+    void draw_image() const {
+        heading(book_.illustrations[illustration_selected_].label,
+                std::to_string(illustration_selected_ + 1) + " / " + std::to_string(book_.illustrations.size()) + " illustrations");
+        if (image_) {
+            const auto scale = fit_scale(864, 350) * zoom_;
+            vita2d_enable_clipping();
+            vita2d_set_clip_rectangle(48, 96, 912, 446);
+            vita2d_draw_texture_scale(image_, 480 - vita2d_texture_get_width(image_) * scale / 2 + pan_x_,
+                271 - vita2d_texture_get_height(image_) * scale / 2 + pan_y_, scale, scale);
+            vita2d_disable_clipping();
+        }
+        text(48, 477, palette().accent, 0.7f, message_.empty() ?
+             std::to_string(static_cast<int>(zoom_ * 100)) + "% of fit size" : message_);
+        text(48, 505, palette().muted, 0.7f, "CROSS  Zoom in   SQUARE  Zoom out   D-PAD  Pan   TRIANGLE  Fit");
+        text(48, 530, palette().muted, 0.7f, "L/R  Previous/next illustration   CIRCLE  Illustration list");
     }
 
     void draw_settings() const {
@@ -392,7 +582,14 @@ private:
     reader::Book book_;
     reader::Publication publication_;
     reader::Progress progress_;
-    std::vector<Entry> entries_;
+    std::vector<reader::LibraryItem> entries_;
+    std::vector<std::size_t> order_;
+    reader::LibrarySort sort_ = reader::LibrarySort::Title;
+    reader::LibraryFilter filter_ = reader::LibraryFilter::All;
+    vita2d_texture* image_ = nullptr;
+    std::string cover_key_, cover_message_;
+    float zoom_ = 1, pan_x_ = 0, pan_y_ = 0;
+    std::size_t illustration_selected_ = 0;
     std::vector<reader::Line> lines_;
     std::string active_filename_, message_;
     std::size_t selected_ = 0, top_ = 0;
