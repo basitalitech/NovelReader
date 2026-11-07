@@ -20,6 +20,8 @@ std::size_t next_character(const std::string& text, std::size_t at) {
     return at;
 }
 
+} // namespace
+
 bool valid_utf8(const std::string& text) {
     for (std::size_t i = 0; i < text.size();) {
         const auto first = static_cast<unsigned char>(text[i++]);
@@ -45,6 +47,8 @@ bool valid_utf8(const std::string& text) {
     return true;
 }
 
+namespace {
+
 bool atomic_write(const std::string& path, const std::string& data) {
     const auto temporary = path + ".tmp";
     {
@@ -65,16 +69,32 @@ int bounded(int value) { return std::max(0, std::min(2, value)); }
 } // namespace
 
 bool is_text_book(const std::string& name) {
-    if (name.size() < 4 || name[0] == '.') return false;
+    const auto slash = name.find_last_of("/\\");
+    const auto start = slash == std::string::npos ? 0 : slash + 1;
+    if (name.size() - start < 4 || name[start] == '.') return false;
     auto extension = name.substr(name.size() - 4);
     for (auto& ch : extension) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
     return extension == ".txt";
+}
+
+bool is_epub_book(const std::string& name) {
+    const auto slash = name.find_last_of("/\\");
+    const auto start = slash == std::string::npos ? 0 : slash + 1;
+    if (name.size() - start < 5 || name[start] == '.') return false;
+    auto extension = name.substr(name.size() - 5);
+    for (auto& ch : extension) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    return extension == ".epub";
+}
+
+bool is_supported_book(const std::string& name) {
+    return is_text_book(name) || is_epub_book(name);
 }
 
 std::string title_from_filename(const std::string& name) {
     const auto slash = name.find_last_of("/\\");
     auto title = name.substr(slash == std::string::npos ? 0 : slash + 1);
     if (is_text_book(title)) title.resize(title.size() - 4);
+    else if (is_epub_book(title)) title.resize(title.size() - 5);
     std::replace(title.begin(), title.end(), '_', ' ');
     return title.empty() ? "Untitled" : title;
 }
@@ -112,7 +132,7 @@ bool load_book(const std::string& path, Book& book, std::string& error) {
     if (normalized.find_first_not_of(" \n") == std::string::npos) {
         error = "This book contains no readable text."; return false;
     }
-    book = {title_from_filename(path), std::move(normalized)};
+    book = {title_from_filename(path), std::move(normalized), {}};
     return true;
 }
 
@@ -164,16 +184,22 @@ Progress load_progress(const std::string& path) {
     std::ifstream input(path);
     std::string magic;
     std::uint64_t offset = 0, bookmark = 0;
+    std::uint64_t chapter = 0, bookmark_chapter = 0;
     int has_bookmark = 0;
-    if (!(input >> magic >> offset >> has_bookmark >> bookmark) || magic != "NRP1" ||
+    if (!(input >> magic >> offset >> has_bookmark >> bookmark) ||
+        (magic != "NRP1" && magic != "NRP2") ||
         offset > max_book_bytes * 4 || bookmark > max_book_bytes * 4 ||
         (has_bookmark != 0 && has_bookmark != 1)) return {};
-    return {static_cast<std::size_t>(offset), has_bookmark == 1, static_cast<std::size_t>(bookmark)};
+    if (magic == "NRP2" && (!(input >> chapter >> bookmark_chapter) ||
+        chapter >= max_chapters || bookmark_chapter >= max_chapters)) return {};
+    return {static_cast<std::size_t>(offset), has_bookmark == 1, static_cast<std::size_t>(bookmark),
+            static_cast<std::size_t>(chapter), static_cast<std::size_t>(bookmark_chapter)};
 }
 
 bool save_progress(const std::string& path, const Progress& progress) {
     std::ostringstream output;
-    output << "NRP1\n" << progress.offset << ' ' << progress.has_bookmark << ' ' << progress.bookmark << '\n';
+    output << "NRP2\n" << progress.offset << ' ' << progress.has_bookmark << ' ' << progress.bookmark
+           << ' ' << progress.chapter << ' ' << progress.bookmark_chapter << '\n';
     return atomic_write(path, output.str());
 }
 

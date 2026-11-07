@@ -2,17 +2,19 @@ Welcome to Novel Reader
 
 A little library for your Vita
 
-This is an early local-book reader. Copy your UTF-8 .txt novels into ux0:data/NovelReader/books/ using VitaShell, then press TRIANGLE in the library to refresh.
+Copy UTF-8 .txt novels or DRM-free .epub books into ux0:data/NovelReader/books/ using VitaShell, then press TRIANGLE in the library to refresh.
 
 Press CROSS to open a book. Your last reading position is restored automatically. Books stay on your memory card and work entirely offline.
 
 Getting comfortable
 
-Use the shoulder buttons or LEFT and RIGHT to turn pages. UP and DOWN move one line at a time. Hold a direction to keep moving.
+Use LEFT and RIGHT to turn pages. UP and DOWN move one line at a time. Hold a direction to keep moving. In TXT books, the shoulder buttons also turn pages.
+
+In EPUB books, the shoulder buttons open the previous or next chapter. CROSS opens the contents menu. Choose a chapter with UP and DOWN, browse with LEFT and RIGHT, then press CROSS to open it. CIRCLE returns to reading. Page turning also crosses chapter boundaries automatically.
 
 Press TRIANGLE while reading to change the font size, line spacing, or theme. Choose Night, Paper, or Sepia. Your position is preserved when the text reflows.
 
-Press SQUARE to set a bookmark. Press SELECT to jump back to it. Each book has one bookmark in addition to its automatically saved reading position.
+Press SQUARE to set a bookmark. Press SELECT to jump back to it, including across EPUB chapters. Each book has one bookmark in addition to its automatically saved reading position.
 
 Press CIRCLE to return to your library. Press START to save and exit. Reading positions are saved as you move, so there is no separate save menu.
 
@@ -20,10 +22,12 @@ Preparing your books
 
 This version reads plain UTF-8 text, with or without a UTF-8 byte order mark. Both Windows and Unix line endings are supported. Books may be up to 8 MiB each. Subfolders are not scanned yet.
 
-EPUB, illustrations, vertical writing, and ruby annotations are not implemented in this version. Font coverage depends on the Vita system font. Convert other formats to UTF-8 TXT before copying them here.
+EPUB chapters load one at a time in the book's reading order. The reader preserves paragraphs, headings, bold text, and underlined emphasis. Illustrations appear as text markers for now. Chapter documents must be well-formed UTF-8 XHTML and at most 2 MiB each.
+
+Illustration rendering, vertical writing, CSS layouts, and ruby annotations are not implemented yet. Font coverage depends on the Vita system font. Convert other formats to UTF-8 TXT before copying them here.
 
 The next chapter
 
-The reader core is separate from the Vita interface so additional local formats can be added later. Online catalogues and Lua source parsers are planned for future work.
+The reader core is separate from the Vita interface. Illustration viewing and library polish are next. Online catalogues and Lua source parsers are planned for future work.
 
 Until then, find a comfortable spot and enjoy your book.
