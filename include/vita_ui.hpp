@@ -13,6 +13,9 @@ unsigned mix(unsigned a, unsigned b, float amount);
 void gradient(int x, int y, int width, int height, unsigned top, unsigned bottom);
 void rounded(int x, int y, int width, int height, unsigned fill, int radius=9);
 void panel(int x, int y, int width, int height, bool selected=false);
+enum class ButtonState { Normal, Focused, Pressed, Disabled };
+void button(int x, int y, int width, int height, ButtonState state=ButtonState::Normal);
+void button_focus(int x, int y, int width, int height);
 void icon(Icon kind, int x, int y, unsigned tint=text, float scale=1);
 void progress(int x, int y, int width, float fraction, int height=5);
 } }

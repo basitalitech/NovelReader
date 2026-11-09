@@ -62,7 +62,9 @@ closes the current modal. Up/Down stays within the content or sidebar region;
 Left/Right crosses between them. Disabled actions are skipped. Focus/page/query
 state is restored when returning from details, Settings, import cancellation, or
 online details. Sidebar selection is visually distinct from controller focus.
-Button surfaces are flat; no procedural button gradients are drawn.
+Buttons use subtle purple vertical gradients, rounded highlights and borders,
+soft raised shadows, and brighter rounded focus outlines. Press feedback darkens
+the face and reduces its shadow; disabled controls use muted translucent purple.
 In Settings, Left/Right adjusts the selected value; Up from Typeface returns to
 the sidebar without changing that value.
 

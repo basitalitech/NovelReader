@@ -1,4 +1,16 @@
 #pragma once
+#include <cstddef>
+struct vita2d_color_vertex { float x,y,z; unsigned color; };
+enum SceGxmPrimitiveType { SCE_GXM_PRIMITIVE_TRIANGLES };
+inline void* vita2d_pool_memalign(unsigned size,unsigned) {
+    alignas(16) static unsigned char storage[16384];
+    return size<=sizeof(storage)?storage:nullptr;
+}
+using DrawArrayObserver=void (*)(const vita2d_color_vertex*,std::size_t);
+inline DrawArrayObserver& draw_array_observer(){static DrawArrayObserver observer=nullptr;return observer;}
+inline void vita2d_draw_array(SceGxmPrimitiveType,const vita2d_color_vertex* vertices,std::size_t count) {
+    if(draw_array_observer())draw_array_observer()(vertices,count);
+}
 struct vita2d_font {};
 struct vita2d_pgf {};
 struct vita2d_texture {};

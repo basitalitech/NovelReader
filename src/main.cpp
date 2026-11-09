@@ -683,13 +683,7 @@ private:
         if(found==focus_memory_.end())return;
         for(const auto& control:widgets())if(control.target.id==found->second && control.target.enabled) {
             const auto& b=control.target.box;
-            const auto c=reader::visual::color(220,187,255);
-            for(int i=0;i<3;++i) {
-                vita2d_draw_line(b.x-i,b.y-i,b.x+b.width+i,b.y-i,c);
-                vita2d_draw_line(b.x-i,b.y+b.height+i,b.x+b.width+i,b.y+b.height+i,c);
-                vita2d_draw_line(b.x-i,b.y-i,b.x-i,b.y+b.height+i,c);
-                vita2d_draw_line(b.x+b.width+i,b.y-i,b.x+b.width+i,b.y+b.height+i,c);
-            }
+            reader::visual::button_focus(b.x,b.y,b.width,b.height);
         }
     }
 
@@ -877,13 +871,11 @@ private:
         const Icon icons[]={Icon::Home,Icon::Library,Icon::Clock,Icon::Bookmark,Icon::Settings,Icon::Info};
         for (int i=0;i<6;++i) {
             const auto box=reader::ui::sidebar_item(i);
-            if (i==nav_active_) {
-                rounded(box.x,box.y,box.width,box.height,rgb(76,58,99));
-                rounded(box.x+1,box.y+1,box.width-2,box.height-2,rgb(55,40,76),8);
-            }
             const auto memory=focus_memory_.find(focus_key());
-            if(memory!=focus_memory_.end() && memory->second==100+i && menu_.empty() && !feedback_active())
-                rounded(box.x,box.y,box.width,box.height,rgb(72,49,97),8);
+            const bool focused=memory!=focus_memory_.end() && memory->second==100+i && menu_.empty() && !feedback_active();
+            if(i==nav_active_ || focused)
+                reader::visual::button(box.x,box.y,box.width,box.height,
+                    focused?ButtonState::Focused:ButtonState::Normal);
             icon(icons[i],42,box.y+28,reader::visual::text,0.85f);
             this->text(70,box.y+36,palette().text,0.92f,names[i],120);
         }
@@ -1387,16 +1379,24 @@ private:
         return reader::wrap_text(online_novel_.description.empty()?"No description provided.":online_novel_.description,912,
             [this](const std::string& s){return fonts_.width(reader::FontRole::Interface,22,s);});
     }
-    void panel(int x,int y,int width,int height,bool selected=false) const {
-        (void)selected;
-        bool focused=false;
+    void panel(int x,int y,int width,int height,bool selected=false,bool enabled=true,bool pressed=false) const {
+        bool interactive=false;
         const auto memory=focus_memory_.find(focus_key());
-        if(memory!=focus_memory_.end())for(const auto& control:widgets())
-            if(control.target.id==memory->second && control.target.enabled) {
-                const auto& box=control.target.box;
-                focused=box.x==x && box.y==y && box.width==width && box.height==height;
+        bool focused=false;
+        for(const auto& control:widgets()) {
+            const auto& box=control.target.box;
+            if(box.x==x && box.y==y && box.width==width && box.height==height) {
+                interactive=true;enabled=enabled && control.target.enabled;
+                focused=memory!=focus_memory_.end() && control.target.id==memory->second;
+                pressed=pressed || (control.action.label==pressed_action_ && sceKernelGetProcessTimeWide()<pressed_until_);
+                break;
             }
-        reader::visual::panel(x,y,width,height,focused);
+        }
+        if(interactive) {
+            using reader::visual::ButtonState;
+            reader::visual::button(x,y,width,height,!enabled?ButtonState::Disabled:pressed?ButtonState::Pressed:
+                focused || selected?ButtonState::Focused:ButtonState::Normal);
+        } else reader::visual::panel(x,y,width,height,false);
     }
     const vita2d_texture* controller_icon(unsigned button) const {
         auto index=ControllerIcon::Count;
@@ -1455,13 +1455,12 @@ private:
         }
     }
     void button(const reader::ui::Rect& box,const Action& action,bool focused=false) const {
-        panel(box.x,box.y,box.width,box.height,focused && action.enabled);
         const bool pressed=action.label==pressed_action_ && sceKernelGetProcessTimeWide()<pressed_until_;
-        if (pressed && action.enabled) vita2d_draw_rectangle(box.x+6,box.y+6,box.width-12,box.height-12,palette().accent);
-        auto c=!action.enabled?rgb(146,146,148):pressed?rgb(24,24,26):palette().text;
+        panel(box.x,box.y,box.width,box.height,focused,action.enabled,pressed);
+        auto c=!action.enabled?reader::visual::mix(reader::visual::surface,reader::visual::muted,0.6f):palette().text;
         const bool hint=action.button && box.width>=fonts_.width(reader::FontRole::Interface,24,action.label)+button_hint_width(action.button)+40;
         const int hint_width=hint?button_hint_width(action.button):0;
-        if (hint && !pressed) button_hint(box.x+12+hint_width/2,box.y+box.height/2,action);
+        if (hint) button_hint(box.x+12+hint_width/2,box.y+box.height/2,action);
         const int left=box.x+(hint?hint_width+20:12),available=box.width-(hint?hint_width+28:24);
         const auto lines=reader::wrap_text(action.label,available,[this](const std::string& s){return fonts_.width(reader::FontRole::Interface,24,s);});
         const auto count=std::min<std::size_t>(2,lines.size());

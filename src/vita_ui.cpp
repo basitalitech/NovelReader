@@ -2,6 +2,8 @@
 #include <vita2d.h>
 #include <algorithm>
 #include <cmath>
+#include <array>
+#include <cstring>
 
 namespace reader { namespace visual {
 unsigned mix(unsigned a, unsigned b, float amount) {
@@ -21,10 +23,102 @@ void rounded(int x,int y,int width,int height,unsigned fill,int radius) {
         vita2d_draw_fill_circle(cx,cy,radius,fill);
 }
 void panel(int x,int y,int width,int height,bool selected) {
-    // Button surfaces stay flat. Future shared artwork belongs in this primitive.
     if (selected) rounded(x-3,y-3,width+6,height+6,color(60,40,83),11);
     rounded(x,y,width,height,selected?accent:border);
     rounded(x+1,y+1,width-2,height-2,selected?color(83,53,124):surface,8);
+}
+namespace {
+unsigned alpha(unsigned tint,unsigned opacity) { return (tint&0xffffffu)|(opacity<<24); }
+unsigned blend(unsigned a,unsigned b,float t) {
+    unsigned result=0;
+    for(unsigned shift=0;shift<32;shift+=8)
+        result|=static_cast<unsigned>(((a>>shift)&255)*(1-t)+((b>>shift)&255)*t)<<shift;
+    return result;
+}
+// Non-overlapping horizontal triangles give exact vertical color interpolation,
+// including alpha. Eight segments per quarter keep nine-pixel corners smooth.
+struct ButtonMesh {
+    std::array<vita2d_color_vertex,768> vertices;
+    std::size_t count=0;
+    void shape(float x,float y,float w,float h,float radius,unsigned top,unsigned bottom) {
+        if(w<=0 || h<=0)return;
+        const float r=std::min(radius,std::min(w,h)/2);
+        static const auto inset=[] {
+            std::array<float,9> values{};
+            for(int i=0;i<=8;++i) {const float t=i/8.f;values[i]=1-std::sqrt(1-(1-t)*(1-t));}
+            return values;
+        }();
+        const auto edge=[&](int i) {
+            if(i<=8)return std::array<float,2>{{r*i/8.f,r*inset[i]}};
+            const int j=17-i;
+            return std::array<float,2>{{h-r*j/8.f,r*inset[j]}};
+        };
+        for(int i=0;i<17;++i) {
+            const auto a=edge(i),b=edge(i+1);
+            const unsigned ca=blend(top,bottom,a[0]/h),cb=blend(top,bottom,b[0]/h);
+            const vita2d_color_vertex tl{x+a[1],y+a[0],0.5f,ca},tr{x+w-a[1],y+a[0],0.5f,ca};
+            const vita2d_color_vertex bl{x+b[1],y+b[0],0.5f,cb},br{x+w-b[1],y+b[0],0.5f,cb};
+            for(const auto& v:{tl,tr,bl,tr,br,bl})vertices[count++]=v;
+        }
+    }
+    void draw() const {
+        const auto bytes=count*sizeof(vita2d_color_vertex);
+        auto* data=static_cast<vita2d_color_vertex*>(vita2d_pool_memalign(bytes,8));
+        if(!data)return;
+        std::memcpy(data,vertices.data(),bytes);
+        vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES,data,count);
+    }
+};
+}
+void button(int x,int y,int width,int height,ButtonState state) {
+    if(width<4 || height<4)return;
+    const bool focused=state==ButtonState::Focused,pressed=state==ButtonState::Pressed;
+    const bool disabled=state==ButtonState::Disabled;
+    ButtonMesh mesh;
+    if(!disabled) {
+        // Layered translucent purple silhouettes form a small, rounded shadow.
+        mesh.shape(x-2,y+(pressed?0:2),width+4,height+3,11,alpha(background,0),alpha(background,36));
+        mesh.shape(x-1,y+(pressed?1:3),width+2,height,10,alpha(background,18),alpha(background,66));
+    }
+    if(focused)mesh.shape(x-3,y-3,width+6,height+6,12,alpha(accent,38),alpha(accent,12));
+    const auto base=mix(surface,accent,disabled?0.08f:pressed?0.16f:focused?0.36f:0.20f);
+    const auto rim=focused?accent:mix(border,accent,0.32f);
+    mesh.shape(x,y,width,height,9,alpha(rim,disabled?80:pressed?130:210),alpha(rim,disabled?48:110));
+    const unsigned opacity=disabled?145:255;
+    // The lighter top is the soft reflection; the face stays in the same palette.
+    mesh.shape(x+1,y+1,width-2,height-2,8,
+        alpha(mix(base,accent,pressed?0.02f:disabled?0.05f:0.16f),opacity),
+        alpha(mix(base,background,pressed?0.32f:0.20f),opacity));
+    // A fine upper bevel fades out into the face, following the same rounded edge.
+    if(!disabled && !pressed)
+        mesh.shape(x+2,y+2,width-4,std::min(14,height-4),7,alpha(accent,focused?36:24),alpha(accent,0));
+    mesh.draw();
+}
+void button_focus(int x,int y,int width,int height) {
+    if(width<4 || height<4)return;
+    ButtonMesh mesh;
+    static const auto directions=[] {
+        std::array<std::array<float,2>,36> points{};
+        for(int corner=0;corner<4;++corner)for(int i=0;i<=8;++i) {
+            const float angle=(corner*8+i)*3.14159265f/16;
+            points[corner*9+i]={{std::cos(angle),std::sin(angle)}};
+        }
+        return points;
+    }();
+    const float r=std::min(9,std::min(width,height)/2);
+    const auto vertex=[&](int index,float radius) {
+        const int corner=index/9;
+        const float cx=x+(corner==0 || corner==3?width-r:r);
+        const float cy=y+(corner<2?height-r:r);
+        return vita2d_color_vertex{cx+directions[index][0]*radius,cy+directions[index][1]*radius,0.5f,
+            alpha(accent,radius>r?170:230)};
+    };
+    for(int i=0;i<36;++i) {
+        const int j=(i+1)%36;
+        const auto a=vertex(i,r+2),b=vertex(j,r+2),c=vertex(i,r),d=vertex(j,r);
+        for(const auto& v:{a,b,c,b,d,c})mesh.vertices[mesh.count++]=v;
+    }
+    mesh.draw();
 }
 void progress(int x,int y,int width,float fraction,int height) {
     rounded(x,y,width,height,color(69,61,81),height/2);
