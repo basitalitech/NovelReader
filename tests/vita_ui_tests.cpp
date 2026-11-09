@@ -45,6 +45,23 @@ int main() {
         draws=0;button(100,100,0,56);check(draws==0,"Empty button must not draw");
         button_focus(100,100,180,56);
         check(captured.size()==216,"Focus ring must use a bounded mesh");
+        for(const auto key:{ControllerButton::Cross,ControllerButton::Circle,ControllerButton::Square,
+                            ControllerButton::Triangle,ControllerButton::Start,ControllerButton::Select}) {
+            draws=0;controller_icon(key,44,hint_bar_center);
+            check(draws==1,"Controller icon must use one geometry submission");
+            check(!captured.empty() && captured.size()<=768 && captured.size()%3==0,"Invalid icon mesh");
+            for(const auto& v:captured) {
+                check(std::isfinite(v.x) && std::isfinite(v.y),"Invalid controller icon vertex");
+                check(v.x>=43.99f && v.x<=44+controller_icon_width(key)+0.01f,"Icon escapes its horizontal bounds");
+                check(v.y>=hint_bar_top+1 && v.y<=543,"Icon escapes the footer safe area");
+            }
+        }
+        draws=0;controller_icon(ControllerButton::None,44,hint_bar_center);
+        check(draws==0,"Text-only hints must not draw an icon");
+        draws=0;hint_bar();check(draws==1,"Bar gradient must use one geometry submission");
+        check((captured.front().color>>24)<255,"Bar should retain slight translucency");
+        check(brightness(captured.front().color)>brightness(captured.back().color),"Bar must darken downward");
+        for(const auto& v:captured)check(v.y>=496 && v.y<=544 && v.x>=0 && v.x<=960,"Bar must span only the bottom 48 pixels");
         std::cout<<"Button geometry passed\n";
     } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
 }

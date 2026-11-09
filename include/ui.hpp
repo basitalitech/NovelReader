@@ -18,6 +18,7 @@ struct Rect {
     bool contains(int px, int py) const { return px >= x && px < x + width && py >= y && py < y + height; }
 };
 constexpr int sidebar_width = 208;
+constexpr int sidebar_count = 5;
 inline Rect home_continue() { return {232,168,560,224}; }
 constexpr int grid_columns = 4, grid_page_size = 4, contents_page_size = 5;
 inline Rect sidebar_item(int index) { return {12, 76 + index * 64, 184, 56}; }

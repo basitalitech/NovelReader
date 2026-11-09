@@ -14,6 +14,11 @@ void gradient(int x, int y, int width, int height, unsigned top, unsigned bottom
 void rounded(int x, int y, int width, int height, unsigned fill, int radius=9);
 void panel(int x, int y, int width, int height, bool selected=false);
 enum class ButtonState { Normal, Focused, Pressed, Disabled };
+enum class ControllerButton { None, Cross, Circle, Square, Triangle, Start, Select, L, R };
+constexpr int hint_bar_top=496, hint_bar_height=48, hint_bar_center=520;
+int controller_icon_width(ControllerButton button);
+void controller_icon(ControllerButton button, int x, int center_y, unsigned tint=text);
+void hint_bar();
 void button(int x, int y, int width, int height, ButtonState state=ButtonState::Normal);
 void button_focus(int x, int y, int width, int height);
 void icon(Icon kind, int x, int y, unsigned tint=text, float scale=1);

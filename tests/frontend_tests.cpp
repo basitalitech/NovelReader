@@ -26,6 +26,8 @@ struct FrontendTest {
         std::vector<reader::ui::FocusTarget> targets;
         for(const auto& control:controls) {
             const auto& b=control.target.box;
+            check(control.kind!=App::WidgetKind::Sidebar,"Sidebar entered the focus registry");
+            check(b.y<reader::ui::toolbar_top,"Footer entered the focus registry");
             check(b.height>=56,"Native widget is below the minimum target size");
             check(b.width>=56,"Native widget is too narrow");
             check(b.x>=0 && b.x+b.width<=960 && b.y>=44 && b.y+b.height<=544,"Native widget is off screen");
@@ -54,6 +56,30 @@ struct FrontendTest {
         vita2d_pgf pgf;App app(&pgf);
         app.message_.clear();app.sidebar_focus_=false;app.focus_memory_.clear();
         verify_graph(app);
+        for(const auto key:{SCE_CTRL_LEFT,SCE_CTRL_RIGHT,SCE_CTRL_UP,SCE_CTRL_DOWN})for(int i=0;i<8;++i)app.input(key);
+        check(app.screen_==Screen::Home && app.nav_active_==0 && focus(app)==1000,"D-pad left Home content");
+        reader::controls::Gesture tap;tap.kind=reader::controls::GestureKind::Tap;tap.x=60;tap.y=170;
+        app.gesture(tap);check(app.screen_==Screen::Home,"Touch activated the sidebar");
+        tap.y=520;app.gesture(tap);check(app.screen_==Screen::Home,"Touch activated the footer");
+        app.input(SCE_CTRL_RTRIGGER);
+        check(app.screen_==Screen::Library && app.nav_active_==1 && !app.sidebar_focus_,"R did not switch sidebar destination into content");
+        app.input(SCE_CTRL_LTRIGGER);
+        check(app.screen_==Screen::Home && app.nav_active_==0 && focus(app)==1000,"L did not return to Home content");
+        const Screen destinations[]={Screen::Home,Screen::Library,Screen::Bookmarks,Screen::Settings,Screen::About};
+        for(int i=1;i<=reader::ui::sidebar_count;++i) {
+            app.input(SCE_CTRL_RTRIGGER);
+            check(app.screen_==destinations[i%reader::ui::sidebar_count] && app.nav_active_==i%reader::ui::sidebar_count,
+                "R sidebar cycle contains a removed or incorrect destination");
+        }
+        for(int i=reader::ui::sidebar_count-1;i>=0;--i) {
+            app.input(SCE_CTRL_LTRIGGER);
+            check(app.screen_==destinations[i] && app.nav_active_==i,
+                "L sidebar cycle contains a removed or incorrect destination");
+        }
+        app.focus_memory_[app.focus_key()]=304;
+        check(focus(app)==1000,"Stale footer focus was not restored to content");
+        app.focus_memory_[app.focus_key()]=100;
+        check(focus(app)==1000,"Stale sidebar focus was not restored to content");
         for(const auto& control:app.widgets())check(control.action.command!=Command::Import,"Home still has Add Book");
         app.set_focus(1000);app.input(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Library,"First-launch Home does not open Library");
@@ -64,7 +90,7 @@ struct FrontendTest {
         app.ime_active_=false;app.input(SCE_CTRL_DOWN);
         check(focus(app)>=1000,"Search cannot enter the book row");
         app.input(SCE_CTRL_DOWN);
-        check(focus(app)>=300 && focus(app)<305,"Book row does not reach the footer");
+        check(focus(app)>=1000,"Down moved focus out of the book row");
         app.set_focus(200);app.input(SCE_CTRL_CROSS);
         check(app.importing_,"Library Add Book does not open import");
         verify_graph(app);app.input(SCE_CTRL_CIRCLE);
@@ -79,9 +105,9 @@ struct FrontendTest {
             item.path="fixture-book.txt";app.entries_.push_back(item);
         }
         app.selected_=0;app.refresh_library("");
-        verify_graph(app);app.set_focus(303);app.input(SCE_CTRL_CROSS);
-        check(app.selected_==4,"Next footer action does not change Library page");
-        verify_graph(app);app.input(SCE_CTRL_CROSS);
+        verify_graph(app);app.set_focus(1003);app.input(SCE_CTRL_RIGHT);
+        check(app.selected_==7,"Right at the grid edge does not change Library page");
+        verify_graph(app);app.input(SCE_CTRL_RIGHT);
         check(app.selected_==8,"Partial final page is not reachable");verify_graph(app);
         app.set_focus(1008);app.input(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Book,"Book cannot open details from the partial page");verify_graph(app);
@@ -92,10 +118,13 @@ struct FrontendTest {
         check(app.settings_.reading_font==0 && focus(app)==1000,"Typeface boundary unexpectedly moves focus");
         app.input(SCE_CTRL_RIGHT);
         check(app.settings_.reading_font==1,"Typeface row does not select Atkinson");
+        app.input(SCE_CTRL_UP);check(focus(app)==1000,"Up entered the sidebar from Settings");
         verify_graph(app);app.input(SCE_CTRL_CIRCLE);
         check(app.screen_==Screen::Library && app.settings_.reading_font==before.reading_font,"Circle did not cancel Settings");
         app.perform({"Settings",0,Command::Appearance});app.set_focus(1000);app.input(SCE_CTRL_RIGHT);
-        app.set_focus(300);app.input(SCE_CTRL_CROSS);
+        tap.x=60;tap.y=520;app.gesture(tap);
+        check(app.screen_==Screen::Settings,"Touch applied Settings through the footer");
+        app.input(SCE_CTRL_SQUARE);
         check(app.settings_.reading_font==1 && reader::load_settings(settings_path).reading_font==1,"Apply did not persist the reader font");
         app.show_more();verify_graph(app);app.input(SCE_CTRL_CIRCLE);
         check(app.menu_.empty() && focus(app)==1008,"Closing Options lost invoking focus");
@@ -114,7 +143,7 @@ struct FrontendTest {
         const auto offset=app.lines_[app.top_].offset;
         check(offset>0,"Reading-anchor fixture never left the first line");
         app.perform({"Settings",0,Command::Appearance});app.set_focus(1000);app.input(SCE_CTRL_LEFT);
-        app.set_focus(300);app.input(SCE_CTRL_CROSS);
+        app.input(SCE_CTRL_SQUARE);
         check(app.screen_==Screen::Reader && app.lines_[app.top_].offset<=offset &&
             (app.top_+1==app.lines_.size() || app.lines_[app.top_+1].offset>offset),"Reader font change lost reading anchor");
         app.message_="An operation failed";app.retry_available_=true;verify_graph(app);

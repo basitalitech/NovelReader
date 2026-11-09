@@ -120,6 +120,73 @@ void button_focus(int x,int y,int width,int height) {
     }
     mesh.draw();
 }
+int controller_icon_width(ControllerButton key) {
+    return key==ControllerButton::None?0:key==ControllerButton::Start?58:key==ControllerButton::Select?64:28;
+}
+void hint_bar() {
+    const unsigned top=alpha(mix(surface,border,0.12f),235),bottom=alpha(background,248);
+    const vita2d_color_vertex vertices[]={
+        {0,496,0.5f,top},{960,496,0.5f,top},{0,544,0.5f,bottom},
+        {960,496,0.5f,top},{960,544,0.5f,bottom},{0,544,0.5f,bottom}};
+    auto* data=static_cast<vita2d_color_vertex*>(vita2d_pool_memalign(sizeof(vertices),8));
+    if(!data)return;
+    std::memcpy(data,vertices,sizeof(vertices));
+    vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES,data,6);
+    vita2d_draw_rectangle(0,hint_bar_top,960,1,alpha(mix(border,muted,0.12f),150));
+}
+void controller_icon(ControllerButton key,int x,int center_y,unsigned tint) {
+    if(key==ControllerButton::None)return;
+    ButtonMesh mesh;
+    const auto triangle=[&](vita2d_color_vertex a,vita2d_color_vertex b,vita2d_color_vertex c) {
+        mesh.vertices[mesh.count++]=a;mesh.vertices[mesh.count++]=b;mesh.vertices[mesh.count++]=c;
+    };
+    const auto stroke=[&](float ax,float ay,float bx,float by,float width) {
+        const float dx=bx-ax,dy=by-ay,length=std::sqrt(dx*dx+dy*dy);
+        if(length==0)return;
+        const float ox=-dy*width/(2*length),oy=dx*width/(2*length);
+        const vita2d_color_vertex a{ax+ox,ay+oy,0.5f,tint},b{bx+ox,by+oy,0.5f,tint};
+        const vita2d_color_vertex c{ax-ox,ay-oy,0.5f,tint},d{bx-ox,by-oy,0.5f,tint};
+        triangle(a,b,c);triangle(b,d,c);
+    };
+    // Cached unit circle: no per-frame trigonometry, images, or heap storage.
+    static const auto circle=[] {
+        std::array<std::array<float,2>,49> points{};
+        for(int i=0;i<=48;++i)points[i]={{std::cos(i*6.2831853f/48),std::sin(i*6.2831853f/48)}};
+        return points;
+    }();
+    const float cx=x+controller_icon_width(key)/2.f,cy=center_y;
+    const auto ring=[&](float radius,float width,bool fill) {
+        for(int i=0;i<48;++i) {
+            const auto point=[&](int j,float r,unsigned color) {
+                return vita2d_color_vertex{cx+circle[j][0]*r,cy+circle[j][1]*r,0.5f,color};
+            };
+            if(fill)triangle({cx,cy,0.5f,background},point(i,radius,background),point(i+1,radius,background));
+            else {
+                const auto a=point(i,radius,tint),b=point(i+1,radius,tint);
+                const auto c=point(i,radius-width,tint),d=point(i+1,radius-width,tint);
+                triangle(a,b,c);triangle(b,d,c);
+            }
+        }
+    };
+    if(key==ControllerButton::Start || key==ControllerButton::Select || key==ControllerButton::L || key==ControllerButton::R) {
+        const float w=controller_icon_width(key);
+        mesh.shape(x,cy-11,w,22,11,tint,tint);
+        mesh.shape(x+1.25f,cy-9.75f,w-2.5f,19.5f,9.75f,background,background);
+    } else {
+        ring(14,0,true);ring(14,1.25f,false);
+        if(key==ControllerButton::Cross) {
+            stroke(cx-6,cy-6,cx+6,cy+6,1.8f);stroke(cx-6,cy+6,cx+6,cy-6,1.8f);
+        } else if(key==ControllerButton::Circle)ring(8,1.6f,false);
+        else if(key==ControllerButton::Square) {
+            stroke(cx-6,cy-6,cx+6,cy-6,1.6f);stroke(cx+6,cy-6,cx+6,cy+6,1.6f);
+            stroke(cx+6,cy+6,cx-6,cy+6,1.6f);stroke(cx-6,cy+6,cx-6,cy-6,1.6f);
+        } else if(key==ControllerButton::Triangle) {
+            stroke(cx,cy-8,cx+8,cy+6,1.6f);stroke(cx+8,cy+6,cx-8,cy+6,1.6f);
+            stroke(cx-8,cy+6,cx,cy-8,1.6f);
+        }
+    }
+    mesh.draw();
+}
 void progress(int x,int y,int width,float fraction,int height) {
     rounded(x,y,width,height,color(69,61,81),height/2);
     const int filled=static_cast<int>(width*std::max(0.f,std::min(1.f,fraction)));

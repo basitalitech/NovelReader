@@ -21,7 +21,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 
 | Screen | Controls |
 | --- | --- |
-| Home / Library | D-pad/sticks: move focus through all controls; Cross: activate; Start: options |
+| Home / Library | D-pad/sticks: move focus within content; Cross: activate; Start: options |
 | Home / Library / sidebar screens | L/R: previous/next sidebar destination |
 | Library | Square: choose Title/Recent/Progress sorting or All/Reading/Finished filtering |
 | Library | Select: online sources |
@@ -29,7 +29,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
 | EPUB reader | L/R: previous/next chapter; Cross → Contents |
 | TXT reader | L/R: turn page |
-| Contents | Up/Down: choose chapter; Previous/Next: browse five entries; Cross: open; Circle: return |
+| Contents | Up/Down: choose chapter across pages; Left/Right: browse five entries; Cross: open; Circle: return |
 | Contents | Square: illustrations in the current reading chapter |
 | Contents | Options → Jump to chapter: enter a number and focus that entry |
 | Illustrations | Up/Down: choose; Cross: view; Circle: contents |
@@ -37,7 +37,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Image viewer | L/R: previous/next image in chapter; Circle: illustration list |
 | Reader | Cross → Save bookmark (or hold page); Select: jump to bookmark |
 | Reader | Cross: menu; Triangle: Bookmarks; Square: font settings; Circle: library |
-| Settings | D-pad: select rows/actions; Left/Right: adjust; Apply: save; Circle: cancel |
+| Settings | D-pad: select rows; Left/Right: adjust; Square: apply; Circle: cancel; Select: reset |
 | All screens | Start: options; Options → Save and exit |
 | Other content screens | Triangle: options/control panel; L+R is an optional shortcut |
 | Control panels | D-pad or either stick: choose a large tile; Cross: confirm; Circle: close |
@@ -56,26 +56,44 @@ The status strip containing Wi-Fi, clock, and battery indicators is intentionall
 omitted. The application bar begins at the top edge of the screen.
 
 
-All visible collection, header, footer, and modal buttons share a focus registry
-with touch hit regions. D-pad moves focus, Cross activates, and Circle returns or
-closes the current modal. Up/Down stays within the content or sidebar region;
-Left/Right crosses between them. Disabled actions are skipped. Focus/page/query
+Collection, header, and modal buttons share a focus registry with touch hit
+regions. D-pad moves focus only within content or the active modal; Cross
+activates, and Circle returns or closes the current modal. The sidebar is
+controlled only by L/R triggers. The bottom bar is a shortcut legend: only its
+named physical buttons activate its actions; it has no D-pad focus or touch
+targets. Disabled actions are skipped. Focus/page/query
 state is restored when returning from details, Settings, import cancellation, or
 online details. Sidebar selection is visually distinct from controller focus.
 Buttons use subtle purple vertical gradients, rounded highlights and borders,
 soft raised shadows, and brighter rounded focus outlines. Press feedback darkens
 the face and reduces its shadow; disabled controls use muted translucent purple.
-In Settings, Left/Right adjusts the selected value; Up from Typeface returns to
-the sidebar without changing that value.
+The bottom hint bar occupies the last 48 pixels (y=496–543), with a translucent
+purple-black gradient and a fine separator. Native geometry draws the circular
+Cross/Circle symbols and START capsule; labels use the loaded interface font.
+Open and Back stay on the left, with START / Options aligned to the right.
+Screen-specific actions and disabled hints are retained. Immersive reading
+continues to hide the footer.
+
+Footer actions and labels are defined by `App::toolbar()` in [main.cpp](src/main.cpp).
+Change or add an `Action` there to reuse the footer rendering. Each footer action
+must name a physical button and have a matching input handler; footer hints
+are never registered as focusable or touchable controls.
+The reusable [controller hint component](include/vita_hints.hpp) accepts the
+loaded `VitaFonts`, a `ControllerButton` (Cross, Circle, Square, Triangle, Start,
+Select, L, R, or None), label, left position, vertical center, and available width.
+It draws START/SELECT as ASCII text inside outlined capsules, without relying
+on symbol glyphs. The component clips long labels to the supplied width.
+In Settings, Left/Right adjusts the selected value; Up from Typeface stays on
+that row. Square applies, Circle cancels, and Select resets the preview.
 
 **Home** opens on a moonlit reading scene, with one large Continue Reading card.
-When there is no recent book, the card opens Library. Add Book lives in Library. Its sidebar opens Home, Library, Continue,
-Bookmarks, Settings, and About. Left from the first Library column focuses the
-sidebar; Up/Down selects a destination and Cross or Right enters its content.
-Touching a sidebar item opens it directly.
+When there is no recent book, the card opens Library. Add Book lives in Library. Its sidebar opens Home, Library,
+Bookmarks, Settings, and About. L/R switches directly to the previous/next
+destination and leaves controller focus in its content.
 
 **Library** shows four larger cover cards per page. D-pad or either
-stick moves focus through the action row, covers, and footer; swiping pages through the grid. Cross or a cover tap
+stick moves focus through the action row and covers; Left/Right at a page edge
+or swiping browses pages through the grid. Cross or a cover tap
 opens book details; Cross again starts or resumes reading. Add Book, Search, Filter, and Online are labeled actions above the covers.
 Search uses the system keyboard (submit an empty search to clear it). Filter or Square opens
 Title/Recent/Progress sorting and All/Reading/Finished filtering. L/R cycles
@@ -98,7 +116,7 @@ panels overlay the page without reflowing; changing the reading view or font
 reflows around the same text/image anchor.
 
 **Table of Contents** shows the cover beside five chapter rows. Up/Down selects;
-Previous/Next browses five entries. Jump uses the numeric system keyboard. The
+Left/Right browses five entries; Up/Down also crosses page boundaries. Jump uses the numeric system keyboard. The
 illustration list, downloads, online browsing, and import browser retain their
 four-row lists with the shared purple surfaces and controller footer.
 
@@ -204,13 +222,13 @@ The **front touchscreen** supports:
 | Reader | Tap an illustration to zoom; left/right body taps turn pages, center taps open Reading controls |
 | Reader | Hold and release on the reading area to save a bookmark |
 | Contents / illustration list | Tap an entry to open; swipe to browse five chapters or four illustrations |
-| Settings | Tap the left/right halves of rows to adjust; Apply saves, Cancel discards |
+| Settings | Tap the left/right halves of rows to adjust; Square applies, Circle discards |
 | Image viewer | Drag to pan; pinch to zoom around the fingers' midpoint; tap the image to toggle fit/2× zoom |
 
-Collection screens have 56-pixel-high touch buttons in a 64-pixel footer. Reader
-and the image viewer show shortcut hints; tapping the hint strip opens controls,
-where every button supports D-pad focus. The Reader strip is hidden in immersive
-mode. Start or visible Options controls open control panels. Viewer **Back** returns directly to reading when opened
+The bottom shortcut bar and sidebar do not respond to touch or D-pad focus.
+Use the named physical buttons for footer actions and L/R for sidebar destinations.
+Start opens control panels, whose content tiles support D-pad focus and touch.
+The Reader strip is hidden in immersive mode. Viewer **Back** returns directly to reading when opened
 by tapping an inline image, or to the illustration list when opened from there.
 Touch gestures act on release outside the image viewer, where drag and pinch
 updates are live. Swiping a list never opens the row under the finger. Physical
