@@ -105,7 +105,7 @@ int main() {
         for(int books=0;books<=4;++books) {
             std::vector<FocusTarget> targets;
             for(int i=0;i<6;++i)targets.push_back({100+i,reader::ui::sidebar_item(i),true});
-            for(int i=0;i<4;++i)targets.push_back({200+i,reader::ui::library_action(i),true});
+            for(int i=0;i<2;++i)targets.push_back({200+i,reader::ui::library_action(i),true});
             for(int i=0;i<books;++i)targets.push_back({1000+i,reader::ui::grid_book(i),true});
             for(int i=0;i<5;++i)targets.push_back({300+i,reader::ui::action_toolbar_button(i,5),
                 i!=2 && i!=3 && (i!=0 || books>0)});

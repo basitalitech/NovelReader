@@ -28,5 +28,7 @@ inline void sceImeDialogParamInit(SceImeDialogParam* p){*p={};}
 inline int sceImeDialogInit(SceImeDialogParam*){return 0;}
 inline int sceImeDialogAbort(){return 0;}
 inline int sceImeDialogTerm(){return 0;}
-inline int sceImeDialogGetStatus(){return 0;}
-inline int sceImeDialogGetResult(SceImeDialogResult*){return 0;}
+inline int& test_ime_status(){static int value=0;return value;}
+inline int& test_ime_button(){static int value=0;return value;}
+inline int sceImeDialogGetStatus(){return test_ime_status();}
+inline int sceImeDialogGetResult(SceImeDialogResult* result){result->button=test_ime_button();return 0;}

@@ -69,7 +69,7 @@ enum class ControllerIcon { Cross, Circle, Triangle, Square, L, R, Select, Start
 enum class Command { Button, More, Sort, Jump, Immersive, Resume, Retry, Appearance, Details, DownloadAll, SortTitle, SortRecent, SortProgress,
     FilterAll, FilterReading, FilterFinished, Exit, Home, Library, Bookmarks, Import, DeleteBookmark, Credits, License, Search,
     BookBookmark, RemoveBook, ConfirmRemoveBook, Online, ClearSearch, PreviousPage, NextPage,
-    ApplySettings, CancelSettings, ResetSettings, Illustrations, FullTitle };
+    ApplySettings, CancelSettings, ResetSettings, Illustrations, FullTitle, AddBook };
 struct Action {
     std::string label;
     unsigned button;
@@ -155,7 +155,9 @@ public:
     }
 
     bool input(unsigned pressed, bool physical = true) {
+        const bool keyboard_was_active=ime_active_;
         tick_online();
+        if (keyboard_was_active) return true; // Never reuse the keyboard's dismissing press.
         if (ime_active_) return true;
         if (physical && focus_input(pressed)) return focus_result_;
         if (pressed & SCE_CTRL_START) { if (!online_busy_) show_more(); return true; }
@@ -174,7 +176,10 @@ public:
             if (pressed & SCE_CTRL_TRIANGLE) return perform({"Bookmarks",0,Command::Bookmarks});
             if (pressed & SCE_CTRL_SQUARE) return perform({"Font",0,Command::Appearance});
         }
-        if (physical && (pressed & SCE_CTRL_TRIANGLE) && screen_ != Screen::Settings) { show_more(); return true; }
+        if (physical && (pressed & SCE_CTRL_TRIANGLE) && screen_ != Screen::Settings) {
+            if(screen_==Screen::Library && !importing_)show_sort();else show_more();
+            return true;
+        }
         if (screen_ == Screen::Home) {
             if (pressed & SCE_CTRL_LEFT) sidebar_focus_=true;
 
@@ -212,7 +217,8 @@ public:
         if (screen_ == Screen::Library) {
             if (pressed & SCE_CTRL_SELECT) { importing_ = false; current_folder_.clear(); release_image(); screen_ = Screen::Sources; online_selected_ = 0; message_.clear(); return true; }
             if (pressed & SCE_CTRL_CIRCLE) {
-                if (importing_ && !current_folder_.empty()) {
+                if (!importing_ && library_search_active_) { exit_library_search(); }
+                else if (importing_ && !current_folder_.empty()) {
                     const auto child = current_folder_;
                     browse_folder(reader::parent_library_folder(current_folder_), child);
                 } else if (importing_) {
@@ -513,7 +519,7 @@ private:
         if(!menu_.empty()) {
             const auto first=menu_selected_/6*6;
             for(auto i=first;i<menu_.size() && i<first+6;++i)
-                add(2000+static_cast<int>(i),reader::ui::menu_button(i-first),menu_[i],WidgetKind::Menu,i);
+                add(2000+static_cast<int>(i),add_book_menu_?reader::ui::library_add_option(i):reader::ui::menu_button(i-first),menu_[i],WidgetKind::Menu,i);
             return result;
         }
         if(online_busy_)return result;
@@ -527,14 +533,13 @@ private:
         if(screen_==Screen::Home)
             add(1000,reader::ui::home_continue(),{"Continue",0,reader::ui::recent_book(entries_)<entries_.size()?Command::Resume:Command::Library});
         else if(screen_==Screen::Library && !importing_) {
-            const Action actions[]={{"Add Book",0,Command::Import},{"Search",0,Command::Search},
-                {"Filter",0,Command::Sort},{"Online",0,Command::Online}};
-            for(int i=0;i<4;++i)add(200+i,reader::ui::library_action(i),actions[i]);
+            const Action actions[]={{"Add Book",0,Command::AddBook},{"Search",0,Command::Search}};
+            for(int i=0;i<2;++i)add(200+i,reader::ui::library_action(i),actions[i]);
             const auto first=selected_/4*4;
             for(auto i=first;i<order_.size() && i<first+4;++i)
                 add(1000+i,reader::ui::grid_book(i-first),{"Open",0,Command::Details},WidgetKind::Item,i);
             if(order_.empty() && (!library_query_.empty() || filter_!=reader::LibraryFilter::All))
-                add(204,{400,328,336,56},{"Show all books",0,Command::ClearSearch});
+                add(204,{400,328,336,56},{library_search_active_?"Clear search":"Show all books",0,Command::ClearSearch});
         } else if(screen_==Screen::Book) {
             const bool available=!order_.empty() && entries_[order_[selected_]].error.empty();
             add(200,{266,396,270,56},{"Read",SCE_CTRL_CROSS,Command::Button,available});
@@ -713,7 +718,7 @@ private:
         const auto origin=screen_;const int origin_nav=nav_active_;
         if(origin==Screen::Settings && destination==3)return;
         if(screen_==Screen::Library && !importing_)
-            library_views_[nav_active_]={selected_filename(),library_query_,filter_};
+            library_views_[nav_active_]={selected_filename(),library_query_,filter_,library_search_active_};
         if (screen_==Screen::Settings) cancel_settings();
         save();if(destination!=3)clear_reading();release_image();message_.clear();nav_selected_=nav_active_=destination;
         if (importing_) { importing_=false; scan(); }
@@ -722,6 +727,7 @@ private:
             screen_=Screen::Library;
             const auto view=library_views_.find(destination);
             library_query_=view==library_views_.end()?"":view->second.query;
+            library_search_active_=view!=library_views_.end() && view->second.search_active;
             filter_=view==library_views_.end()?reader::LibraryFilter::All:view->second.filter;
             selected_=0;refresh_library(view==library_views_.end()?"":view->second.filename);update_cover();save_library_preferences();
 
@@ -747,6 +753,7 @@ private:
     void open_bookmark(std::size_t entry) {
         const auto filename=entries_[entry].filename;
         library_query_.clear();
+        library_search_active_=false;
         filter_=reader::LibraryFilter::All; refresh_library(filename); update_cover();
         if (!active_filename_.empty()) save();
         open();
@@ -980,8 +987,16 @@ private:
         message_ = notice_ = value;
         notice_until_ = sceKernelGetProcessTimeWide() + 2800000;
     }
-    void close_menu() { menu_.clear(); focus_memory_.erase(100); ++folder_revision_; }
+    void close_menu() { menu_.clear(); add_book_menu_=false; focus_memory_.erase(100); ++folder_revision_; }
+    void show_add_book() {
+        focus_memory_.erase(100);
+        add_book_menu_=true;
+        menu_title_="Add Book";
+        menu_={{"Import from Device",0,Command::Import},{"Browse Online",0,Command::Online}};
+        menu_selected_=0;++folder_revision_;
+    }
     void show_sort() {
+        add_book_menu_=false;
         focus_memory_.erase(100);
         menu_title_ = "Sort and filter books";
         menu_ = {{"Sort: Title",0,Command::SortTitle},{"Sort: Recently read",0,Command::SortRecent},
@@ -990,6 +1005,7 @@ private:
         menu_selected_ = static_cast<std::size_t>(sort_); ++folder_revision_;
     }
     void show_more() {
+        add_book_menu_=false;
         focus_memory_.erase(100);
         menu_title_ = screen_ == Screen::Reader ? "Reading controls" : "Options";
         if (screen_ == Screen::Library && importing_) {
@@ -1042,8 +1058,10 @@ private:
         if (!action.enabled) return true;
         pressed_action_ = action.label; pressed_until_ = sceKernelGetProcessTimeWide()+160000;
         switch (action.command) {
+        case Command::AddBook: show_add_book();break;
         case Command::Online: return input(SCE_CTRL_SELECT,false);
         case Command::ClearSearch:
+            if(library_search_active_){exit_library_search();break;}
             library_query_.clear();filter_=reader::LibraryFilter::All;selected_=0;
             refresh_library("");update_cover();save_library_preferences();break;
         case Command::PreviousPage: turn_collection_page(false);break;
@@ -1149,6 +1167,7 @@ private:
         if (recent == entries_.size()) { notify("Open a book to start your reading journey."); return; }
         const auto filename = entries_[recent].filename;
         library_query_.clear();
+        library_search_active_=false;
         filter_ = reader::LibraryFilter::All;
         refresh_library(filename); save_library_preferences(); update_cover(); open();
         if (screen_ == Screen::Novel) resume_online();
@@ -1176,9 +1195,13 @@ private:
         else message_ = "Could not open chapter keyboard. Use left/right to browse chapters.";
     }
     std::vector<Action> toolbar() const {
+        if(!menu_.empty() && screen_==Screen::Library)return {{"Select",SCE_CTRL_CROSS},{"Close",SCE_CTRL_CIRCLE}};
+        if(ime_active_)return {};
         if(online_busy_)return {{"Cancel",SCE_CTRL_CIRCLE}};
         if(screen_==Screen::Reader || screen_==Screen::Image)return {};
         const Action options{"Options",SCE_CTRL_START,Command::More};
+        if(screen_==Screen::Library && !importing_)return {{"Open",SCE_CTRL_CROSS},
+            {library_search_active_?"Clear search":"Back",SCE_CTRL_CIRCLE},{"Filter",SCE_CTRL_TRIANGLE,Command::Sort},options};
         if(screen_==Screen::Settings)return {{"Apply",SCE_CTRL_SQUARE,Command::ApplySettings},{"Cancel",SCE_CTRL_CIRCLE,Command::CancelSettings},
             {"Reset",SCE_CTRL_SELECT,Command::ResetSettings},options};
         if(paged_screen()) {
@@ -1235,6 +1258,18 @@ private:
         param.initialText = ime_initial_; param.inputTextBuffer = ime_input_;
         if (sceImeDialogInit(&param) >= 0) ime_active_ = true;
         else message_ = "Could not open search keyboard.";
+    }
+    void exit_library_search() {
+        const auto keep=selected_filename();
+        library_search_active_=false;library_query_.clear();
+        refresh_library(keep);update_cover();
+        focus_memory_[static_cast<int>(Screen::Library)]=201;
+        ++folder_revision_;
+    }
+    void apply_library_search(const std::string& query) {
+        library_search_active_=true;library_query_=query;selected_=0;
+        refresh_library("");update_cover();
+        focus_memory_[static_cast<int>(Screen::Library)]=order_.empty()?201:1000;
     }
     void search_library() {
         ime_jump_=false; ime_library_=true;
@@ -1306,7 +1341,7 @@ private:
                         focus_memory_[static_cast<int>(screen_)]=1000+index;
                         message_.clear();
                     } else message_ = "Enter a chapter number from 1 to " + std::to_string(count) + ".";
-                } else if (ime_library_) {library_query_=query;selected_=0;refresh_library("");update_cover();}
+                } else if (ime_library_) {apply_library_search(query);}
                 else browse_online("",query);
             }
         }
@@ -1529,6 +1564,10 @@ private:
     }
     reader::ui::Rect toolbar_rect(const std::vector<Action>& actions,int index) const {
         const int count=static_cast<int>(actions.size());
+        if(screen_==Screen::Library && !importing_ && menu_.empty() && !online_busy_ && count==4) {
+            const reader::ui::Rect boxes[]={{28,484,156,56},{204,484,240,56},{464,484,180,56},{776,484,156,56}};
+            return boxes[index];
+        }
         return count>1 && actions.back().command==Command::More ?
             reader::ui::action_toolbar_button(index,count) : reader::ui::toolbar_button(index,count);
     }
@@ -1566,6 +1605,22 @@ private:
         controller_hint(fonts_,key,action.label,left,hint_bar_center,edge-left,tint);
     }
     void draw_menu() const {
+        if(add_book_menu_) {
+            using namespace reader::visual;
+            rounded(236,186,328,148,0x60000000u,12);
+            rounded(232,182,328,148,border,12);
+            rounded(233,183,326,146,0xed302139u,11);
+            for(std::size_t i=0;i<menu_.size();++i) {
+                const auto box=reader::ui::library_add_option(i);
+                panel(box.x,box.y,box.width,box.height,i==menu_selected_);
+                icon(i==0?Icon::Document:Icon::Library,box.x+24,box.y+28,accent,0.65f);
+                text(box.x+48,box.y+35,palette().text,0.86f,menu_[i].label,box.width-60);
+            }
+            hint_bar();
+            draw_footer_action(reader::ui::toolbar_button(0,2),{"Select",SCE_CTRL_CROSS});
+            draw_footer_action(reader::ui::toolbar_button(1,2),{"Close",SCE_CTRL_CIRCLE});
+            return;
+        }
         vita2d_draw_rectangle(0,0,960,544,0xe8000000u);
         text(40,60,palette().text,1.3f,menu_title_+(menu_.size()>6?"  "+std::to_string(menu_selected_/6+1)+" / "+std::to_string((menu_.size()+5)/6):""),880,reader::FontRole::Heading);
         text(40,104,palette().muted,0.85f,"Choose an action. Circle returns to the same page.",880);
@@ -1576,6 +1631,9 @@ private:
             draw_footer_action(reader::ui::toolbar_button(0,3),{"Previous",SCE_CTRL_LTRIGGER,Command::Button,first>=6});
             draw_footer_action(reader::ui::toolbar_button(1,3),{"Close",SCE_CTRL_CIRCLE});
             draw_footer_action(reader::ui::toolbar_button(2,3),{"Next",SCE_CTRL_RTRIGGER,Command::Button,first+6<menu_.size()});
+        } else if(screen_==Screen::Library) {
+            draw_footer_action(reader::ui::toolbar_button(0,2),{"Select",SCE_CTRL_CROSS});
+            draw_footer_action(reader::ui::toolbar_button(1,2),{"Close",SCE_CTRL_CIRCLE});
         } else draw_footer_action(reader::ui::toolbar_button(0,1),{"Close",SCE_CTRL_CIRCLE});
     }
     std::vector<reader::Line> feedback_rows() const {
@@ -1871,7 +1929,7 @@ private:
             const auto filename = entries_[entry_index].filename;
             if (add_to_library(filename)) {
                 importing_ = false; current_folder_.clear();
-                filter_=reader::LibraryFilter::All;library_query_.clear();save_library_preferences();
+                filter_=reader::LibraryFilter::All;library_query_.clear();library_search_active_=false;save_library_preferences();
                 scan(filename);focus_memory_[static_cast<int>(Screen::Library)]=1000+selected_;
                 if (message_.empty()) notify("Added to library.");
             }
@@ -2005,11 +2063,17 @@ private:
         const auto first=selected_/4*4;
         text(232,88,palette().text,1.23f,"Library",440,reader::FontRole::Heading);
         const auto pages=(order_.size()+3)/4;
-        text(728,88,palette().muted,0.8f,"Page "+std::to_string(order_.empty()?0:first/4+1)+" of "+std::to_string(pages),208);
-        text(232,110,palette().muted,0.78f,library_query_.empty()?filters[static_cast<int>(filter_)]:"Search: "+library_query_,704);
-        const Action actions[]={{"Add Book",0,Command::Import},{"Search",0,Command::Search},
-            {"Filter",0,Command::Sort},{"Online",0,Command::Online}};
-        for(int i=0;i<4;++i)button(reader::ui::library_action(i),actions[i]);
+        if(pages>1)text(728,88,palette().muted,0.8f,"Page "+std::to_string(first/4+1)+" of "+std::to_string(pages),208);
+        std::string subtitle=std::to_string(entries_.size())+" books  /  "+filters[static_cast<int>(filter_)];
+        if(library_search_active_)subtitle+="  /  Search: "+library_query_;
+        text(232,110,palette().muted,0.78f,subtitle,704);
+        const auto add=reader::ui::library_action(0),search=reader::ui::library_action(1);
+        panel(add.x,add.y,add.width,add.height);
+        vita2d_draw_line(add.x+17,add.y+28,add.x+33,add.y+28,palette().text);
+        vita2d_draw_line(add.x+25,add.y+20,add.x+25,add.y+36,palette().text);
+        text(add.x+45,add.y+36,palette().text,0.92f,"Add Book",add.width-53);
+        panel(search.x,search.y,search.width,search.height);
+        reader::visual::icon(reader::visual::Icon::Search,search.x+28,search.y+28,palette().text,0.8f);
         for(auto i=first;i<order_.size() && i<first+4;++i) {
             const auto box=reader::ui::grid_book(i-first);
             const auto& item=entries_[order_[i]];
@@ -2023,7 +2087,7 @@ private:
                 "A new story starts here.":"No matching books.",620,reader::FontRole::Heading);
             text(280,299,palette().muted,0.85f,"Add a book or explore online novels above.",620);
             if(!library_query_.empty() || filter_!=reader::LibraryFilter::All)
-                button({400,328,336,56},{"Show all books",0,Command::ClearSearch});
+                button({400,328,336,56},{library_search_active_?"Clear search":"Show all books",0,Command::ClearSearch});
         }
     }
     void draw_book() const {
@@ -2178,7 +2242,7 @@ private:
         text(232,455,palette().muted,0.80f,"Left / Right adjusts. Apply saves; Cancel discards.",704);
     }
 
-    struct LibraryView { std::string filename,query; reader::LibraryFilter filter; };
+    struct LibraryView { std::string filename,query; reader::LibraryFilter filter; bool search_active; };
     std::map<int,LibraryView> library_views_;
     std::map<int,int> focus_memory_;
     bool focus_result_=true,settings_sidebar_return_=false;
@@ -2196,6 +2260,7 @@ private:
     bool sidebar_focus_=true, pending_bookmark_=false;
     std::size_t bookmark_selected_=0;
     bool ime_library_=false;
+    bool library_search_active_=false,add_book_menu_=false;
     std::string library_query_;
     Screen settings_return_=Screen::Home, bookmarks_return_=Screen::Home;
     bool interface_layer_ = false;

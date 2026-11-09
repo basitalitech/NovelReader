@@ -23,9 +23,9 @@ inline Rect home_continue() { return {232,168,480,224}; }
 constexpr int grid_columns = 4, grid_page_size = 4, contents_page_size = 5;
 inline Rect sidebar_item(int index) { return {12, 76 + index * 64, 184, 56}; }
 inline Rect library_action(int index) {
-    const int x[]={232,420,592,764}, width[]={172,156,156,172};
-    return index>=0 && index<4 ? Rect{x[index],120,width[index],56} : Rect{0,0,0,0};
+    return index==0 ? Rect{232,120,172,56} : index==1 ? Rect{416,120,56,56} : Rect{0,0,0,0};
 }
+inline Rect library_add_option(int index) { return {248,200+index*68,304,56}; }
 inline Rect grid_book(int index) { return {232 + index * 180,200,164,240}; }
 inline Rect settings_row(int index) { return {232,124+index*60,376,56}; }
 inline Rect contents_row(int index) { return {232,136+index*64,704,56}; }

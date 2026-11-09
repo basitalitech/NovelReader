@@ -101,9 +101,29 @@ struct FrontendTest {
         app.input(SCE_CTRL_DOWN);
         check(focus(app)>=1000,"Down moved focus out of the book row");
         app.set_focus(200);app.input(SCE_CTRL_CROSS);
-        check(app.importing_,"Library Add Book does not open import");
+        check(app.add_book_menu_ && app.menu_.size()==2,"Add Book does not show two import choices");
+        const auto selection=app.selected_;verify_graph(app);
+        app.input(SCE_CTRL_DOWN);check(app.menu_selected_==1,"Add Book cannot navigate down");
+        app.input(SCE_CTRL_CIRCLE);
+        check(app.menu_.empty() && app.selected_==selection && focus(app)==200,"Popup cancel changed Library state");
+        app.input(SCE_CTRL_CROSS);app.input(SCE_CTRL_CROSS);
+        check(app.importing_,"Import from Device does not open import");
         verify_graph(app);app.input(SCE_CTRL_CIRCLE);
         check(!app.importing_ && app.screen_==Screen::Library && focus(app)==200,"Import cancel loses Library focus");
+        app.input(SCE_CTRL_CROSS);app.input(SCE_CTRL_DOWN);app.input(SCE_CTRL_CROSS);
+        check(app.screen_==Screen::Sources && app.menu_.empty(),"Browse Online does not open sources");
+        app.input(SCE_CTRL_CIRCLE);app.message_.clear();app.set_focus(200);
+        app.input(SCE_CTRL_CROSS);
+        tap.x=300;tap.y=220;app.gesture(tap);
+        check(app.importing_,"Touch cannot import through Add Book popup");app.input(SCE_CTRL_CIRCLE);
+        const auto old_filter=app.filter_;const auto old_sort=app.sort_;
+        app.input(SCE_CTRL_TRIANGLE);verify_graph(app);
+        check(app.menu_title_=="Sort and filter books","Triangle does not open Sort/Filter");
+        app.input(SCE_CTRL_DOWN);app.input(SCE_CTRL_CIRCLE);
+        check(app.filter_==old_filter && app.sort_==old_sort,"Cancel applied unconfirmed Sort/Filter");
+        app.input(SCE_CTRL_TRIANGLE);app.set_focus(2004);app.input(SCE_CTRL_CROSS);
+        check(app.filter_==reader::LibraryFilter::Reading && app.menu_.empty(),"Cross did not apply Library filter");
+        app.input(SCE_CTRL_TRIANGLE);app.set_focus(2003);app.input(SCE_CTRL_CROSS);
         app.message_.clear();app.library_query_="no matching book";app.refresh_library("");
         verify_graph(app);app.set_focus(204);app.input(SCE_CTRL_CROSS);
         check(app.library_query_.empty() && !app.order_.empty(),"Empty search cannot be cleared with D-pad");
@@ -114,6 +134,62 @@ struct FrontendTest {
             item.path="fixture-book.txt";app.entries_.push_back(item);
         }
         app.selected_=0;app.refresh_library("");
+        reader::capture_font_draws=true;reader::font_draws.clear();app.draw();reader::capture_font_draws=false;
+        bool saw_count=false,saw_pages=false,saw_filter_hint=false;
+        for(const auto& draw:reader::font_draws) {
+            saw_count=saw_count || draw.text.find("9 books")!=std::string::npos;
+            saw_pages=saw_pages || draw.text.find("Page 1 of 3")!=std::string::npos;
+            saw_filter_hint=saw_filter_hint || (draw.y>496 && draw.text=="Filter");
+        }
+        check(saw_count && saw_pages && saw_filter_hint,"Library header or Triangle hint is missing");
+        const auto enter_query=[&](const std::u16string& query) {
+            app.set_focus(201);app.input(SCE_CTRL_CROSS);
+            check(app.ime_active_,"Reopened search has no keyboard");
+            std::copy(query.begin(),query.end(),app.ime_input_);app.ime_input_[query.size()]=0;
+            test_ime_status()=SCE_COMMON_DIALOG_STATUS_FINISHED;test_ime_button()=SCE_IME_DIALOG_BUTTON_ENTER;
+            app.input(0);test_ime_status()=0;
+            check(app.library_search_active_ && !app.ime_active_,"IME submission did not activate search");
+        };
+        app.sort_=reader::LibrarySort::Recent;
+        app.entries_[0].progress.percent=30;app.entries_[1].progress.percent=40;
+        app.entries_[0].progress.last_read=1;app.entries_[1].progress.last_read=2;
+        app.filter_=reader::LibraryFilter::Reading;app.refresh_library("");
+        enter_query(u"Book");
+        check(app.order_.size()==2,"Search discarded the active filter");
+        app.input(SCE_CTRL_RIGHT);app.input(SCE_CTRL_CIRCLE);
+        check(!app.library_search_active_ && app.library_query_.empty() && app.order_.size()==2 && focus(app)==201,
+              "Circle did not exit navigated results in one press");
+        check(app.sort_==reader::LibrarySort::Recent && app.filter_==reader::LibraryFilter::Reading,
+              "Search cancellation reset filter or sorting");
+        app.filter_=reader::LibraryFilter::All;app.refresh_library("");
+        for(const auto query:{u"missing",u"Boo",u""}) {
+            enter_query(query);verify_graph(app);
+            app.input(SCE_CTRL_CIRCLE);
+            check(!app.library_search_active_ && app.library_query_.empty() && app.order_.size()==9 && focus(app)==201,
+                  "Zero, partial or empty search did not clear in one press");
+        }
+        app.set_focus(201);app.input(SCE_CTRL_CROSS);app.input(SCE_CTRL_CIRCLE);
+        check(app.ime_active_,"App intercepted keyboard cancellation");
+        test_ime_status()=SCE_COMMON_DIALOG_STATUS_FINISHED;test_ime_button()=0;
+        app.input(SCE_CTRL_CIRCLE);test_ime_status()=0;
+        check(app.screen_==Screen::Library && !app.library_search_active_,"Keyboard cancel leaked into Library Back");
+        enter_query(u"Book 5");app.input(SCE_CTRL_CROSS);
+        check(app.screen_==Screen::Book && app.selected_filename()=="book5.txt","Search result opened the wrong book");
+        app.input(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Library && app.order_.size()==9,"Back from searched book cannot exit search");
+        tap.x=444;tap.y=148;app.gesture(tap);
+        check(app.ime_active_,"Touch cannot open compact Search");
+        test_ime_status()=SCE_COMMON_DIALOG_STATUS_FINISHED;test_ime_button()=0;app.input(0);test_ime_status()=0;
+        enter_query(u"Book 5");
+        reader::capture_font_draws=true;reader::font_draws.clear();app.draw();reader::capture_font_draws=false;
+        for(const auto& draw:reader::font_draws)check(draw.text.find("Page 1 of 1")==std::string::npos,"Single result displays single-page indicator");
+        check(app.toolbar()[1].label=="Clear search","Search footer did not update");
+        app.set_focus(200);app.input(SCE_CTRL_CROSS);app.input(SCE_CTRL_CIRCLE);
+        check(app.library_search_active_ && app.order_.size()==1,"Popup cancel changed search results");
+        app.input(SCE_CTRL_CIRCLE);
+        check(app.toolbar().size()==4 && app.toolbar()[1].label=="Back" && app.toolbar()[2].button==SCE_CTRL_TRIANGLE,
+              "Search exit did not restore normal Library hints");
+        app.sort_=reader::LibrarySort::Title;app.selected_=0;app.refresh_library("");
         verify_graph(app);app.set_focus(1003);app.input(SCE_CTRL_RIGHT);
         check(app.selected_==7,"Right at the grid edge does not change Library page");
         verify_graph(app);app.input(SCE_CTRL_RIGHT);
