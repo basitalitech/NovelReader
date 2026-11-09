@@ -22,5 +22,18 @@ use the Vita system PGF font, with the same run boundaries in both operations.
 Missing or unloadable font files fall back to PGF and show a startup notice.
 The system font's own coverage is still the limit for fallback characters.
 
+Each loaded TrueType face uses a separate, lazily cached vita2d font object for
+each requested pixel size. vita2d's atlas caches by glyph index alone, including
+during measurement; sharing one atlas across sizes would rescale previously
+cached glyphs and produce uneven digits and soft text. Measurement and drawing
+use the same size-specific object. Atlases are reused until application shutdown.
+
+Home's two-line book title uses a separate native-size label path: FreeType
+measures and rasterizes each complete line at 25 pixels, with matching kerning
+and integer baseline placement. Each line is stored in a transparent padded
+texture and drawn without scaling using point sampling. This avoids vita2d's
+packed glyph atlas for the title. Up to eight line textures are reused across
+book changes; missing glyphs retain the existing system-font fallback.
+
 Font downloads happen during development, never at build time or app startup.
 File checksums are recorded in [SHA256SUMS](SHA256SUMS).

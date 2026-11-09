@@ -87,6 +87,13 @@ In Settings, Left/Right adjusts the selected value; Up from Typeface stays on
 that row. Square applies, Circle cancels, and Select resets the preview.
 
 **Home** opens on a moonlit reading scene, with one large Continue Reading card.
+The narrower, dark translucent card leaves more of the artwork visible, with a
+white circled play icon, a larger cover, up to two title lines, and chapter/progress
+information along the bottom.
+Continue Reading includes imported TXT books (including uppercase `.TXT`) and
+the bundled welcome TXT after it has been opened. Legacy saves with a reading
+position but no last-read timestamp are eligible too; timestamped reading history
+takes priority when both are available.
 When there is no recent book, the card opens Library. Add Book lives in Library. Its sidebar opens Home, Library,
 Bookmarks, Settings, and About. L/R switches directly to the previous/next
 destination and leaves controller focus in its content.

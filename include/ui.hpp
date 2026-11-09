@@ -19,7 +19,7 @@ struct Rect {
 };
 constexpr int sidebar_width = 208;
 constexpr int sidebar_count = 5;
-inline Rect home_continue() { return {232,168,560,224}; }
+inline Rect home_continue() { return {232,168,480,224}; }
 constexpr int grid_columns = 4, grid_page_size = 4, contents_page_size = 5;
 inline Rect sidebar_item(int index) { return {12, 76 + index * 64, 184, 56}; }
 inline Rect library_action(int index) {
@@ -95,7 +95,7 @@ inline int feedback_height(std::size_t lines, bool busy, bool retry) {
 inline std::size_t recent_book(const std::vector<LibraryItem>& items) {
     auto found = items.size();
     for (std::size_t i = 0; i < items.size(); ++i)
-        if (!items[i].guide && !items[i].directory && items[i].error.empty() && items[i].progress.last_read &&
+        if (!items[i].directory && items[i].error.empty() && reading_started(items[i].progress) &&
             (found == items.size() || items[i].progress.last_read > items[found].progress.last_read)) found = i;
     return found;
 }

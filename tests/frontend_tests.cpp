@@ -7,12 +7,19 @@
 #include <iostream>
 
 namespace reader {
+struct FontDraw { FontRole role; unsigned pixels,color; int x,y; std::string text; };
+bool capture_font_draws=false;
+std::vector<FontDraw> font_draws;
 struct VitaFonts::Impl {};
 VitaFonts::VitaFonts(vita2d_pgf*):impl_(new Impl){}
 VitaFonts::~VitaFonts()=default;
 int VitaFonts::width(FontRole role,unsigned pixels,const std::string& text)const{return text.size()*pixels/(role==FontRole::Sans?3:2);}
-void VitaFonts::draw(FontRole,unsigned,int,int,unsigned,const std::string&)const{}
+void VitaFonts::draw(FontRole role,unsigned pixels,int x,int y,unsigned color,const std::string& text)const {
+    if(capture_font_draws)font_draws.push_back({role,pixels,color,x,y,text});
+}
 bool VitaFonts::complete()const{return true;}
+int VitaFonts::title_width(unsigned pixels,const std::string& text)const{return width(FontRole::Heading,pixels,text);}
+void VitaFonts::draw_title(unsigned pixels,int x,int y,unsigned color,const std::string& text)const{draw(FontRole::Heading,pixels,x,y,color,text);}
 }
 vita2d_texture* decode_texture(const std::string&,std::string&){return nullptr;}
 vita2d_texture* decode_thumbnail(const std::string&,unsigned,unsigned,std::string&){return nullptr;}
@@ -53,6 +60,8 @@ struct FrontendTest {
     }
     static void run() {
         check(reader::save_settings(settings_path,reader::Settings{}),"Cannot initialize fixture preferences");
+        check(reader::save_library(library_path,{}),"Cannot reset fixture library");
+        check(reader::save_progress(reader::progress_path(progress_directory,"@welcome"),{}),"Cannot reset guide history");
         vita2d_pgf pgf;App app(&pgf);
         app.message_.clear();app.sidebar_focus_=false;app.focus_memory_.clear();
         verify_graph(app);
@@ -137,11 +146,34 @@ struct FrontendTest {
             for(int i=0;i<80;++i)fixture<<"The first page of a quiet adventure follows a winding path beyond the mountains.\n\n";
         }
         app.message_.clear();app.open();check(app.screen_==Screen::Reader,"Fixture book did not open");
+        const auto active=reader::ui::recent_book(app.entries_);
+        check(active<app.entries_.size(),"Opening a book did not populate Continue Reading");
+        const auto same_second=static_cast<std::uint64_t>(std::time(nullptr))+60;
+        for(auto& item:app.entries_)item.progress.last_read=same_second;
+        app.progress_.last_read=same_second;
+        app.entries_[active].chapters=99;
+        app.publication_.title="A much longer book title that should wrap into two lines on the Home widget";
+        app.save();
+        check(reader::ui::recent_book(app.entries_)==active,"Tied or backward-clock timestamps left Home on an older book");
+        check(app.entries_[active].chapters==app.publication_.chapters.size(),"Continue Reading retained stale chapter metadata");
+        const auto saved=reader::load_progress(reader::progress_path(progress_directory,app.active_filename_));
+        check(saved.last_read==app.progress_.last_read && saved.last_read>same_second,"Newest reading order did not persist");
+        reader::font_draws.clear();reader::capture_font_draws=true;
+        app.draw_home();reader::capture_font_draws=false;
+        int title_lines=0;unsigned chapter_color=0,percent_color=0;
+        for(const auto& draw:reader::font_draws) {
+            if(draw.role==reader::FontRole::Heading && draw.pixels==25)++title_lines;
+            if(draw.text.find("Chapter ")==0) {chapter_color=draw.color;check(draw.pixels==21,"Chapter text size differs from percentage");}
+            if(draw.text.find('%')!=std::string::npos) {percent_color=draw.color;check(draw.pixels==21,"Percentage size changed");}
+        }
+        check(title_lines==2,"Home title did not wrap at the reduced font size");
+        check(chapter_color && chapter_color==percent_color,"Chapter text should share percentage contrast");
         app.input(SCE_CTRL_CROSS);check(!app.menu_.empty(),"Reader Cross does not open Reading controls");
         verify_graph(app);app.input(SCE_CTRL_CIRCLE);check(app.menu_.empty(),"Reader panel cannot close");
         for(int i=0;i<10;++i)app.input(SCE_CTRL_DOWN);
         const auto offset=app.lines_[app.top_].offset;
         check(offset>0,"Reading-anchor fixture never left the first line");
+        check(app.entries_[active].progress.offset==offset,"Reading movement did not update Home's cached progress");
         app.perform({"Settings",0,Command::Appearance});app.set_focus(1000);app.input(SCE_CTRL_LEFT);
         app.input(SCE_CTRL_SQUARE);
         check(app.screen_==Screen::Reader && app.lines_[app.top_].offset<=offset &&
@@ -160,6 +192,64 @@ struct FrontendTest {
         app.screen_=Screen::Novel;verify_graph(app);
         app.book_.illustrations.push_back({0,"Test image","test.png",0,100,160});
         app.screen_=Screen::Image;app.show_more();verify_graph(app);
+
+        // Use the real library index, TXT path and progress files rather than
+        // synthetic in-memory entries. Home must survive a scan and restart.
+        const std::string txt="continue_story.TXT";
+        {
+            std::ofstream fixture(books_directory+'/'+txt);
+            fixture<<"A TXT reading fixture\n\n";
+            for(int i=0;i<100;++i)fixture<<"The reader returns to this story after closing and reopening the application.\n\n";
+        }
+        check(reader::save_library(library_path,{txt}),"Cannot prepare TXT library index");
+        check(reader::save_progress(reader::progress_path(progress_directory,txt),{}),"Cannot reset TXT history");
+        std::size_t txt_offset=0;
+        {
+            App fresh(&pgf);fresh.message_.clear();
+            fresh.input(SCE_CTRL_RTRIGGER);fresh.set_focus(1000);fresh.input(SCE_CTRL_CROSS);
+            check(fresh.screen_==Screen::Book,"Imported TXT did not open details");
+            fresh.set_focus(200);fresh.input(SCE_CTRL_CROSS);
+            check(fresh.screen_==Screen::Reader,"Imported TXT did not open for reading");
+            fresh.message_.clear();for(int i=0;i<10;++i)fresh.input(SCE_CTRL_DOWN);
+            txt_offset=fresh.progress_.offset;
+            check(txt_offset>0,"TXT progress never advanced");
+            fresh.input(SCE_CTRL_CIRCLE);fresh.input(SCE_CTRL_LTRIGGER);
+            check(fresh.screen_==Screen::Home,"TXT test did not return Home");
+            const auto recent=reader::ui::recent_book(fresh.entries_);
+            check(recent<fresh.entries_.size() && fresh.entries_[recent].filename==txt &&
+                fresh.entries_[recent].progress.offset==txt_offset,"TXT did not update Continue Reading");
+        }
+        {
+            App restarted(&pgf);restarted.message_.clear();
+            const auto recent=reader::ui::recent_book(restarted.entries_);
+            check(recent<restarted.entries_.size() && restarted.entries_[recent].filename==txt,
+                "TXT disappeared from Continue Reading after restart");
+            restarted.input(SCE_CTRL_CROSS);
+            check(restarted.screen_==Screen::Reader && restarted.progress_.offset==txt_offset,
+                "Continue Reading did not resume TXT at the saved position");
+        }
+        {
+            // Old TXT saves have positions but no last-read timestamp.
+            std::ofstream legacy(reader::progress_path(progress_directory,txt));
+            legacy<<"NRP1\n"<<txt_offset<<" 0 0\n";legacy.close();
+            App migrated(&pgf);migrated.message_.clear();
+            const auto recent=reader::ui::recent_book(migrated.entries_);
+            check(recent<migrated.entries_.size() && migrated.entries_[recent].filename==txt,
+                "Legacy TXT history is ignored without a timestamp");
+            migrated.input(SCE_CTRL_CROSS);
+            check(migrated.screen_==Screen::Reader && migrated.progress_.offset==txt_offset,
+                "Legacy TXT did not resume through the Home widget");
+        }
+        {
+            App guide(&pgf);guide.message_.clear();guide.navigate(1);
+            guide.filter_=reader::LibraryFilter::All;guide.library_query_.clear();guide.refresh_library("@welcome");
+            guide.open();check(guide.screen_==Screen::Reader,"Welcome TXT fixture did not open");
+            guide.input(SCE_CTRL_CIRCLE);guide.navigate(0);
+            const auto recent=reader::ui::recent_book(guide.entries_);
+            check(recent<guide.entries_.size() && guide.entries_[recent].guide,"Read welcome TXT was excluded from Home");
+            guide.input(SCE_CTRL_CROSS);check(guide.screen_==Screen::Reader && guide.active_filename_=="@welcome",
+                "Continue Reading cannot reopen the welcome TXT");
+        }
     }
 };
 }

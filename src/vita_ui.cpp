@@ -94,6 +94,16 @@ void button(int x,int y,int width,int height,ButtonState state) {
         mesh.shape(x+2,y+2,width-4,std::min(14,height-4),7,alpha(accent,focused?36:24),alpha(accent,0));
     mesh.draw();
 }
+void reading_card(int x,int y,int width,int height) {
+    if(width<4 || height<4)return;
+    ButtonMesh mesh;
+    // Low-opacity rim and face retain the artwork beneath this Home-only card.
+    // Keep the face close to the footer's purple-black palette, without its gloss.
+    mesh.shape(x,y,width,height,9,alpha(border,55),alpha(border,45));
+    mesh.shape(x+1,y+1,width-2,height-2,8,
+        alpha(mix(surface,border,0.08f),190),alpha(background,210));
+    mesh.draw();
+}
 void button_focus(int x,int y,int width,int height) {
     if(width<4 || height<4)return;
     ButtonMesh mesh;
@@ -230,7 +240,10 @@ void icon(Icon kind,int x,int y,unsigned tint,float scale) {
     } else if(kind==Icon::Filter) {line(-12,-9,12,-9);line(12,-9,4,0);line(4,0,4,8);line(4,8,-3,12);line(-3,12,-3,0);line(-3,0,-12,-9);
     } else if(kind==Icon::Grid) {
         for(int a:{-10,2})for(int b:{-10,2}){line(a,b,a+8,b);line(a+8,b,a+8,b+8);line(a+8,b+8,a,b+8);line(a,b+8,a,b);}
-    } else if(kind==Icon::Play) {line(-5,-9,8,0);line(8,0,-5,9);line(-5,9,-5,-9);
+    } else if(kind==Icon::Play || kind==Icon::PlayCircle) {
+        if(kind==Icon::PlayCircle) {
+            circle(0,0,13);line(-3,-6,6,0);line(6,0,-3,6);line(-3,6,-3,-6);
+        } else {line(-5,-9,8,0);line(8,0,-5,9);line(-5,9,-5,-9);}
     } else if(kind==Icon::Chevron) {line(-3,-6,3,0);line(3,0,-3,6);
     } else if(kind==Icon::Check) {line(-8,0,-2,6);line(-2,6,9,-7);
     } else if(kind==Icon::Trash) {line(-10,-8,10,-8);line(-4,-12,4,-12);line(-7,-8,-6,12);line(-6,12,6,12);line(6,12,7,-8);line(-2,-4,-2,8);line(2,-4,2,8);

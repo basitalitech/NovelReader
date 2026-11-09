@@ -183,9 +183,13 @@ int main() {
         collection[1].guide = true; collection[1].progress.last_read = 40;
         collection[2].error = "Missing file"; collection[2].progress.last_read = 50;
         collection[3].progress.last_read = 30;
+        check(reader::ui::recent_book(collection) == 1, "Resume excluded the most recently read welcome TXT");
+        collection[1].progress = {};
         check(reader::ui::recent_book(collection) == 3, "Resume did not select the latest readable book");
         collection[3].directory = true;
         check(reader::ui::recent_book(collection) == 0, "Resume selected a directory");
+        collection[0].progress.last_read = 0; collection[0].progress.offset = 120;
+        check(reader::ui::recent_book(collection) == 0, "Resume ignored legacy TXT progress without a timestamp");
 
         Touch touch;
         check(touch.sample({{1, 100, 100}}, 1000, false).kind == GestureKind::None, "Touch activated before release");

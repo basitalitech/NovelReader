@@ -1,14 +1,15 @@
 #pragma once
 #include <cstdint>
+#include <sys/stat.h>
 constexpr unsigned SCE_CTRL_LEFT=1,SCE_CTRL_RIGHT=2,SCE_CTRL_UP=4,SCE_CTRL_DOWN=8,
     SCE_CTRL_CROSS=16,SCE_CTRL_CIRCLE=32,SCE_CTRL_TRIANGLE=64,SCE_CTRL_SQUARE=128,
     SCE_CTRL_START=256,SCE_CTRL_SELECT=512,SCE_CTRL_LTRIGGER=1024,SCE_CTRL_RTRIGGER=2048;
 using SceWChar16=char16_t;
 struct SceIoStat { int st_mode=0; };
 struct SceIoDirent { char d_name[256]{};SceIoStat d_stat; };
-inline bool SCE_S_ISDIR(int){return false;}
-inline bool SCE_S_ISREG(int){return true;}
-inline int sceIoGetstat(const char*,SceIoStat*){return -1;}
+inline bool SCE_S_ISDIR(int mode){return S_ISDIR(mode);}
+inline bool SCE_S_ISREG(int mode){return S_ISREG(mode);}
+inline int sceIoGetstat(const char* path,SceIoStat* result){struct stat info{};const int error=stat(path,&info);if(!error)result->st_mode=info.st_mode;return error;}
 inline int sceIoDopen(const char*){return 1;}
 inline int sceIoDread(int,SceIoDirent*){return 0;}
 inline int sceIoDclose(int){return 0;}

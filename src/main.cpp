@@ -896,21 +896,39 @@ private:
         this->text(232,108,palette().text,1.3f,"Welcome Back",664,reader::FontRole::Heading);
         this->text(232,140,palette().muted,0.85f,"Pick up your story where you left off.",664);
         const auto box=reader::ui::home_continue();
-        panel(box.x,box.y,box.width,box.height);
+        reading_card(box.x,box.y,box.width,box.height);
         const auto recent=reader::ui::recent_book(entries_);
-        icon(Icon::Play,260,198,palette().accent,0.7f);
-        this->text(286,206,palette().text,0.92f,recent<entries_.size()?"Continue Reading":"Browse Library",480,reader::FontRole::Heading);
+        icon(Icon::PlayCircle,box.x+28,box.y+30,reader::visual::text,0.9f);
+        this->text(box.x+54,box.y+38,palette().text,0.92f,recent<entries_.size()?"Continue Reading":"Browse Library",box.width-74,reader::FontRole::Heading);
         if(recent<entries_.size()) {
             const auto& item=entries_[recent];
-            draw_cover(item,252,228,88,140);
-            this->text(360,262,palette().text,1.0f,item.title,408,reader::FontRole::Heading);
-            this->text(360,296,palette().muted,0.80f,"Chapter "+std::to_string(item.progress.chapter+1)+" of "+std::to_string(item.chapters),408);
-            progress(360,326,300,std::max(0,item.progress.percent)/100.f,6);
-            this->text(680,336,palette().text,0.80f,item.progress.percent>=0?std::to_string(item.progress.percent)+"%":"Started",88);
+            draw_cover(item,box.x+20,box.y+64,100,152);
+            const int left=box.x+140,width=box.width-160;
+            const auto rows=reader::wrap_text(item.title,width,[this](const std::string& s) {
+                return fonts_.title_width(25,s);
+            });
+            for(std::size_t i=0;i<std::min<std::size_t>(2,rows.size());++i) {
+                auto line=i==1?item.title.substr(rows[i].offset):rows[i].text;
+                if(fonts_.title_width(25,line)>width) {
+                    while(!line.empty() && fonts_.title_width(25,line+"...")>width) {
+                        auto last=line.size()-1;
+                        while(last && (static_cast<unsigned char>(line[last])&0xc0)==0x80)--last;
+                        line.resize(last);
+                    }
+                    line+="...";
+                }
+                fonts_.draw_title(25,left,box.y+94+static_cast<int>(i)*29,palette().text,line);
+            }
+            this->text(left,box.y+174,palette().text,21.f/26,"Chapter "+std::to_string(item.progress.chapter+1)+" of "+std::to_string(item.chapters),width);
+            const auto percent=item.progress.percent>=0?std::to_string(item.progress.percent)+"%":"Started";
+            const int percent_width=fonts_.width(reader::FontRole::Interface,21,percent);
+            const int percent_x=box.x+box.width-20-percent_width;
+            progress(left,box.y+200,percent_x-left-14,std::max(0,item.progress.percent)/100.f,6);
+            this->text(percent_x,box.y+210,palette().text,0.80f,percent,percent_width);
         } else {
-            this->text(256,266,palette().text,1.0f,"Your next chapter awaits.",512,reader::FontRole::Heading);
-            this->text(256,306,palette().muted,0.85f,"Open Library to find or add your first book.",512);
-            this->text(256,360,palette().accent,0.92f,"Browse Library  ›",512,reader::FontRole::Heading);
+            this->text(box.x+24,box.y+98,palette().text,1.0f,"Your next chapter awaits.",box.width-48,reader::FontRole::Heading);
+            this->text(box.x+24,box.y+138,palette().muted,0.85f,"Open Library to find or add your first book.",box.width-48);
+            this->text(box.x+24,box.y+192,palette().accent,0.92f,"Browse Library  ›",box.width-48,reader::FontRole::Heading);
         }
     }
     void draw_bookmarks() const {
@@ -1949,12 +1967,26 @@ private:
         progress_.percent = reader::reading_percent(chapter_, publication_.chapters.size(),
             progress_.offset, book_.text.size(), visible_end() >= lines_.size());
         const auto now = std::time(nullptr);
-        if (now > 0) progress_.last_read = static_cast<std::uint64_t>(now);
+        if (now > 0) progress_.last_read = std::max(progress_.last_read,static_cast<std::uint64_t>(now));
+        // Progress files store seconds. Make the active book strictly newer than
+        // the other books even when two are opened in one second or the clock
+        // moves backward, so Home and Recent sorting agree after a restart.
+        for(const auto& item:entries_)
+            if(!item.directory && item.error.empty() && item.filename!=active_filename_ &&
+               item.progress.last_read>=progress_.last_read && item.progress.last_read<UINT64_C(32503680000))
+                progress_.last_read=item.progress.last_read+1;
+        if(!progress_.last_read)progress_.last_read=1;
         if (!reader::save_progress(reader::progress_path(progress_directory, active_filename_), progress_))
             message_ = "Could not save progress. Check free space.";
         else
             for (auto& item : entries_)
-                if (item.filename == active_filename_) item.progress = progress_;
+                if (item.filename == active_filename_) {
+                    item.progress = progress_;
+                    item.chapters = publication_.chapters.size();
+                    item.title = publication_.title;
+                    item.author = publication_.author;
+                    item.cover_path = publication_.cover_path;
+                }
     }
 
     void draw_library() const {

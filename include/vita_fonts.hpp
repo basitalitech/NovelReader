@@ -14,6 +14,10 @@ public:
     ~VitaFonts();
     int width(FontRole role, unsigned pixels, const std::string& text) const;
     void draw(FontRole role, unsigned pixels, int x, int y, unsigned color, const std::string& text) const;
+    // Native-size heading labels bypass vita2d's packed glyph atlas. Textures
+    // are cached by complete line; unsupported glyphs retain normal fallback.
+    int title_width(unsigned pixels, const std::string& text) const;
+    void draw_title(unsigned pixels, int x, int y, unsigned color, const std::string& text) const;
     bool complete() const;
 private:
     struct Impl;
