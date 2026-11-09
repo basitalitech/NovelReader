@@ -45,9 +45,9 @@ struct Network {
     }
     int connection_state() const {
 #ifdef __vita__
-        // The status bar draws before any online operation. Calling a NET
-        // export before its sysmodule and NetCtl are initialized can abort
-        // that first frame. Publish readiness from the worker before querying.
+        // Calling a NET export before its sysmodule and NetCtl are initialized
+        // can abort that first frame. Publish readiness from the worker before
+        // querying.
         if(!control_ready.load(std::memory_order_acquire)) return -1;
         int state=0;
         return sceNetCtlInetGetState(&state)>=0 ? state : -1;

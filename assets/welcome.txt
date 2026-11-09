@@ -1,36 +1,36 @@
-Welcome to Novel Reader
+Welcome to NovelReader
 
 A little library for your Vita
 
-Home welcomes you with a moonlit reading scene, Continue Reading, your library shelf, and Add Book. Use the sidebar for Home, Library, Continue, Bookmarks, Settings, and About. The clock, Wi-Fi indicator, and battery reflect your Vita's current state.
+Home welcomes you with a moonlit reading scene and Continue Reading. If there is no recent book, Browse Library opens your collection. Add Book belongs in Library. Use the sidebar for Home, Library, Continue, Bookmarks, Settings, and About. The application bar shows NovelReader without a status strip.
 
-Copy UTF-8 .txt novels or DRM-free .epub books into ux0:data/NovelReader/books/ using VitaShell. Choose Add Book on Home, or press START in Library and choose Import books. Browse to a book and press CROSS to add it to your collection. Import keeps the original file in place; repeated imports do not create duplicates.
+Copy UTF-8 .txt novels or DRM-free .epub books into ux0:data/NovelReader/books/ using VitaShell. Choose Add Book in Library, or press START there and choose Import books. Browse to a book and press CROSS to add it to your collection. Import keeps the original file in place; repeated imports do not create duplicates.
 
 Your library
 
-Library shows eight cover cards per page. The D-pad or either stick moves between covers. LEFT from the first column focuses the sidebar; UP and DOWN choose a destination, then CROSS or RIGHT opens it. Swipe the grid to browse eight books at a time.
+Library shows four larger cover cards per page, with readable titles and progress. The D-pad or either stick moves between covers. LEFT from the first column focuses the sidebar; UP and DOWN choose a destination, then CROSS or RIGHT opens it. UP from a cover enters Add Book, Search, Filter, and Online. DOWN enters the footer. Previous and Next change pages; swiping also browses four books at a time.
 
-CROSS or a cover tap opens book details. CROSS again starts or resumes reading. Details show the cover, author, format, chapter count, and saved progress. The bookmark button saves the current reading position. Remove asks for confirmation and removes only the library reference; the original file and saved progress stay on your memory card. You can import that book again later. The bundled guide is always available.
+CROSS or a cover tap opens book details. CROSS again starts or resumes reading. Details show the cover, author, format, chapter count, and saved progress. The labeled Bookmark button saves the current reading position. Options → Remove from library asks for confirmation and removes only the library reference; the original file and saved progress stay on your memory card. You can import that book again later. The bundled guide is always available.
 
-The search icon opens the system keyboard to search book titles. Submit an empty search to clear it. SQUARE or the filter icon opens Title, Recent, and Progress sorting. L and R switch between All, Reading, and Finished filters. Sort and filter preferences survive restarts. Continue Reading on Home resumes the most recently read available book; Continue in the sidebar lists started books.
+Search opens the system keyboard to search book titles. Submit an empty search to clear it. SQUARE or Filter opens Title, Recent, and Progress sorting. L and R switch sidebar destinations. Sort and filter preferences survive restarts. Continue Reading on Home resumes the most recently read available book; Continue in the sidebar lists started books.
 
 The Import browser shows folders inside ux0:data/NovelReader/books/. CROSS opens a folder or imports a book. CIRCLE goes up a folder, or returns to Library at the import root. Choose Refresh after copying files. Local books and favorite online novels appear together in Library.
 
 Each book keeps its relative path for progress and bookmarks. Identically named books in different folders have independent saves. Moving or renaming a book changes its save identity; restore missing files to their imported locations. The collection is saved in ux0:data/NovelReader/library.txt.
 
-Progress estimates weight EPUB chapters equally. Finished means the final page was displayed. Returning to an earlier page updates that status. The dashboard and cover progress bars use your actual saved reading position.
+Progress estimates weight EPUB chapters equally. Finished means the final page was displayed. Returning to an earlier page updates that status. Home and cover progress use your actual saved reading position.
 
 Getting comfortable
 
 Reading shows the title bar, chapter and page information, a purple progress bar, and controller hints. Existing saved reading-view preferences are kept. CROSS or a center tap opens Reading controls. The panel overlays the same page without reflowing.
 
-Reading controls provides Contents, Appearance, Save bookmark, Go to bookmark, Back to library, and Show/Hide reading bar. Page-only mode gives more space to text and illustrations. Changing the view preserves your reading anchor and bookmark; the choice is saved across restarts.
+Reading controls provides Contents, Illustrations, Reading Settings, Save bookmark, Go to bookmark, All bookmarks, Back to library, and Show/Hide reading bar. Page-only mode gives more space to text and illustrations. Changing the view preserves your reading anchor and bookmark; the choice is saved across restarts.
 
-SQUARE while reading opens Reading Settings. Choose Literata for serif reading, Atkinson Hyperlegible Next for sans-serif reading, or Vita system. UP and DOWN select a row; LEFT and RIGHT adjust it. Touch the sliders, font arrows, or Night, Paper, and Sepia theme swatches. The live sample uses your chosen font and spacing. CROSS or CIRCLE applies and returns to the previous screen. SELECT resets reading values. Home also provides Reading Settings before you open a book. Font and spacing changes preserve your position when text reflows. Menus keep their purple colors independently of the reading theme.
+SQUARE while reading opens Reading Settings. The interface uses Source Sans 3. Choose Literata, Atkinson Hyperlegible Next, or the Vita system font for your book. UP and DOWN select a row; LEFT and RIGHT adjust typeface, size, spacing, theme, and reading view. Tap the left or right half of a setting row to decrease or increase it. The wrapped live sample uses your selected font and spacing. Focus Apply and press CROSS to save; Cancel or CIRCLE discards changes. Reset or SELECT restores reading defaults in the preview until you apply them. Home also provides Reading Settings before you open a book. Size and spacing changes preserve your position when text reflows. Menus keep their purple colors independently of the reading theme.
 
 LEFT and RIGHT turn pages. UP and DOWN move one text line or illustration at a time. Hold a direction to keep moving. In TXT books, the shoulders also turn pages. In EPUB books, L and R open the previous or next chapter. Normal page turning also crosses chapter boundaries.
 
-Choose Contents in Reading controls for the chapter list, shown beside the book cover. UP and DOWN select a chapter; LEFT and RIGHT browse six chapters. CROSS opens the selection. Jump opens the numeric system keyboard to focus a chapter number. CIRCLE returns to reading.
+Choose Contents in Reading controls for the chapter list, shown beside the book cover. UP and DOWN select a chapter; Previous and Next browse five chapters. CROSS opens the selection. Jump opens the numeric system keyboard to focus a chapter number. CIRCLE returns to reading.
 
 Choose Save bookmark in Reading controls, or hold and release on the reading area, to bookmark your place. SELECT jumps back to it, including across EPUB chapters. Each book has one bookmark in addition to its automatically saved position.
 
@@ -40,11 +40,11 @@ CIRCLE from Reader returns to Library, or to chapters for an online novel. START
 
 Using the touchscreen
 
-Tap sidebar destinations, cover cards, and action hints along the bottom. Swipe Library to browse eight covers. Other lists browse four entries, except Contents which browses six chapters. A swipe never opens the entry beneath your finger.
+Tap sidebar destinations, cover cards, and labeled footer buttons. Swipe Library to browse four covers. Other lists browse four entries, except Contents which browses five chapters. The Reader and image viewer show shortcut hints; tapping their bottom strip opens the corresponding control panel. A swipe never opens the entry beneath your finger.
 
 While reading, swipe left for the next page and right for the previous page. Swipe vertically to move through the text. Tap an inline illustration to open its zoom viewer. Other left and right body taps turn pages; center taps open Reading controls. Hold and release on the reading area to save a bookmark. Rear touch is not used.
 
-Brief confirmations disappear automatically. Errors remain until navigation or another action replaces them. Disabled actions are dimmed. Both sticks support the same menu and reading actions as the D-pad; return a stick to center after changing screens. In the image viewer, either stick pans smoothly.
+Brief confirmations disappear automatically. Errors show a modal with D-pad-focusable Retry and Dismiss actions. Disabled actions are dimmed and skipped by controller focus. All enabled buttons, including header, footer, paging, and modal actions, can be reached with the D-pad. Button surfaces are flat. Circle returns to the parent screen; closing a panel restores its invoking focus. Both sticks support the same menu and reading actions as the D-pad; return a stick to center after changing screens. In the image viewer, either stick pans smoothly.
 
 Preparing your books
 
@@ -56,7 +56,7 @@ Viewing illustrations
 
 Illustrations appear between the surrounding paragraphs. Small images share the page with text; large images get their own page. Images fit without cropping or stretching. Missing or damaged images show a labeled placeholder. Text and illustration anchors remain compatible with existing saves.
 
-Choose Contents from Reading controls, then press SQUARE for the current chapter's illustrations. CROSS opens the selected image. CROSS zooms in, SQUARE zooms out, and the D-pad pans. Fit is available on the touch bar and in Options. L and R show the previous and next image in the chapter. CIRCLE returns to the screen that opened the viewer. All six actions are also available by touch.
+Choose Illustrations in Reading controls, or choose Contents then press SQUARE for the current chapter's illustrations. CROSS opens the selected image. CROSS zooms in, SQUARE zooms out, and the D-pad pans. START or a tap on the bottom hint strip opens Viewer controls, including Fit. L and R show the previous and next image in the chapter. CIRCLE returns to the screen that opened the viewer. Every action in the panel supports touch and D-pad focus.
 
 Drag an image to pan or pinch to zoom. Tap it to toggle between fit and 2x zoom. Back returns directly to reading if you tapped an inline image, or to the illustration list if you opened it there. The reading position and bookmark stay unchanged.
 

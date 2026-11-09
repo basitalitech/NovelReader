@@ -21,15 +21,10 @@ void rounded(int x,int y,int width,int height,unsigned fill,int radius) {
         vita2d_draw_fill_circle(cx,cy,radius,fill);
 }
 void panel(int x,int y,int width,int height,bool selected) {
+    // Button surfaces stay flat. Future shared artwork belongs in this primitive.
     if (selected) rounded(x-3,y-3,width+6,height+6,color(60,40,83),11);
     rounded(x,y,width,height,selected?accent:border);
     rounded(x+1,y+1,width-2,height-2,selected?color(83,53,124):surface,8);
-    // Subtle upper light and lower shade, kept inside the rounded outline.
-    for (int i=0;i<height-18;++i) {
-        const auto top=selected?color(103,68,148):color(35,30,47);
-        const auto bottom=selected?color(62,41,94):color(25,23,34);
-        vita2d_draw_rectangle(x+2,y+9+i,width-4,1,mix(top,bottom,float(i)/std::max(1,height-19)));
-    }
 }
 void progress(int x,int y,int width,float fraction,int height) {
     rounded(x,y,width,height,color(69,61,81),height/2);
@@ -40,9 +35,19 @@ void progress(int x,int y,int width,float fraction,int height) {
     }
 }
 void icon(Icon kind,int x,int y,unsigned tint,float scale) {
-    const auto line=[&](float a,float b,float c,float d) {vita2d_draw_line(x+a*scale,y+b*scale,x+c*scale,y+d*scale,tint);};
+    // A consistent two-pixel optical stroke keeps small icons legible on the
+    // Vita's 960 x 544 display without relying on font glyphs.
+    const auto line=[&](float a,float b,float c,float d) {
+        const float x1=x+a*scale,y1=y+b*scale,x2=x+c*scale,y2=y+d*scale;
+        const float dx=x2-x1,dy=y2-y1,length=std::sqrt(dx*dx+dy*dy);
+        const float stroke=std::max(0.55f,0.65f*scale);
+        const float ox=length>0.01f?-dy/length*stroke:0,oy=length>0.01f?dx/length*stroke:0;
+        vita2d_draw_line(x1,y1,x2,y2,tint);
+        vita2d_draw_line(x1+ox,y1+oy,x2+ox,y2+oy,tint);
+        vita2d_draw_line(x1-ox,y1-oy,x2-ox,y2-oy,tint);
+    };
     const auto circle=[&](float a,float b,float radius) {
-        for(int i=0;i<32;++i) { const float t=i*6.2831853f/32,u=(i+1)*6.2831853f/32;
+        for(int i=0;i<40;++i) { const float t=i*6.2831853f/40,u=(i+1)*6.2831853f/40;
             line(a+radius*std::cos(t),b+radius*std::sin(t),a+radius*std::cos(u),b+radius*std::sin(u)); }
     };
     if(kind==Icon::Book) {
@@ -57,11 +62,11 @@ void icon(Icon kind,int x,int y,unsigned tint,float scale) {
     } else if(kind==Icon::Clock) {circle(0,0,12);line(0,-8,0,0);line(0,0,6,3);
     } else if(kind==Icon::Bookmark) {line(-8,-12,8,-12);line(-8,-12,-8,12);line(8,-12,8,12);line(-8,12,0,6);line(0,6,8,12);
     } else if(kind==Icon::Settings) {
-        circle(0,0,5);
-        for(int i=0;i<24;++i){float a=i*6.2831853f/24,b=(i+1)*6.2831853f/24;float r=i%3==1?14:11,s=(i+1)%3==1?14:11;line(r*std::cos(a),r*std::sin(a),s*std::cos(b),s*std::sin(b));}
-    } else if(kind==Icon::Info) {circle(0,0,12);line(0,-2,0,7);line(-3,7,3,7);circle(0,-7,1);
+        circle(0,0,10); circle(0,0,4);
+        for(int i=0;i<8;++i){const float a=i*6.2831853f/8;line(10*std::cos(a),10*std::sin(a),14*std::cos(a),14*std::sin(a));}
+    } else if(kind==Icon::Info) {circle(0,0,12);line(0,-2,0,7);line(-3,7,3,7);vita2d_draw_fill_circle(x,y-7*scale,std::max(1.f,1.6f*scale),tint);
     } else if(kind==Icon::Search) {circle(-2,-2,8);line(4,4,12,12);
-    } else if(kind==Icon::Filter) {line(-12,-9,12,-9);line(-8,-2,8,-2);line(-4,5,4,5);line(0,9,0,11);
+    } else if(kind==Icon::Filter) {line(-12,-9,12,-9);line(12,-9,4,0);line(4,0,4,8);line(4,8,-3,12);line(-3,12,-3,0);line(-3,0,-12,-9);
     } else if(kind==Icon::Grid) {
         for(int a:{-10,2})for(int b:{-10,2}){line(a,b,a+8,b);line(a+8,b,a+8,b+8);line(a+8,b+8,a,b+8);line(a,b+8,a,b);}
     } else if(kind==Icon::Play) {line(-5,-9,8,0);line(8,0,-5,9);line(-5,9,-5,-9);

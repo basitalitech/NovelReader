@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NovelReader — UX layout reference</title>
+<style>
+@font-face{font-family:Source;src:url('../assets/fonts/SourceSans3-Regular.ttf')}
+@font-face{font-family:Source;src:url('../assets/fonts/SourceSans3-Semibold.ttf');font-weight:600}
+@font-face{font-family:Literata;src:url('../assets/fonts/Literata-Regular.ttf')}
+@font-face{font-family:Atkinson;src:url('../assets/fonts/AtkinsonHyperlegibleNext-Regular.ttf')}
+*{box-sizing:border-box}body{margin:24px;background:#0e0d14;color:#f5f2f8;font:20px Source,sans-serif}
+.tools{width:960px;display:flex;align-items:center;gap:24px;margin-bottom:16px}.tools label{white-space:nowrap}select{font:20px Source;color:inherit;background:#282131;padding:10px;border:1px solid #69577f;border-radius:6px}
+p{max-width:960px;color:#c0b8cd}#screen{position:relative;width:960px;height:544px;overflow:hidden;background:#16141f;box-shadow:0 0 0 1px #594968}
+.bar{position:absolute;inset:0 0 auto;height:44px;background:#282333;padding:6px 24px;font-size:24px;font-weight:600;display:flex;align-items:center;gap:12px}.bar img{width:28px;height:28px}
+.sidebar{position:absolute;top:44px;left:0;width:208px;height:436px;background:#181520;border-right:1px solid #362d42}
+button{position:absolute;margin:0;font:24px Source;color:#f5f2f8;background:#1f1b2b;border:1px solid #4c3e63;border-radius:9px;cursor:pointer;padding:8px 12px;line-height:1.1}
+button:hover{background:#352741}button:focus{outline:3px solid #dcbbff;outline-offset:1px;background:#352741}button:disabled{color:#aaa1b6;cursor:default;background:#211d2b}.nav{left:12px;width:184px;height:56px;text-align:left;padding-left:22px}.active{background:#37284c;border-color:#4c3a63}
+.label{position:absolute;margin:0;line-height:1.25;pointer-events:none}.muted{color:#c0b8cd}.title{font-size:32px;font-weight:600}.subtitle{font-size:22px}.footer{position:absolute;left:0;top:480px;width:960px;height:64px;background:#1d1a26}
+.card{border:1px solid #4c3e63;border-radius:9px;background:#1f1b2b}.book{padding:0;text-align:left;background:transparent;border:0;overflow:visible}.cover{position:absolute;left:0;top:0;width:164px;height:168px;border-radius:8px;background:#32263f;border:1px solid #665078;padding:18px;font-size:24px;text-align:center;display:flex;align-items:center;justify-content:center}.book .name{position:absolute;top:174px;left:0;width:164px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:24px;font-weight:600}.book .progress{position:absolute;top:209px;font-size:20px;color:#c0b8cd}.progressbar{height:6px;border-radius:3px;background:#453d51}.progressbar span{display:block;width:38%;height:6px;border-radius:3px;background:#b47def}
+.reading{background:#171719;border-radius:8px;overflow:hidden}.sample{position:absolute;left:16px;top:44px;width:272px;font-size:26px;line-height:1.5;color:#efeae1}.setting{text-align:left;font-size:22px}.setting small{display:block;font:20px Source;color:#c0b8cd;margin-bottom:2px}.arrows{position:absolute;right:18px;top:17px;font-size:24px}.hints{padding:16px 28px;font-size:22px;color:#c0b8cd}
+</style>
+<div class="tools"><label for="scene">Screen</label><select id="scene">
+<option value="home">Home · resume</option><option value="home-empty">Home · first launch</option>
+<option value="library">Library · long titles</option><option value="library-empty">Library · empty search</option>
+<option value="details">Book details</option><option value="settings-literata">Settings · Literata</option>
+<option value="settings-atkinson">Settings · Atkinson</option><option value="controls">Reading controls</option>
+</select><span class="muted">960 × 544 · Arrow keys move focus · Enter activates</span></div>
+<main id="screen" aria-label="Vita screen preview"></main>
+<p>Native-size layout and typography reference. The native application remains the source of truth for rendering, input, and persistence. This preview uses the bundled fonts and Home artwork.</p>
+<script>
+const screen=document.querySelector('#screen'),chooser=document.querySelector('#scene');
+const names=['Home','Library','Continue','Bookmarks','Settings','About'];
+const books=['The Moonlit Archive','A Journey Beyond the Last Mountain and the Edge of the Known World','Letters from Winter','The Quiet Hours'];
+function node(tag,cls,text,x,y,w,h){const e=document.createElement(tag);e.className=cls;e.textContent=text;if(x!==undefined)Object.assign(e.style,{position:'absolute',left:x+'px',top:y+'px',width:w+'px',height:h+'px'});screen.append(e);return e}
+function text(value,x,y,w,size=22,cls=''){const e=node('div','label '+cls,value,x,y,w);e.style.fontSize=size+'px';return e}
+function button(label,x,y,w,h=56,disabled=false,callback){const e=node('button','',label,x,y,w,h);e.disabled=disabled;if(callback)e.onclick=callback;return e}
+function sidebar(active){node('aside','sidebar','');names.forEach((n,i)=>{const b=button(n,12,76+i*64,184);b.className='nav'+(i===active?' active':'');b.onclick=()=>{chooser.value=i===1||i===2?'library':i===4?'settings-literata':'home';render()}})}
+function footer(labels,disabled=[]){node('footer','footer','');const count=labels.length;labels.forEach((label,i)=>{const last=i===count-1,pitch=Math.min(160,Math.floor(752/(count-1)));button(label,last?776:28+i*pitch,484,last?156:pitch-8,56,disabled.includes(i),()=>{if(label==='Options'){chooser.value='controls';render()}})})}
+function go(value){chooser.value=value;render()}
+function render(){screen.replaceChildren();const scene=chooser.value;const bar=node('header','bar','');const logo=document.createElement('img');logo.src='../assets/icons/novelreader.png';logo.alt='';bar.append(logo,document.createTextNode('NovelReader'));
+ if(scene.startsWith('home')){screen.style.background="url('../assets/ui/moonlit.png') center 44px / 960px 500px no-repeat #16141f";sidebar(0);text('Welcome Back',232,73,664,34,'title');text('Pick up your story where you left off.',232,114,664,22,'muted');const card=button('',232,168,560,224,false,()=>go('library'));card.setAttribute('aria-label',scene==='home'?'Continue Reading':'Browse Library');
+  text('▷  '+(scene==='home'?'Continue Reading':'Browse Library'),254,186,510,24,'title').style.pointerEvents='none';
+  if(scene==='home'){const cover=node('div','cover','The Moonlit Archive',252,228,88,140);cover.style.fontSize='20px';cover.style.pointerEvents='none';text(books[0],360,236,408,26,'title');text('Chapter 12 of 32',360,274,408,21,'muted');const p=node('div','progressbar','',360,326,300,6);p.innerHTML='<span></span>';text('38%',680,311,88,21)}else{text('Your next chapter awaits.',256,240,512,26,'title');text('Open Library to find or add your first book.',256,282,512,22,'muted');text('Browse Library  ›',256,334,512,24)}footer(['Open','Back','Options']);
+ }else{screen.style.background='#16141f';
+ if(scene.startsWith('library')){sidebar(1);text('Library',232,55,440,32,'title');text('Page '+(scene==='library'?1:0)+' of '+(scene==='library'?8:0),728,66,208,21,'muted');text(scene==='library'?'All books':'Search: an unknown title',232,89,704,20,'muted');const labels=['Add Book','Search','Filter','Online'],xs=[232,420,592,764],ws=[172,156,156,172];labels.forEach((l,i)=>button(l,xs[i],120,ws[i]));
+ if(scene==='library')books.forEach((book,i)=>{const b=button('',232+i*180,200,164,240);b.className='book';b.setAttribute('aria-label',book);b.innerHTML='<div class="cover"></div><div class="name"></div><div class="progress"></div>';b.querySelector('.cover').textContent=book;b.querySelector('.name').textContent=book;b.querySelector('.progress').textContent=i===0?'38% read':'Not started';b.onclick=()=>go('details')});else{text('No matching books.',280,234,620,28,'title');text('Add a book or explore online novels above.',280,275,620,22,'muted');button('Show all books',400,328,336,56,false,()=>go('library'))}footer(['Open','Back','Previous','Next','Options'],scene==='library'?[2]:[0,2,3]);
+ }else if(scene.startsWith('settings')){sidebar(4);text('Reading Settings',232,63,704,32,'title');const atkinson=scene.endsWith('atkinson'),labels=['Typeface','Font size','Line spacing','Page theme','Reading view'],values=[atkinson?'Atkinson':'Literata','26 px','1.5','Night','With controls'];labels.forEach((label,i)=>{const b=button('',232,124+i*60,376);b.className='setting';b.innerHTML='<small>'+label+'</small><strong>'+values[i]+'</strong><span class="arrows">‹　›</span>';if(i===0)b.onclick=()=>go(atkinson?'settings-literata':'settings-atkinson')});const p=node('div','reading','',632,124,304,296);p.innerHTML='<div style="position:absolute;left:16px;top:8px;font-size:20px;color:#beb7c3">Reading preview</div><div class="sample">A quiet evening. The next adventure awaits beyond the familiar path. Every story begins with a single page.</div>';p.querySelector('.sample').style.fontFamily=atkinson?'Atkinson':'Literata';text('Left / Right adjusts. Apply saves; Cancel discards.',232,432,704,21,'muted');footer(['Apply','Cancel','Reset','Options']);
+ }else if(scene==='details'){const c=node('div','cover',books[1],38,116,198,280);c.style.fontSize='28px';text(books[1],266,108,410,30,'title');text('Mira Rowan',266,236,410,22,'muted');text('EPUB',266,274,90,20,'muted');text('Your place is saved automatically. Settle in and enjoy your next chapter.',266,312,406,22);button('Continue Reading',266,396,270);button('Bookmark',552,396,148);node('div','card','',710,106,222,338);text('Progress',730,121,180,20,'muted');text('38%',730,155,180,24);text('Last read',730,197,180,20,'muted');text('Nov 9, 10:32 AM',730,225,180,20);text('Chapters',730,270,180,20,'muted');text('32',730,301,180,24);text('Format: EPUB',730,360,180,20);footer(['Read','Back','Options']);
+ }else{node('div','card','',24,44,912,424);text('Reading controls',40,32,880,34,'title');text('Choose an action. Circle returns to the same page.',40,79,880,22,'muted');['Contents','Illustrations','Reading settings','Save bookmark','Go to bookmark','All bookmarks'].forEach((l,i)=>button(l,40+(i%2)*448,140+Math.floor(i/2)*96,432,84,i===4));node('footer','footer','');button('Previous',28,484,296,56,true);button('Close',332,484,296,56,false,()=>go('home'));button('Next',636,484,296);}
+ }
+ const first=screen.querySelector('button:not(:disabled)');if(first)first.focus({preventScroll:true});
+}
+chooser.addEventListener('change',render);
+screen.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();const current=document.activeElement;if(current.tagName!=='BUTTON')return;const a=current.getBoundingClientRect(),horizontal=e.key==='ArrowLeft'||e.key==='ArrowRight',sign=e.key==='ArrowLeft'||e.key==='ArrowUp'?-1:1;let next=current,best=Infinity;for(const b of screen.querySelectorAll('button:not(:disabled)')){if(b===current)continue;const r=b.getBoundingClientRect(),dx=r.x+r.width/2-a.x-a.width/2,dy=r.y+r.height/2-a.y-a.height/2,along=sign*(horizontal?dx:dy),across=Math.abs(horizontal?dy:dx);if(along<=0)continue;const overlap=horizontal?a.top<r.bottom&&r.top<a.bottom:a.left<r.right&&r.left<a.right,score=(overlap?0:1000000)+along*10+across;if(score<best){best=score;next=b}}next.focus({preventScroll:true})});
+render();
+</script>
+</html>

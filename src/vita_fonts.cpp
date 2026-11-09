@@ -35,8 +35,8 @@ struct VitaFonts::Impl {
 
     int render(FontRole role, unsigned pixels, int x, int y, unsigned color,
                const std::string& text, bool drawing) const {
-        const auto index = static_cast<std::size_t>(role);
-        const Face* face = index < faces.size() ? &faces[index] : nullptr;
+        const auto index = role == FontRole::Heading ? 1u : role == FontRole::Serif ? 2u : role == FontRole::Sans ? 3u : 0u;
+        const Face* face = role==FontRole::System ? nullptr : &faces[index];
         int advance = 0;
         std::string run;
         bool custom_run = false;

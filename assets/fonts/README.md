@@ -1,7 +1,7 @@
 # Bundled fonts
 
 Unmodified static TrueType fonts, distributed under the SIL Open Font License
-1.1. Each license is included here and in the installable Vita package.
+1.1. All three families and their licenses are included in the installable Vita package.
 
 | Family | Files | Upstream revision |
 | --- | --- | --- |
@@ -9,11 +9,13 @@ Unmodified static TrueType fonts, distributed under the SIL Open Font License
 | Literata | Regular | [googlefonts/literata](https://github.com/googlefonts/literata/tree/0c2761b727a1b3a7cffd313c37f0f5163dfc7a63/fonts/ttf) |
 | Atkinson Hyperlegible Next | Regular | [googlefonts/atkinson-hyperlegible-next](https://github.com/googlefonts/atkinson-hyperlegible-next/tree/7925f50f649b3813257faf2f4c0b381011f434f1/fonts/ttf) |
 
-Source Sans 3 Regular is used for interface text, Semibold for screen headings.
-Literata is the default reading font. Atkinson Hyperlegible Next and the Vita
-system font can be selected in Reading settings. Reading bold and emphasis retain
-the existing second-pass/underline effects; the app does not load separate bold
-or italic reading faces or publisher-embedded fonts.
+Source Sans 3 Regular is used for interface text and Semibold for headings and
+emphasized controls. Reader typefaces are Literata, Atkinson Hyperlegible Next,
+and the Vita system font. Reading Settings previews the selected family, size,
+spacing, and theme; Apply saves and Cancel discards. Existing saved identifiers
+remain 0 = Literata, 1 = Atkinson, 2 = system. Bold publication text uses a second
+pass in the selected reading family; emphasis is underlined. The app does not
+load italic or publisher-embedded fonts.
 
 FreeType checks glyph coverage before measurement and drawing. Missing glyphs
 use the Vita system PGF font, with the same run boundaries in both operations.

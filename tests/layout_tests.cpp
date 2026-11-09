@@ -74,7 +74,7 @@ int main() {
         const auto expanded = reader::ui::reading_area(true), controls = reader::ui::reading_area(false);
         check(controls.top>=72 && controls.top+controls.height<454,
               "Reading text overlaps the title or progress bar");
-        check(reader::ui::image_top>=144 && reader::ui::image_top+reader::ui::image_height<reader::ui::toolbar_top,
+        check(reader::ui::image_top>=132 && reader::ui::image_top+reader::ui::image_height<reader::ui::toolbar_top,
               "Image viewer overlaps its heading or controller legend");
         check(expanded.height > controls.height && expanded.top + expanded.height < 510,
               "Immersive body overlaps progress/footer");

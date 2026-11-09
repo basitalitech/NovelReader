@@ -78,6 +78,18 @@ if(NOVELREADER_HOST_TESTS)
     target_link_libraries(controls_tests PRIVATE reader_core)
     target_compile_options(controls_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME analog_and_touch COMMAND controls_tests)
+    add_executable(vita_font_tests tests/vita_font_tests.cpp src/vita_fonts.cpp)
+    target_include_directories(vita_font_tests PRIVATE tests/font_stubs include)
+    target_compile_options(vita_font_tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME vita_font_routing COMMAND vita_font_tests)
+    add_executable(frontend_tests tests/frontend_tests.cpp src/vita_ui.cpp)
+    target_include_directories(frontend_tests PRIVATE tests/frontend_stubs)
+    target_link_libraries(frontend_tests PRIVATE reader_online)
+    target_compile_options(frontend_tests PRIVATE -Wall -Wextra -Wpedantic)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture/ux0:data/NovelReader/progress")
+    add_test(NAME native_frontend_navigation COMMAND frontend_tests)
+    set_tests_properties(native_frontend_navigation PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture")
 else()
     include("${VITASDK}/share/vita.cmake" REQUIRED)
     find_path(NOVELREADER_FREETYPE_INCLUDE ft2build.h PATH_SUFFIXES freetype2)
@@ -100,15 +112,25 @@ else()
         COMMENT "Checking Vita pthread runtime support" VERBATIM)
     vita_create_self(eboot.bin novelreader UNSAFE)
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
-        VERSION "00.70" NAME "Novel Reader"
+        VERSION "00.70" NAME "NovelReader"
         FILE assets/welcome.txt welcome.txt
         FILE assets/ui/moonlit.png ui/moonlit.png
+        FILE assets/icons/novelreader.png icons/novelreader.png
+        FILE assets/icons/cross_button.png icons/cross_button.png
+        FILE assets/icons/circle_button.png icons/circle_button.png
+        FILE assets/icons/triangle_button.png icons/triangle_button.png
+        FILE assets/icons/square_button.png icons/square_button.png
+        FILE assets/icons/l_button.png icons/l_button.png
+        FILE assets/icons/r_button.png icons/r_button.png
+        FILE assets/icons/select_button.png icons/select_button.png
+        FILE assets/icons/start_button.png icons/start_button.png
+        FILE assets/icons/dpad.png icons/dpad.png
         FILE assets/fonts/SourceSans3-Regular.ttf fonts/SourceSans3-Regular.ttf
         FILE assets/fonts/SourceSans3-Semibold.ttf fonts/SourceSans3-Semibold.ttf
-        FILE assets/fonts/Literata-Regular.ttf fonts/Literata-Regular.ttf
-        FILE assets/fonts/AtkinsonHyperlegibleNext-Regular.ttf fonts/AtkinsonHyperlegibleNext-Regular.ttf
         FILE assets/fonts/SourceSans3-LICENSE.md fonts/SourceSans3-LICENSE.md
+        FILE assets/fonts/Literata-Regular.ttf fonts/Literata-Regular.ttf
         FILE assets/fonts/Literata-OFL.txt fonts/Literata-OFL.txt
+        FILE assets/fonts/AtkinsonHyperlegibleNext-Regular.ttf fonts/AtkinsonHyperlegibleNext-Regular.ttf
         FILE assets/fonts/AtkinsonHyperlegibleNext-OFL.txt fonts/AtkinsonHyperlegibleNext-OFL.txt
         FILE assets/cacert.pem cacert.pem
         FILE assets/sources/common.lua sources/common.lua
