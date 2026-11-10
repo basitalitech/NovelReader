@@ -128,8 +128,11 @@ Triangle or the Filter hint opens Title/Recent/Progress sorting and All/Reading/
 through the sidebar destinations. Import and Online
 remain available through Start → Options. Library's Add Book opens import directly.
 Only visible covers are decoded, as bounded 144 × 200 thumbnails; missing covers
-use title cards. Book details show the cover, author, format, chapters, last-read
-time, and actual saved progress.
+use title cards. Local and online book details share a three-column layout with
+a larger 240 × 360 cover near the top, title and author beside it, and saved
+progress, chapters, and last-read time on the right. The reading CTA has no icon;
+local format appears once in the right panel. Online details retain description
+scrolling, Chapters, Download all, Refresh chapters, and Save.
 The labeled Bookmark button saves the book's current position. Options → Remove from library asks for
 confirmation, removes only the library reference, and keeps the original file
 and saved progress. The bundled guide cannot be removed.
@@ -198,7 +201,7 @@ on demand; failed requests leave the current chapter and position intact.
 | Sources | Up/Down: choose; Cross: browse; Circle: local library |
 | Catalog | Up/Down: choose; Left/Right: move four entries; Cross: details |
 | Catalog | Square: search; Select: initial catalog; Options → Next/Reload catalog |
-| Novel details | Cross: chapters; Square: save in library; Select: start/resume reading; Refresh chapters button |
+| Novel details | Cross: focused Read/Chapters/Download all/Refresh; Square: save in library; Select: start/resume reading; Up/Down scrolls the focused description |
 | Chapters | Up/Down: choose; Left/Right: move four entries; Cross: read; Square: download selected chapter |
 | Chapters | Select or Options → Download all: download public chapters; Options → Refresh chapters; Circle: details |
 | Request/download in progress | Circle: cancel |

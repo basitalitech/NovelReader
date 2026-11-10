@@ -53,7 +53,7 @@ Error and busy overlays continue to own input exclusively.
 | Image viewer | Cross zooms in; Square zooms out; Triangle fits; D-pad pans; either stick pans continuously; L/R chooses image; Circle restores Reader or illustration list, according to origin. |
 | Settings | Up/Down selects; Left/Right adjusts; Cross applies; Circle discards; Select resets preview. Square has no assignment. |
 | Online sources / catalog | Cross selects; Circle parent. Catalog Square searches; Triangle next/reload; Select initial catalog. |
-| Online details / chapters | Details Cross activates focused Chapters/Download all/Refresh; Square favorites; Select reads. Chapters Cross reads, Square downloads one, Select downloads all. Triangle refreshes on both. |
+| Online details / chapters | Details Cross activates focused Read/Chapters/Download all/Refresh; Square favorites; Select reads. The description accepts focus for Up/Down scrolling. Chapters Cross reads, Square downloads one, Select downloads all. Triangle refreshes on both. |
 
 L/R changes sidebar destinations on Home, Library, Bookmarks, Settings, and
 About. These destination changes are edges only. Other directional movement

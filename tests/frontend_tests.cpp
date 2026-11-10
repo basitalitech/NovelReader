@@ -89,6 +89,10 @@ struct FrontendTest {
         check(app.selected_==4,"A released scroll repeated");
         tap(300,300);check(app.screen_==Screen::Book && app.selected_==4,"Touch opened wrong scrolled card");
         app.set_focus(201);check(app.toolbar()[0].label=="Bookmark","Book hint ignores focused secondary action");
+        reader::font_draws.clear();reader::capture_font_draws=true;app.draw_frame();reader::capture_font_draws=false;
+        int formats=0;
+        for(const auto& draw:reader::font_draws)if(draw.text=="TXT") {++formats;check(draw.x==730,"Duplicate format badge remains below the author");}
+        check(formats==1,"Local details do not show the format exactly once");
         app.set_focus(200);tap(300,420);check(app.screen_==Screen::Reader,"Touch-only Read failed");
         app.message_.clear();const auto original_top=app.top_;
         tap(322,220,319,220);
@@ -276,9 +280,11 @@ struct FrontendTest {
 
         reader::online::Novel novel{"novgo","Cached online novel","Author","https://novgo.net/cache-test.html","Description",{}};
         for(int i=0;i<1024;++i)novel.chapters.push_back({"Chapter "+std::to_string(i),"https://novgo.net/cache-test/"+std::to_string(i)+".html",false});
-        const std::string identity="cache-online.nvr",manifest=books_directory+'/'+identity;
+        const std::string basename=reader::online::stable_id(novel.url)+".nvr";
+        const std::string identity="Online/novgo/"+basename,manifest=books_directory+'/'+identity;
+        mkdir((books_directory+"/Online").c_str(),0777);mkdir((books_directory+"/Online/novgo").c_str(),0777);
         check(reader::online::save_novel(manifest,novel),"Online cache fixture");
-        mkdir((books_directory+"/.chapters").c_str(),0777);mkdir((books_directory+"/.chapters/"+identity).c_str(),0777);
+        mkdir((books_directory+"/Online/novgo/.chapters").c_str(),0777);mkdir((books_directory+"/Online/novgo/.chapters/"+basename).c_str(),0777);
         check(reader::online::atomic_write(reader::online::chapter_path(manifest,novel.chapters[0].url),"An offline chapter.\n"),"Offline chapter fixture");
         reader::Progress progress;progress.has_bookmark=true;
         check(reader::save_progress(reader::progress_path(progress_directory,identity),progress),"Online progress fixture");
@@ -295,7 +301,28 @@ struct FrontendTest {
         for(const auto& cached:online.covers_)check(cached.key!=manifest,"Cover refresh retained a missing-artwork cache entry");
         online.open();
         check(online.screen_==Screen::Novel && online.offline_count_==1,"Online summary fixture");
-        online.open_online_reader(0);check(online.screen_==Screen::Reader,"Offline reader fixture");
+        online.normalize_focus();check(focus(online)==200,"Online details do not focus the reading CTA");
+        const auto enlarged=reader::ui::details_cover();
+        check(enlarged.width>198 && enlarged.height>280 && enlarged.y<106,"Shared details artwork was not enlarged or moved up");
+        check(online.widgets().size()==5,"Unified online details lost description or actions");
+        const auto chapters=reader::ui::details_secondary(true);
+        online.gesture({reader::controls::GestureKind::Tap,float(chapters.x+50),float(chapters.y+28)});
+        check(online.screen_==Screen::OnlineChapters,"Unified details Chapters CTA failed");
+        online.input(SCE_CTRL_CIRCLE);check(online.screen_==Screen::Novel,"Chapters Back lost online details");
+        online.online_novel_.description=std::string(1000,'a');online.set_focus(1000);online.input(SCE_CTRL_DOWN);
+        check(online.description_row_==1,"Unified description does not scroll");
+        online.input(SCE_CTRL_CROSS);check(online.screen_==Screen::Novel,"Description activation unexpectedly navigated away");
+        reader::font_draws.clear();reader::capture_font_draws=true;online.draw_frame();reader::capture_font_draws=false;
+        bool artwork_title=false,reading_cta=false,offline_stat=false;
+        for(const auto& draw:reader::font_draws) {
+            artwork_title=artwork_title || (draw.text==novel.title && draw.x==288 && draw.y==90);
+            reading_cta=reading_cta || draw.text=="Start Reading";
+            offline_stat=offline_stat || draw.text=="Available offline";
+        }
+        check(artwork_title && reading_cta && offline_stat,"Online details do not share the downloaded layout");
+        online.set_focus(200);online.input(SCE_CTRL_CROSS);
+        for(int i=0;i<500 && online.online_busy_;++i) {std::this_thread::sleep_for(std::chrono::milliseconds(2));online.input(0);}
+        check(online.screen_==Screen::Reader && !online.online_busy_,"Unified online Read CTA cannot open an offline chapter");
 #ifdef NOVELREADER_PROFILE
         reader::perf::reset();
 #endif
