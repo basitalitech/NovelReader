@@ -63,6 +63,11 @@ NetCtl. Offline startup does not call uninitialized networking APIs.
 The status strip containing Wi-Fi, clock, and battery indicators is intentionally
 omitted. The application bar begins at the top edge of the screen.
 
+Startup shows the full-screen moonlit background, the app logo, **NovelReader**,
+and **by basitalitech**, with a purple progress bar beneath. Progress follows
+library loading, book metadata, and cover preparation before Home appears.
+Large libraries update the bar during metadata loading; startup adds no timed delay.
+
 
 Collection, header, and modal buttons share a focus registry with touch hit
 regions. D-pad moves focus only within content or the active modal; Cross
@@ -429,6 +434,11 @@ cmake --build build/vita -j2
 ```
 
 The installable package is `build/vita/NovelReader.vpk`, title ID `NVRD00001`.
+The Vita app icon must be a 128 × 128, 8-bit indexed, non-interlaced PNG;
+an RGBA icon can cause VitaShell installation error `0x8010113D`. Configuration
+checks this format. After changing the logo, regenerate the app icon with
+`convert assets/ui/logo.png -resize 128x128 -strip PNG8:assets/ui/icon0.png`
+(ImageMagick); the in-app logo keeps its original full-color format.
 The Vita build links the complete pthread library and checks the executable's
 thread-support symbols before packaging. This prevents unresolved weak probes
 from making the C++ runtime reject worker creation on hardware.

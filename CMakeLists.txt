@@ -145,6 +145,15 @@ else()
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckVitaThreads.cmake"
         COMMENT "Checking Vita pthread runtime support" VERBATIM)
     vita_create_self(eboot.bin novelreader UNSAFE)
+    # LiveArea rejects truecolor icons with installation error 0x8010113D.
+    set(app_icon "${CMAKE_CURRENT_SOURCE_DIR}/assets/ui/icon0.png")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${app_icon}")
+    file(READ "${app_icon}" app_icon_header OFFSET 16 LIMIT 13 HEX)
+    if(NOT app_icon_header STREQUAL "00000080000000800803000000")
+        message(FATAL_ERROR
+            "assets/ui/icon0.png must be a 128x128, 8-bit indexed, non-interlaced PNG. "
+            "Regenerate it with: convert assets/ui/logo.png -resize 128x128 -strip PNG8:assets/ui/icon0.png")
+    endif()
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
         VERSION "00.70" NAME "NovelReader"
         FILE third_party/flite/COPYING licenses/flite-COPYING.txt

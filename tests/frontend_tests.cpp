@@ -359,7 +359,17 @@ struct FrontendTest {
         check(reader::save_settings(settings_path,reader::Settings{}),"Cannot initialize fixture preferences");
         check(reader::save_library(library_path,{}),"Cannot reset fixture library");
         check(reader::save_progress(reader::progress_path(progress_directory,"@welcome"),{}),"Cannot reset guide history");
+        reader::font_draws.clear();reader::capture_font_draws=true;
         vita2d_pgf pgf;App app(&pgf);
+        reader::capture_font_draws=false;
+        int startup_titles=0,startup_subtitles=0;
+        for(const auto& draw:reader::font_draws) {
+            if(draw.text=="NovelReader" && draw.y==283)++startup_titles;
+            if(draw.text=="by basitalitech" && draw.y==321)++startup_subtitles;
+            check(draw.text!="Options","Startup must not show the Home footer");
+        }
+        check(startup_titles==4 && startup_subtitles==4,"Startup stages must show the title and author");
+        check(app.screen_==Screen::Home && app.needs_redraw(),"Startup did not hand off to Home");
         app.message_.clear();app.sidebar_focus_=false;app.focus_memory_.clear();
         verify_graph(app);
         for(const auto key:{SCE_CTRL_LEFT,SCE_CTRL_RIGHT,SCE_CTRL_UP,SCE_CTRL_DOWN})for(int i=0;i<8;++i)app.input(key);

@@ -107,14 +107,21 @@ public:
         sort_ = static_cast<reader::LibrarySort>(settings_.library_sort);
         filter_ = static_cast<reader::LibraryFilter>(settings_.library_filter);
         immersive_ = settings_.immersive != 0;
+        {
+            const reader::perf::Scope timing(reader::perf::Event::Resources);
+            backdrop_.reset(vita2d_load_PNG_file("app0:/ui/moonlit.png"));
+            logo_.reset(vita2d_load_PNG_file("app0:/ui/logo.png"));
+        }
+        draw_startup(0.15f);
         if (!reader::load_library(library_path, library_books_)) {
             SceIoStat state{};
             library_writable_ = sceIoGetstat(library_path.c_str(), &state) < 0;
         }
-        scan();
-        const reader::perf::Scope timing(reader::perf::Event::Resources);
-        backdrop_.reset(vita2d_load_PNG_file("app0:/ui/moonlit.png"));
-        logo_.reset(vita2d_load_PNG_file("app0:/ui/logo.png"));
+        draw_startup(0.35f);
+        scan({},false,true);
+        draw_startup(0.9f);
+        sync_covers();
+        draw_startup(1.f);
         if (!fonts_.complete()) message_ = "Some bundled fonts are unavailable. Using the system font as fallback.";
     }
     ~App() {
@@ -141,6 +148,28 @@ public:
         draw();
         // The operation will still change screen/content or report an error.
         redraw_=true;
+    }
+    void draw_startup(float fraction) const {
+        using namespace reader::visual;
+        vita2d_set_clear_color(background);
+        vita2d_start_drawing();
+        vita2d_clear_screen();
+        if(backdrop_)
+            vita2d_draw_texture_scale(backdrop_.get(),0,0,
+                960.f/vita2d_texture_get_width(backdrop_.get()),544.f/vita2d_texture_get_height(backdrop_.get()));
+        else gradient(0,0,960,544,background,surface);
+        vita2d_draw_rectangle(0,0,960,544,0x30000000u);
+        draw_logo(480,184,104,0xffffffffu);
+        const auto centered=[&](const std::string& value,unsigned pixels,int baseline,unsigned tint) {
+            const auto role=reader::FontRole::Heading;
+            fonts_.draw(role,pixels,480-fonts_.width(role,pixels,value)/2,baseline,tint,value);
+        };
+        centered("NovelReader",40,283,0xffffffffu);
+        centered("by basitalitech",22,321,reader::visual::text);
+        progress(320,365,320,fraction,8);
+        vita2d_end_drawing();
+        vita2d_swap_buffers();
+        vita2d_wait_rendering_done();
     }
     bool needs_redraw() {
         const auto now=sceKernelGetProcessTimeWide();
@@ -2147,7 +2176,7 @@ private:
         return true;
     }
 
-    void scan(const std::string& restore = {},bool force_refresh=false) {
+    void scan(const std::string& restore = {},bool force_refresh=false,bool startup=false) {
         const reader::perf::Scope timing(reader::perf::Event::Scan);
         const auto keep = restore.empty() ? selected_filename() : restore;
         release_image();
@@ -2197,6 +2226,8 @@ private:
             }),entries_.end());
             std::unordered_set<std::string> known;
             for(const auto& item:entries_)known.insert(item.filename);
+            std::size_t loaded=0;
+            auto last_progress=sceKernelGetProcessTimeWide();
             for (const auto& filename : library_books_) {
                 if(known.count(filename))continue;
                 reader::LibraryItem item;
@@ -2208,6 +2239,15 @@ private:
                     item.error = "File missing. Restore it to its imported location.";
                 load_library_item(item);
                 entries_.push_back(std::move(item));
+                ++loaded;
+                if(startup) {
+                    const auto now=sceKernelGetProcessTimeWide();
+                    // Keep large libraries responsive without adding a frame per book.
+                    if(now-last_progress>=100000) {
+                        draw_startup(0.35f+0.5f*loaded/library_books_.size());
+                        last_progress=now;
+                    }
+                }
             }
             if (!library_writable_) message_ = "Library index is unreadable. Restore library.txt from backup.";
         }
