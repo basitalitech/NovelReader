@@ -136,6 +136,10 @@ struct Service::Impl {
             auto run=[&](const std::string& op,const std::string& url){return run_adapter(assets,request.source,op,url,request.query,fetch,canceled);};
             if(request.action==Action::Browse) {
                 status(0,0,"Loading catalog..."); result.result=run("browse",request.url);
+            } else if(request.action==Action::Remove) {
+                status(0,0,"Deleting downloaded book data...");
+                if(!remove_downloads(request.manifest,result.error))throw std::runtime_error(result.error);
+                result.manifest=request.manifest;
             } else if(request.action==Action::Chapters) {
                 Novel novel; novel.source=request.source; novel.url=request.url;
                 std::set<std::string> pages,chapters;

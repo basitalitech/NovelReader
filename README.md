@@ -30,7 +30,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Home / Library | D-pad/sticks: move focus within content; Cross: activate; Start: options |
 | Home / Library / sidebar screens | L/R: previous/next sidebar destination |
 | Library | Triangle: sorting/filtering; Square: search; Circle clears an active search before returning Home |
-| Library | Select: online sources |
+| Library | Add Book → Browse Online, or Options → Online novels |
 | Import | Cross: open folder/import book; Circle: parent folder or Library at root; Options → Refresh folder |
 | Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
 | EPUB reader | L/R: previous/next chapter; Cross → Contents |
@@ -123,7 +123,7 @@ stick moves focus through the action row and covers; Up/Down or vertical swipes
 scroll between grid rows. Cross or a cover tap
 opens book details; Cross again starts or resumes reading. Add Book is above the
 covers; Search (Square) and Filter are in the footer, and Online is available through
-SELECT, Add Book → Browse Online, or Options.
+Add Book → Browse Online or Options.
 Search or Square uses the system keyboard (submit an empty search to clear it).
 Circle exits and clears an active search while preserving sorting and filtering.
 Triangle or the Filter hint opens Title/Recent/Progress sorting and All/Reading/Finished filtering. L/R cycles
@@ -140,10 +140,11 @@ button that opens the list without changing reading progress; Back returns to
 details until a chapter is selected. Online details retain description
 scrolling, Chapters, Download all, Refresh chapters, and Save.
 Options → Save bookmark saves the book's current position. Options → Remove from library asks for
-confirmation, removes only the library reference, and keeps the original file
-and saved progress. The bundled guide cannot be removed.
+confirmation and deletes saved progress and bookmarks. Original local TXT/EPUB
+files stay in place. The bundled guide cannot be removed.
 Saved online novels also offer Remove from library in their details and chapter
-list Options menus; downloaded chapters, artwork, and progress remain available.
+list Options menus; their downloaded chapters, cached artwork, novel index, and
+progress are deleted. Download cleanup runs on the existing background worker.
 
 **Reader** starts with the title bar, chapter/page information, purple progress
 bar, and bottom shortcut legend. Existing saved reading-view preferences are kept.
@@ -179,7 +180,9 @@ four-row lists with the shared purple surfaces and controller footer.
 
 **Bookmarks** collects the saved bookmark from each library book, showing its
 passage when the local chapter is available, its title, and chapter. Cross/tap
-opens that position; Square removes it. There is still one bookmark per book.
+opens that position. Larger filled bookmark icons identify each passage.
+START Options contains only Open and Remove; Remove opens a confirmation submenu
+that defaults to Keep. Square has no delete action. There is still one bookmark per book.
 Online bookmark jumps use the existing chapter download/retry flow.
 
 **Reading Settings** is available from Home or Reader, with font, size and spacing
@@ -187,7 +190,7 @@ controls, Night/Paper/Sepia choices, reading view, and a live sample. Left/Right
 adjusts the selected row; touch controls adjust the corresponding value. Apply saves changes and returns to the previous screen; Cancel or Circle discards
 them. Select or Reset restores reading defaults in the preview until Apply.
 About shows the application version, credits, and licensing information. Start
-opens Options everywhere; **Options → Save and exit** closes the application.
+opens Options everywhere; **Options → Save and exit** on other screens closes the application.
 
 Brief confirmations disappear automatically; errors use a modal with focusable
 Retry (when available) and Dismiss actions. The previous [layout reference](docs/native-ui-preview.html)
@@ -239,7 +242,7 @@ background worker and cached for offline Library thumbnails. For favorites saved
 before artwork support, open the novel and use **Refresh chapters** once while
 connected. Missing or unsupported artwork keeps the existing title-card fallback.
 
-On novel details, press **Square**, tap **Save**, or choose **Options → Add to library** to save a favorite. Browsing
+On novel details, press **Square**, tap **Add to Library**, or choose **Options → Add to library** to save a favorite. Browsing
 a novel or downloading chapters does not automatically add it to Library. Added
 novels appear alongside imported local books without source folders. Open one
 to resume or select a chapter; downloaded chapters are available offline. Chapter
@@ -331,8 +334,8 @@ bookmarks are disabled.
   and returns to All books. Files stay in place; repeated imports do not duplicate
   entries. Circle at the import root returns to Library. Refresh updates the
   import browser after copying files with VitaShell.
-- **Select / Online** opens supported internet sources. Search or browse, open
-  novel details, and press **Square** or tap **Save**. This saves the favorite
+- **Add Book → Browse Online** or **Options → Online novels** opens supported sources. Search or browse, open
+  novel details, and press **Square** or tap **Add to Library**. This saves the favorite
   without downloading every chapter. Use the chapter screen to download one or
   all public chapters. Adding favorites requires a successfully loaded index.
 - Imported books retain their relative paths for progress and bookmarks, including

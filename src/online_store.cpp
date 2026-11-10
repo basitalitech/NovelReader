@@ -6,6 +6,9 @@
 #include <sstream>
 #include <stdexcept>
 #include <mbedtls/sha256.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <cerrno>
 
 namespace reader { namespace online {
 const std::vector<Source>& sources() {
@@ -43,6 +46,32 @@ bool load_cover(const std::string& manifest,std::string& bytes,std::string& erro
         ImageInfo info;if(!inspect_image(data,info,error))return false;
         bytes=std::move(data);error.clear();return true;
     } catch(const std::exception& e) {error=e.what();return false;}
+}
+bool remove_downloads(const std::string& manifest,std::string& error) {
+    if(!is_online_book(manifest)){error="Invalid online book index.";return false;}
+    bool ok=true;
+    const auto erase=[&](const std::string& path) {
+        if(std::remove(path.c_str())!=0 && errno!=ENOENT)ok=false;
+    };
+    const auto chapter=chapter_path(manifest,"");
+    const auto folder=chapter.substr(0,chapter.find_last_of('/'));
+    if(auto* directory=opendir(folder.c_str())) {
+        while(true) {
+            errno=0;const auto* entry=readdir(directory);
+            if(!entry){if(errno)ok=false;break;}
+            const std::string name=entry->d_name;
+            if(name=="." || name=="..")continue;
+            // A book owns this single directory. Never recursively follow
+            // other directories; remove its chapters and interrupted writes.
+            erase(folder+'/'+name);
+        }
+        if(closedir(directory)!=0)ok=false;
+        if(rmdir(folder.c_str())!=0 && errno!=ENOENT)ok=false;
+    } else if(errno!=ENOENT)ok=false;
+    erase(cover_path(manifest));erase(cover_path(manifest)+".tmp");
+    erase(manifest+".tmp");erase(manifest);
+    error=ok?"":"Removed from Library, but some downloaded files could not be deleted. Retry cleanup.";
+    return ok;
 }
 std::string read_file(const std::string& path, std::size_t limit) {
     std::ifstream in(path, std::ios::binary | std::ios::ate);

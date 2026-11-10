@@ -41,6 +41,8 @@
 #include <tuple>
 #include <unordered_set>
 #include <unordered_map>
+#include <cstdio>
+#include <cerrno>
 
 extern "C" {
 unsigned int _newlib_heap_size_user = 64 * 1024 * 1024;
@@ -76,7 +78,7 @@ enum class Command { Button, More, Sort, Jump, Immersive, Resume, Retry, Appeara
     BookBookmark, RemoveBook, ConfirmRemoveBook, Online, ClearSearch, PreviousPage, NextPage,
     ApplySettings, CancelSettings, ResetSettings, Illustrations, FullTitle, AddBook,
     Speech, SpeechToggle, SpeechStop, SpeechSlower, SpeechFaster, SaveBookmark, Dismiss,
-    CloseMenu, ReadOnline, OnlineContents, LocalContents };
+    CloseMenu, ReadOnline, OnlineContents, LocalContents, ConfirmDeleteBookmark };
 struct Action {
     std::string label;
     unsigned button;
@@ -240,6 +242,7 @@ public:
         }
         // Active layers own all input, including START and contextual shortcuts.
         if(online_busy_) {
+            if(removal_busy_)return true;
             if(pressed&(SCE_CTRL_CIRCLE|SCE_CTRL_CROSS)){pending_bookmark_=false;online_.cancel();message_="Canceling...";}
             return true;
         }
@@ -276,7 +279,6 @@ public:
             if (pressed & SCE_CTRL_LEFT) sidebar_focus_=true;
             if ((pressed & SCE_CTRL_UP) && bookmark_selected_) --bookmark_selected_;
             if ((pressed & SCE_CTRL_DOWN) && bookmark_selected_+1<marks.size()) ++bookmark_selected_;
-            if (pressed & SCE_CTRL_SQUARE) delete_bookmark();
             if (pressed & SCE_CTRL_CIRCLE) {
                 screen_=bookmarks_return_;nav_active_=nav_selected_=bookmarks_nav_return_;
                 sidebar_focus_=false;return true;
@@ -299,11 +301,6 @@ public:
         }
         if (is_online_screen()) return input_online(pressed);
         if (screen_ == Screen::Library) {
-            if (pressed & SCE_CTRL_SELECT) {
-                const bool restore_collection=importing_;importing_=false;current_folder_.clear();
-                if(restore_collection)scan();
-                release_image();screen_=Screen::Sources;online_selected_=0;message_.clear();return true;
-            }
             if (pressed & SCE_CTRL_CIRCLE) {
                 if (!importing_ && library_search_active_) { exit_library_search(); }
                 else if (importing_ && !current_folder_.empty()) {
@@ -712,7 +709,7 @@ private:
             return result;
         }
         if(online_busy_) {
-            add(4002,feedback_action(false),{"Cancel",SCE_CTRL_CIRCLE});
+            if(!removal_busy_)add(4002,feedback_action(false),{"Cancel",SCE_CTRL_CIRCLE});
             return result;
         }
         if(feedback_active()) {
@@ -1188,7 +1185,7 @@ private:
         for (auto i=first;i<marks.size() && i<first+3;++i) {
             const auto& item=entries_[marks[i]]; const int y=reader::ui::bookmark_row(i-first).y;
             panel(232,y,704,96,!sidebar_focus_ && i==bookmark_selected_);
-            icon(Icon::Bookmark,254,y+29,palette().accent,0.65f);
+            icon(Icon::BookmarkFilled,256,y+48,palette().accent,1.35f);
             std::string quote=item.title;const auto key=bookmark_key(item);
             for(const auto& preview:bookmark_previews_)if(preview.key==key){quote=preview.quote;break;}
             this->text(278,y+29,palette().text,0.79f,quote,625,reader::FontRole::Interface);
@@ -1298,7 +1295,7 @@ private:
         } else if (screen_ == Screen::Library) {
             menu_={{"Continue reading",0,Command::Resume,reader::ui::recent_book(entries_)<entries_.size()},
                 {"Book details",0,Command::Details,!order_.empty()},
-                {"Import books",0,Command::Import},{"Online novels",SCE_CTRL_SELECT},{"Sort books",0,Command::Sort},{"Search library",0,Command::Search}};
+                {"Import books",0,Command::Import},{"Online novels",0,Command::Online},{"Sort books",0,Command::Sort},{"Search library",0,Command::Search}};
         } else if (screen_ == Screen::Reader) {
             menu_={{"Read aloud",0,Command::Speech},{"Contents",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reading settings",0,Command::Appearance},{"Save bookmark",0,Command::SaveBookmark},
                 {"Go to bookmark",SCE_CTRL_SELECT,Command::Button,progress_.has_bookmark},{"All bookmarks",0,Command::Bookmarks},{publication_.online?"Back to chapters":"Back to library",SCE_CTRL_CIRCLE},
@@ -1332,11 +1329,11 @@ private:
             menu_={{"Library",0,Command::Library},
                 {"Reading settings",0,Command::Appearance},{"Bookmarks",0,Command::Bookmarks}};
         } else if (screen_==Screen::Bookmarks) {
-            menu_={{"Open bookmark",SCE_CTRL_CROSS},{"Remove bookmark",0,Command::DeleteBookmark,!bookmarks().empty()},
-                {"Library",0,Command::Library},{"Home",0,Command::Home}};
+            menu_={{"Open",SCE_CTRL_CROSS,Command::Button,!bookmarks().empty()},
+                {"Remove",0,Command::DeleteBookmark,!bookmarks().empty()}};
         } else { menu_={{"Back",SCE_CTRL_CIRCLE},{"Home",0,Command::Home}}; }
         for (auto& action:menu_) if (action.button==SCE_CTRL_START) {action.button=0;action.command=Command::Exit;}
-        if (std::none_of(menu_.begin(),menu_.end(),[](const Action& action){return action.command==Command::Exit;}))
+        if (screen_!=Screen::Bookmarks && std::none_of(menu_.begin(),menu_.end(),[](const Action& action){return action.command==Command::Exit;}))
             menu_.push_back({"Save and exit",0,Command::Exit});
         if (retry_available_ && (is_online_screen() || screen_ == Screen::Reader)) menu_.insert(menu_.begin(),{"Retry request",0,Command::Retry});
         menu_selected_=0; ++folder_revision_;
@@ -1376,7 +1373,11 @@ private:
             if (!reader::save_settings(settings_path, settings_)) notify("Could not save narration speed. Check storage.");
             show_speech(); break;
         case Command::AddBook: show_add_book();break;
-        case Command::Online: return input(SCE_CTRL_SELECT,false);
+        case Command::Online: {
+            const bool restore_collection=importing_;importing_=false;current_folder_.clear();
+            if(restore_collection)scan();
+            release_image();screen_=Screen::Sources;online_selected_=0;message_.clear();break;
+        }
         case Command::ClearSearch:
             if(library_search_active_){exit_library_search();break;}
             library_query_.clear();filter_=reader::LibraryFilter::All;selected_=0;
@@ -1407,8 +1408,8 @@ private:
             break;
         case Command::RemoveBook:
             if(!removal_filename().empty()) {
-                menu_title_="Are you sure?";
-                menu_={{"Yes, remove reference",0,Command::ConfirmRemoveBook},{"No, keep it",0}};menu_selected_=1;focus_memory_.erase(100);++folder_revision_;
+                menu_title_="Remove book and saved data?";
+                menu_={{"Remove and delete saved data",0,Command::ConfirmRemoveBook},{"Keep book",0}};menu_selected_=1;focus_memory_.erase(100);++folder_revision_;
             }
             break;
         case Command::ConfirmRemoveBook:
@@ -1417,7 +1418,14 @@ private:
                 auto books=library_books_;const auto filename=removal_filename();
                 books.erase(std::remove(books.begin(),books.end(),filename),books.end());
                 if(reader::save_library(library_path,books)) {
-                    library_books_=std::move(books);navigate(1);sidebar_focus_=false;scan();notify("Removed from Library. The book file is kept.");
+                    library_books_=std::move(books);navigate(1);sidebar_focus_=false;scan();
+                    const auto progress=reader::progress_path(progress_directory,filename);
+                    const bool progress_removed=std::remove(progress.c_str())==0 || errno==ENOENT;
+                    if(!progress_removed){message_="Removed from Library, but saved progress could not be deleted. Check storage.";break;}
+                    if(reader::is_online_book(filename)) {
+                        reader::online::Request request;request.action=reader::online::Action::Remove;
+                        request.manifest=books_directory+'/'+filename;start_online(request);
+                    } else notify("Removed from Library and deleted saved progress.");
                 } else message_="Could not update Library. Check storage.";
             }
             break;
@@ -1429,7 +1437,13 @@ private:
         case Command::Bookmarks:
             bookmarks_return_=screen_;bookmarks_nav_return_=nav_active_; save(); screen_=Screen::Bookmarks; bookmark_selected_=0;
             nav_active_=nav_selected_=2; sidebar_focus_=false; break;
-        case Command::DeleteBookmark: delete_bookmark(); break;
+        case Command::DeleteBookmark:
+            if(!bookmarks().empty()) {
+                menu_title_="Remove this bookmark?";
+                menu_={{"Yes, remove",0,Command::ConfirmDeleteBookmark},{"No, keep",0}};menu_selected_=1;focus_memory_.erase(100);++folder_revision_;
+            }
+            break;
+        case Command::ConfirmDeleteBookmark: delete_bookmark();break;
         case Command::Credits:
             message_="Built with VitaSDK and vita2d. Fonts: Source Sans 3, Literata and Atkinson. EPUB: TinyXML2 and Minizip. Online: Lua, curl and Mbed TLS. Offline speech: Flite 2.2, English SLT voice."; break;
         case Command::License:
@@ -1523,7 +1537,7 @@ private:
     std::vector<Action> toolbar() const {
         if(!menu_.empty())return menu_toolbar();
         if(ime_active_)return {};
-        if(online_busy_)return {{"Cancel",SCE_CTRL_CIRCLE}};
+        if(online_busy_)return removal_busy_?std::vector<Action>{}:std::vector<Action>{{"Cancel",SCE_CTRL_CIRCLE}};
         if(feedback_active())return {{"Select",SCE_CTRL_CROSS},{"Close",SCE_CTRL_CIRCLE}};
         const Action options{"Options",SCE_CTRL_START,Command::More};
         const auto confirm=[&](const std::string& fallback) {
@@ -1559,11 +1573,13 @@ private:
     }
 
     void start_online(reader::online::Request request) {
+        removal_busy_=request.action==reader::online::Action::Remove;
         request.source = online_source_;
         retry_request_ = request; retry_in_place_ = online_read_in_place_; retry_available_ = false;
         download_completed_ = download_total_ = 0;
         if (online_.start(request)) { online_busy_ = true; message_ = "Loading... CIRCLE cancels."; }
         else {
+            removal_busy_=false;
             const auto failure = online_.poll();
             message_ = failure.error.empty() ? "An online operation is already running." : failure.error;
             retry_available_ = true;
@@ -1700,6 +1716,11 @@ private:
         if (!update.done) return;
         redraw_=true;
         online_busy_ = false;
+        if(update.request.action==reader::online::Action::Remove) {
+            removal_busy_=false;retry_available_=!update.error.empty();
+            if(retry_available_)message_=update.error;else notify("Book, downloads and saved progress removed.");
+            return;
+        }
         // A chapter refresh can reorder stable bookmark paths; a download can
         // replace chapter text. Refresh only the affected collection member.
         if(update.request.action!=reader::online::Action::Browse)
@@ -1903,6 +1924,8 @@ private:
     }
     reader::ui::Rect toolbar_rect(const std::vector<Action>& actions,int index) const {
         const int count=static_cast<int>(actions.size());
+        if(screen_==Screen::Home && menu_.empty() && !feedback_active() && !online_busy_ && count==2)
+            return index==0?reader::ui::Rect{28,484,240,56}:reader::ui::Rect{776,484,156,56};
         if((screen_==Screen::Reader || screen_==Screen::Image) && !feedback_active() && !online_busy_ && count==3) {
             const reader::ui::Rect boxes[]={{28,484,170,56},{228,484,150,56},{776,484,156,56}};
             return boxes[index];
@@ -1986,7 +2009,7 @@ private:
         }
     }
     static bool menu_opens_submenu(Command command) {
-        return command==Command::Sort || command==Command::Speech || command==Command::RemoveBook;
+        return command==Command::Sort || command==Command::Speech || command==Command::RemoveBook || command==Command::DeleteBookmark;
     }
     bool menu_option_active(Command command) const {
         return (command==Command::SortTitle && sort_==reader::LibrarySort::Title) ||
@@ -2024,8 +2047,8 @@ private:
         if(online_busy_) {
             reader::visual::progress(box.x+24,bottom-120,box.width-48,download_total_?float(download_completed_)/download_total_:0,6);
             text(box.x+24,bottom-92,palette().muted,0.8f,download_total_?std::to_string(download_completed_)+" / "+
-                std::to_string(download_total_)+" completed":"Connecting...",box.width-48);
-            button(feedback_action(false),{"Cancel",SCE_CTRL_CIRCLE});
+                std::to_string(download_total_)+" completed":removal_busy_?"Deleting saved data...":"Connecting...",box.width-48);
+            if(!removal_busy_)button(feedback_action(false),{"Cancel",SCE_CTRL_CIRCLE});
         }
     }
 
@@ -2852,7 +2875,7 @@ private:
     reader::online::Novel online_novel_;
     std::string online_source_,online_manifest_,online_browse_url_,online_query_;
     std::size_t online_selected_ = 0,pending_offset_ = 0;
-    bool online_busy_ = false,online_read_in_place_ = false,pending_end_ = false,ime_active_ = false,online_from_library_ = false;
+    bool online_busy_ = false,removal_busy_=false,online_read_in_place_ = false,pending_end_ = false,ime_active_ = false,online_from_library_ = false;
     SceWChar16 ime_input_[65]{},ime_initial_[1]{};
     reader::Settings settings_;
     reader::Settings previous_settings_;

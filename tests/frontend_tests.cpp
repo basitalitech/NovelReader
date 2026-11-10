@@ -191,7 +191,9 @@ struct FrontendTest {
         tap(700,176);check(app.feedback_active(),"Touch-only credits failed");footer(SCE_CTRL_CIRCLE);
         tap(60,104);check(app.screen_==Screen::Home,"Touch-only Home return failed");
         app.navigate(1);app.input(SCE_CTRL_SELECT);
-        check(app.screen_==Screen::Sources,"Library Online utility shortcut failed");footer(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Library,"Removed Library Select shortcut is still active");
+        app.perform({"Browse Online",0,Command::Online});
+        check(app.screen_==Screen::Sources,"Browse Online action failed");footer(SCE_CTRL_CIRCLE);
         check(app.screen_==Screen::Library,"Touch-only Sources Back failed");
         // An unknown source fails before HTTP. Inspect the actual dispatched
         // request without contacting a catalog or changing the service API.
@@ -233,7 +235,13 @@ struct FrontendTest {
 #endif
         for(std::size_t page=0;page<10;++page){app.bookmark_selected_=page*3;app.sync_bookmark_previews();}
         check(app.bookmark_previews_.size()==24,"Bookmark preview cache is not bounded");
-        app.bookmark_selected_=0;app.delete_bookmark();
+        app.bookmark_selected_=0;const auto bookmark_count=app.bookmarks().size();
+        app.input(SCE_CTRL_SQUARE);check(app.bookmarks().size()==bookmark_count,"Square still deletes bookmarks");
+        app.show_more();check(app.menu_.size()==2 && app.menu_[0].label=="Open" && app.menu_[1].label=="Remove","Bookmarks Options contains unrelated actions");
+        app.input(SCE_CTRL_DOWN);app.input(SCE_CTRL_CROSS);app.normalize_focus();
+        check(app.menu_selected_==1 && app.menu_parents_.size()==1 && app.bookmarks().size()==bookmark_count,"Bookmark removal skipped confirmation");
+        app.input(SCE_CTRL_CIRCLE);check(app.menu_.size()==2 && app.menu_[1].command==Command::DeleteBookmark,"Cancel did not return to Bookmark Options");
+        app.input(SCE_CTRL_CROSS);app.set_focus(2000);app.input(SCE_CTRL_CROSS);
         check(app.bookmarks().size()==29 && !reader::load_progress(reader::progress_path(progress_directory,names[0])).has_bookmark,
             "Bookmark deletion did not invalidate membership/persist");
         app.message_.clear();app.navigate(1);
@@ -250,7 +258,7 @@ struct FrontendTest {
         check(app.collection_suspended_ && app.collection_entries_.size()==31,"Import discarded the cached collection");
         app.input(SCE_CTRL_CIRCLE);
         check(!app.collection_suspended_ && app.entries_.size()==31,"Import cancel did not restore cached collection");
-        app.message_.clear();app.begin_import();app.input(SCE_CTRL_SELECT);app.input(SCE_CTRL_CIRCLE);
+        app.message_.clear();app.begin_import();app.perform({"Online",0,Command::Online});app.input(SCE_CTRL_CIRCLE);
         check(app.screen_==Screen::Library && !app.collection_suspended_ && app.entries_.size()==31,
             "Online shortcut from import did not restore collection");
         // Refresh is the explicit invalidation boundary for externally replaced files.
@@ -264,7 +272,8 @@ struct FrontendTest {
         app.perform({"Remove",0,Command::ConfirmRemoveBook});app.message_.clear();
         check(app.entries_.size()==30 && app.bookmarks().size()==29,"Removal left stale collection/bookmark membership");
         check(app.add_to_library(names[1]),"Could not reimport removed book");app.navigate(1);
-        check(app.entries_.size()==31 && app.bookmarks().size()==30,"Reimport did not reload progress");
+        check(app.entries_.size()==31 && app.bookmarks().size()==29 &&
+              !reader::load_progress(reader::progress_path(progress_directory,names[1])).has_bookmark,"Reimport restored deleted progress");
         for(auto& item:app.entries_)if(!item.guide)item.cover_path="missing.png";
         for(std::size_t i=0;i<app.order_.size();i+=4){app.selected_=i;app.ensure_library_visible();app.sync_covers();}
         check(app.covers_.size()==12,"Cover cache is not bounded");
@@ -370,17 +379,25 @@ struct FrontendTest {
         online.set_focus(2000+remove);online.input(SCE_CTRL_CROSS);online.normalize_focus();
         check(online.menu_selected_==1,"Online removal does not default to Keep");
         online.input(SCE_CTRL_CROSS);check(online.in_library(),"Cancel removed an online favorite");
+        const auto chapter_file=reader::online::chapter_path(manifest,novel.chapters[0].url);
+        const auto download_folder=chapter_file.substr(0,chapter_file.find_last_of('/'));
+        check(reader::online::atomic_write(download_folder+"/orphan.txt","Old chapter") &&
+              reader::online::atomic_write(download_folder+"/interrupted.txt.tmp","Partial chapter"),"Cannot create cleanup regression files");
         online.show_more();online.set_focus(2000+remove_option());online.input(SCE_CTRL_CROSS);
         online.set_focus(2000);online.input(SCE_CTRL_CROSS);
+        for(int i=0;i<2000 && online.online_busy_;++i) {std::this_thread::sleep_for(std::chrono::milliseconds(2));online.input(0);}
+        check(!online.online_busy_ && !online.retry_available_,"Downloaded book cleanup did not complete");
         check(online.screen_==Screen::Library && !online.in_library() && online.library_books_==std::vector<std::string>{names[0]},
             "Online removal removed the selected background book or retained the favorite");
         std::vector<std::string> persisted;
         check(reader::load_library(library_path,persisted) && persisted==online.library_books_,"Online removal was not persisted");
         reader::online::Novel kept;
-        check(reader::online::load_novel(manifest,kept,artwork_error) && reader::online::cached(manifest,novel.chapters[1].url) &&
-              reader::online::load_cover(manifest,artwork_bytes,artwork_error) &&
-              reader::load_progress(reader::progress_path(progress_directory,identity)).last_read>0,
-              "Removing an online favorite deleted downloaded content, artwork, or progress");
+        check(!reader::online::load_novel(manifest,kept,artwork_error) && !reader::online::cached(manifest,novel.chapters[1].url) &&
+              !reader::online::load_cover(manifest,artwork_bytes,artwork_error) &&
+              reader::load_progress(reader::progress_path(progress_directory,identity)).last_read==0,
+              "Removing an online favorite retained downloads, artwork, or progress");
+        SceIoStat deleted_folder{};
+        check(sceIoGetstat(download_folder.c_str(),&deleted_folder)<0,"Cleanup retained orphaned or partial chapter files");
         online.message_.clear();online.screen_=Screen::Novel;online.show_more();
         check(remove_option()==-1,"Unsaved online novel still offers removal");online.close_menu();
     }

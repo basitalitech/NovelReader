@@ -35,13 +35,14 @@ bool save_novel(const std::string& path, const Novel& novel);
 bool load_novel(const std::string& path, Novel& novel, std::string& error);
 std::string cover_path(const std::string& manifest);
 bool load_cover(const std::string& manifest, std::string& bytes, std::string& error);
+bool remove_downloads(const std::string& manifest, std::string& error);
 std::string chapter_path(const std::string& manifest, const std::string& url);
 bool cached(const std::string& manifest, const std::string& url);
 bool open_cached(const std::string& path, Publication& publication, std::string& error);
 void restore_progress(const Publication& publication, Progress& progress);
 
 // Worker results are transferred to the UI only after completion.
-enum class Action { Browse, Chapters, Read, Download };
+enum class Action { Browse, Chapters, Read, Download, Remove };
 struct Request {
     Action action = Action::Browse;
     std::string source, url, query, manifest;

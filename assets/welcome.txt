@@ -10,7 +10,7 @@ Your library
 
 Library shows four columns of cover cards, with readable titles and progress. The D-pad or either stick moves between covers. UP and DOWN scroll between rows; UP from the first row reaches Add Book and Search. L and R switch sidebar destinations; you can also tap them. The footer shows physical shortcuts and accepts taps on the visible hints. Swipe vertically to scroll one row at a time without opening a book.
 
-CROSS or a cover tap opens book details. CROSS again starts or resumes reading. Details show the cover, author, format, chapter count, and saved progress. The labeled Bookmark button saves the current reading position. Options → Remove from library asks for confirmation and removes only the library reference; the original file and saved progress stay on your memory card. You can import that book again later. The bundled guide is always available.
+CROSS or a cover tap opens book details. CROSS activates the highlighted reading or Chapters button. Details show the cover, author, format, chapter count, and saved progress. Options → Save bookmark saves the current position. Options → Remove from library asks for confirmation and deletes saved progress and bookmarks. For online books it also deletes downloaded chapters, artwork, and the novel index. Original local TXT/EPUB files remain available to import again. The bundled guide is always available.
 
 SQUARE or Search opens the system keyboard to search book titles. CIRCLE exits and clears an active search before returning Home, keeping sorting and filtering. TRIANGLE or the Filter hint opens Title, Recent, and Progress sorting and All, Reading, and Finished filtering. L and R switch sidebar destinations. Sort and filter preferences survive restarts. Continue Reading on Home resumes the most recently read available book.
 
@@ -34,7 +34,7 @@ Press CROSS while reading, or choose Contents in Reading controls, for the chapt
 
 Choose Save bookmark in Reading controls, or hold and release on the reading area, to bookmark your place. SELECT jumps back to it, including across EPUB chapters. Each book has one bookmark in addition to its automatically saved position.
 
-TRIANGLE while reading opens Bookmarks. The sidebar also opens this collection of saved passages. A bookmark shows an excerpt when its local chapter is available, plus the title and chapter. CROSS or a tap opens the saved position. SQUARE removes the selected bookmark. CIRCLE returns to the previous screen.
+TRIANGLE while reading opens Bookmarks. The sidebar also opens this collection of saved passages. A bookmark shows an excerpt when its local chapter is available, plus the title and chapter. CROSS or a tap opens the saved position. START Options contains only Open and Remove. Remove opens a confirmation submenu that defaults to Keep; SQUARE has no delete action. CIRCLE returns to the previous screen.
 
 CIRCLE from Reader returns to Library, or to chapters for an online novel. START opens the current screen's controls or Options. Choose Save and exit to close the application. Reading positions save as you move. TRIANGLE is reserved for contextual actions such as Library filters, Contents Jump, and Viewer Fit. Use the D-pad or sticks to choose a tile, CROSS to confirm, and CIRCLE to close. Only the active panel receives input.
 
@@ -64,7 +64,7 @@ PNG and JPEG are supported, up to 8 MiB encoded, 4096 pixels per side, and 4 meg
 
 Online novels
 
-Connect Wi-Fi in Vita Settings. Press SELECT in Library, or choose Online novels from Options, to browse Novgo, Asura Novels, and Beast Novels. Asura uses its novels catalog.
+Connect Wi-Fi in Vita Settings. Choose Add Book → Browse Online, or Online novels from Options, to browse Novgo, Asura Novels, and Beast Novels. SELECT has no Library shortcut. Asura uses its novels catalog.
 
 Choose a source, then use SQUARE to search with the system keyboard. CROSS opens a novel's details and CROSS again opens chapters. SELECT on details starts or resumes reading. SQUARE or Save adds a favorite to Library. Browsing and downloading alone do not add a favorite.
 

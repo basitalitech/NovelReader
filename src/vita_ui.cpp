@@ -264,6 +264,13 @@ void icon(Icon kind,int x,int y,unsigned tint,float scale) {
         for(int i=0;i<2;++i){int a=-12+i*8;line(a,-11,a,11);line(a,-11,a+5,-11);line(a+5,-11,a+5,11);line(a,11,a+5,11);line(a,-6,a+5,-6);}
         line(4,-10,9,-11);line(9,-11,14,10);line(14,10,9,11);line(9,11,4,-10);
     } else if(kind==Icon::Clock) {circle(0,0,12);line(0,-8,0,0);line(0,0,6,3);
+    } else if(kind==Icon::BookmarkFilled) {
+        ButtonMesh mesh;
+        mesh.shape(x-8*scale,y-12*scale,16*scale,18*scale,0,tint,tint);
+        const auto point=[&](float a,float b){return vita2d_color_vertex{x+a*scale,y+b*scale,0.5f,tint};};
+        for(const auto& vertex:{point(-8,6),point(0,6),point(-8,12),point(0,6),point(8,6),point(8,12)})
+            mesh.vertices[mesh.count++]=vertex;
+        mesh.draw();
     } else if(kind==Icon::Bookmark) {line(-8,-12,8,-12);line(-8,-12,-8,12);line(8,-12,8,12);line(-8,12,0,6);line(0,6,8,12);
     } else if(kind==Icon::Settings) {
         circle(0,0,10); circle(0,0,4);
