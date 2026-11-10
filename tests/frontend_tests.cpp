@@ -114,7 +114,7 @@ struct FrontendTest {
         check(app.screen_==Screen::Sources && app.menu_.empty(),"Browse Online does not open sources");
         app.input(SCE_CTRL_CIRCLE);app.message_.clear();app.set_focus(200);
         app.input(SCE_CTRL_CROSS);
-        tap.x=300;tap.y=220;app.gesture(tap);
+        tap.x=700;tap.y=165;app.gesture(tap);
         check(app.importing_,"Touch cannot import through Add Book popup");app.input(SCE_CTRL_CIRCLE);
         const auto old_filter=app.filter_;const auto old_sort=app.sort_;
         app.input(SCE_CTRL_TRIANGLE);verify_graph(app);
@@ -138,10 +138,12 @@ struct FrontendTest {
         bool saw_count=false,saw_pages=false,saw_filter_hint=false;
         for(const auto& draw:reader::font_draws) {
             saw_count=saw_count || draw.text.find("9 books")!=std::string::npos;
-            saw_pages=saw_pages || draw.text.find("Page 1 of 3")!=std::string::npos;
+            saw_pages=saw_pages || draw.text.find("Page ")!=std::string::npos;
             saw_filter_hint=saw_filter_hint || (draw.y>496 && draw.text=="Filter");
         }
-        check(saw_count && saw_pages && saw_filter_hint,"Library header or Triangle hint is missing");
+        check(saw_count && !saw_pages && saw_filter_hint,"Library header contains pagination or misses count/hints");
+        check(reader::ui::library_action(1).x+reader::ui::library_action(1).width==936,
+              "Search is not aligned to the right header edge");
         const auto enter_query=[&](const std::u16string& query) {
             app.set_focus(201);app.input(SCE_CTRL_CROSS);
             check(app.ime_active_,"Reopened search has no keyboard");
@@ -177,7 +179,7 @@ struct FrontendTest {
         check(app.screen_==Screen::Book && app.selected_filename()=="book5.txt","Search result opened the wrong book");
         app.input(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_CIRCLE);
         check(app.screen_==Screen::Library && app.order_.size()==9,"Back from searched book cannot exit search");
-        tap.x=444;tap.y=148;app.gesture(tap);
+        tap.x=908;tap.y=92;app.gesture(tap);
         check(app.ime_active_,"Touch cannot open compact Search");
         test_ime_status()=SCE_COMMON_DIALOG_STATUS_FINISHED;test_ime_button()=0;app.input(0);test_ime_status()=0;
         enter_query(u"Book 5");
@@ -191,9 +193,22 @@ struct FrontendTest {
               "Search exit did not restore normal Library hints");
         app.sort_=reader::LibrarySort::Title;app.selected_=0;app.refresh_library("");
         verify_graph(app);app.set_focus(1003);app.input(SCE_CTRL_RIGHT);
-        check(app.selected_==7,"Right at the grid edge does not change Library page");
-        verify_graph(app);app.input(SCE_CTRL_RIGHT);
-        check(app.selected_==8,"Partial final page is not reachable");verify_graph(app);
+        check(app.selected_==3 && app.library_scroll_==0,"Right crossed the grid row boundary");
+        app.input(SCE_CTRL_DOWN);
+        check(app.selected_==7 && app.library_scroll_>0,"Down did not scroll to the next grid row");
+        check(app.library_first()==0,"Scrolling discarded the partially visible previous row");
+        verify_graph(app);app.input(SCE_CTRL_DOWN);
+        check(app.selected_==8,"Partial final grid row is not reachable");verify_graph(app);
+        app.input(SCE_CTRL_DOWN);check(app.selected_==8,"Down went beyond the final grid row");
+        app.input(SCE_CTRL_UP);check(app.selected_==4,"Up did not preserve the grid column");
+        app.input(SCE_CTRL_UP);check(app.selected_==0 && app.library_scroll_==0,"Up did not restore the grid top");
+        tap.kind=reader::controls::GestureKind::Swipe;tap.x=300;tap.y=220;tap.dx=0;tap.dy=-100;
+        app.gesture(tap);check(app.selected_==4 && app.library_scroll_>0,"Vertical swipe did not scroll Library");
+        tap.dy=-100;app.gesture(tap);check(app.selected_==8,"Swipe cannot reach the final grid row");
+        tap.kind=reader::controls::GestureKind::Tap;tap.x=300;tap.y=300;
+        app.gesture(tap);check(app.screen_==Screen::Book && app.selected_==8,"Touch opened the wrong scrolled book");
+        app.input(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Library && app.selected_==8 && app.library_scroll_>0,"Book return lost grid scroll");
         app.set_focus(1008);app.input(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Book,"Book cannot open details from the partial page");verify_graph(app);
         app.set_focus(201);app.input(SCE_CTRL_LEFT);check(focus(app)==200,"Bookmark cannot reach Read");

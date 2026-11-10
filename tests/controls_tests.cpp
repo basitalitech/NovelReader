@@ -100,15 +100,12 @@ int main() {
                     target.box.y+target.box.height<=544,"Control extends outside the screen");
             }
         };
-        // Empty, single-book, partial and full Library pages; disabled paging
-        // controls must never disconnect the header, cards, sidebar or footer.
+        // The Library registry contains its header and visible cards. Sidebar
+        // and footer are hints/navigation shortcuts, not focusable widgets.
         for(int books=0;books<=4;++books) {
             std::vector<FocusTarget> targets;
-            for(int i=0;i<6;++i)targets.push_back({100+i,reader::ui::sidebar_item(i),true});
             for(int i=0;i<2;++i)targets.push_back({200+i,reader::ui::library_action(i),true});
             for(int i=0;i<books;++i)targets.push_back({1000+i,reader::ui::grid_book(i),true});
-            for(int i=0;i<5;++i)targets.push_back({300+i,reader::ui::action_toolbar_button(i,5),
-                i!=2 && i!=3 && (i!=0 || books>0)});
             verify_focus(targets);
             check(reader::ui::focus_neighbor(targets,200,Direction::Right)==201,"Library header skips Search");
             if(books) {
@@ -116,7 +113,7 @@ int main() {
                       "Sparse Library pulls Search focus into the sidebar");
                 check(reader::ui::focus_neighbor(targets,1000,Direction::Up)==200,"Cover cannot reach action row");
                 const auto down=reader::ui::focus_neighbor(targets,1000,Direction::Down);
-                check(down>=300 && down<305,"Last visible book does not reach the footer");
+                check(down==1000,"Last grid row moved focus into a non-content region");
             }
         }
         for(int rows=1;rows<=5;++rows) {

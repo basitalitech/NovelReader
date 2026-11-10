@@ -421,8 +421,7 @@ public:
             } else if (screen_ == Screen::Settings) {
                 return input(horizontal ? (forward ? SCE_CTRL_RIGHT : SCE_CTRL_LEFT) : (forward ? SCE_CTRL_DOWN : SCE_CTRL_UP));
             } else if(screen_==Screen::Library && !importing_) {
-                turn_collection_page(forward);
-                sidebar_focus_=false;update_cover();
+                if(!horizontal)move_library_row(forward);
             } else if (screen_ == Screen::Library || screen_ == Screen::Contents || screen_ == Screen::Illustrations ||
                        screen_ == Screen::Catalog || screen_ == Screen::OnlineChapters || screen_ == Screen::Sources) {
                 turn_collection_page(forward);
@@ -494,14 +493,38 @@ private:
         return screen_==Screen::Library || screen_==Screen::Contents || screen_==Screen::Illustrations ||
             screen_==Screen::Bookmarks || (is_online_screen() && screen_!=Screen::Novel);
     }
+    void ensure_library_visible() {
+        if(importing_)return;
+        if(order_.empty()){library_scroll_=0;return;}
+        const int top=static_cast<int>(selected_/reader::ui::grid_columns)*reader::ui::grid_pitch;
+        const int height=reader::ui::grid_bottom-reader::ui::grid_top;
+        if(top<library_scroll_)library_scroll_=top;
+        if(top+240>library_scroll_+height)library_scroll_=top+240-height;
+        const int content=static_cast<int>((order_.size()+reader::ui::grid_columns-1)/reader::ui::grid_columns-1)*reader::ui::grid_pitch+240;
+        library_scroll_=std::max(0,std::min(library_scroll_,content-height));
+    }
+    std::size_t library_first() const { return library_scroll_/reader::ui::grid_pitch*reader::ui::grid_columns; }
+    std::size_t library_end() const {
+        const auto rows=(library_scroll_+reader::ui::grid_bottom-reader::ui::grid_top+reader::ui::grid_pitch-1)/reader::ui::grid_pitch;
+        return std::min(order_.size(),static_cast<std::size_t>(rows*reader::ui::grid_columns));
+    }
+    void move_library_row(bool forward) {
+        if(order_.empty())return;
+        const auto columns=static_cast<std::size_t>(reader::ui::grid_columns);
+        auto next=selected_;
+        if(forward && (selected_/columns+1)*columns<order_.size())next=std::min(selected_+columns,order_.size()-1);
+        if(!forward && selected_>=columns)next=selected_-columns;
+        set_item(next);focus_memory_[static_cast<int>(Screen::Library)]=1000+selected_;
+    }
     void set_item(std::size_t index) {
-        if(screen_==Screen::Library){selected_=index;update_cover();}
+        if(screen_==Screen::Library){selected_=index;ensure_library_visible();update_cover();}
         else if(screen_==Screen::Contents)contents_selected_=index;
         else if(screen_==Screen::Illustrations)illustration_selected_=index;
         else if(screen_==Screen::Bookmarks)bookmark_selected_=index;
         else online_selected_=index;
     }
     void turn_collection_page(bool next) {
+        if(screen_==Screen::Library && !importing_){move_library_row(next);return;}
         const auto count=page_count(),limit=page_limit(),selected=page_selection();
         if(!count)return;
         const auto first=selected/limit*limit,column=selected%limit;
@@ -535,9 +558,12 @@ private:
         else if(screen_==Screen::Library && !importing_) {
             const Action actions[]={{"Add Book",0,Command::AddBook},{"Search",0,Command::Search}};
             for(int i=0;i<2;++i)add(200+i,reader::ui::library_action(i),actions[i]);
-            const auto first=selected_/4*4;
-            for(auto i=first;i<order_.size() && i<first+4;++i)
-                add(1000+i,reader::ui::grid_book(i-first),{"Open",0,Command::Details},WidgetKind::Item,i);
+            for(auto i=library_first();i<library_end();++i) {
+                auto box=reader::ui::grid_book(i,library_scroll_);
+                const auto bottom=std::min(box.y+box.height,reader::ui::grid_bottom);
+                box.y=std::max(box.y,reader::ui::grid_top);box.height=bottom-box.y;
+                add(1000+i,box,{"Open",0,Command::Details},WidgetKind::Item,i);
+            }
             if(order_.empty() && (!library_query_.empty() || filter_!=reader::LibraryFilter::All))
                 add(204,{400,328,336,56},{library_search_active_?"Clear search":"Show all books",0,Command::ClearSearch});
         } else if(screen_==Screen::Book) {
@@ -661,6 +687,19 @@ private:
         const int next=reader::ui::focus_neighbor(targets,id,direction);
         if(current->kind==WidgetKind::Item && paged_screen()) {
             const bool grid=screen_==Screen::Library && !importing_;
+            if(grid) {
+                const auto column=selected_%reader::ui::grid_columns;
+                if(pressed&SCE_CTRL_DOWN){move_library_row(true);return true;}
+                if((pressed&SCE_CTRL_UP) && selected_>=reader::ui::grid_columns){move_library_row(false);return true;}
+                if(pressed&SCE_CTRL_LEFT) {
+                    if(column)set_focus(1000+selected_-1);
+                    return true;
+                }
+                if(pressed&SCE_CTRL_RIGHT) {
+                    if(column+1<reader::ui::grid_columns && selected_+1<order_.size())set_focus(1000+selected_+1);
+                    return true;
+                }
+            }
             const auto first=page_selection()/page_limit()*page_limit();
             const auto end=std::min(first+page_limit(),page_count());
             if((pressed&SCE_CTRL_RIGHT) && (!grid || current->index+1==static_cast<int>(end))) {
@@ -810,8 +849,7 @@ private:
             const auto recent=reader::ui::recent_book(entries_);
             if (recent<entries_.size()) wanted.push_back(&entries_[recent]);
         } else if (screen_==Screen::Library && !importing_) {
-            const auto first=selected_/4*4;
-            for (auto i=first;i<order_.size() && i<first+4;++i) wanted.push_back(&entries_[order_[i]]);
+            for (auto i=library_first();i<library_end();++i) wanted.push_back(&entries_[order_[i]]);
         } else if (screen_==Screen::Contents) {
             for (const auto& entry:entries_) if (entry.filename==active_filename_) { wanted.push_back(&entry); break; }
         }
@@ -838,7 +876,9 @@ private:
         vita2d_texture* texture=nullptr;
         for (const auto& cover:covers_) if (cover.key==item.path) {texture=cover.texture.get();break;}
         if (screen_==Screen::Book && image_) texture=image_;
-        vita2d_enable_clipping(); vita2d_set_clip_rectangle(x+3,y+3,x+width-3,y+height-3);
+        const bool grid=screen_==Screen::Library && !importing_;
+        vita2d_enable_clipping(); vita2d_set_clip_rectangle(x+3,grid?std::max(y+3,reader::ui::grid_top):y+3,
+            x+width-3,grid?std::min(y+height-3,reader::ui::grid_bottom):y+height-3);
         if (texture) {
             const float scale=std::max(float(width-6)/vita2d_texture_get_width(texture),float(height-6)/vita2d_texture_get_height(texture));
             vita2d_draw_texture_scale(texture,x+width/2-vita2d_texture_get_width(texture)*scale/2,
@@ -861,7 +901,8 @@ private:
             }
             icon(Icon::Book,x+width/2,y+height*3/4,rgb(164,135,197),width/110.f);
         }
-        vita2d_disable_clipping();
+        if(grid)vita2d_set_clip_rectangle(232,reader::ui::grid_top,936,reader::ui::grid_bottom);
+        else vita2d_disable_clipping();
     }
     void draw_background() const {
         reader::visual::gradient(0,44,960,500,rgb(22,20,31),rgb(32,27,46));
@@ -1607,9 +1648,9 @@ private:
     void draw_menu() const {
         if(add_book_menu_) {
             using namespace reader::visual;
-            rounded(236,186,328,148,0x60000000u,12);
-            rounded(232,182,328,148,border,12);
-            rounded(233,183,326,146,0xed302139u,11);
+            rounded(612,130,328,148,0x60000000u,12);
+            rounded(608,126,328,148,border,12);
+            rounded(609,127,326,146,0xed302139u,11);
             for(std::size_t i=0;i<menu_.size();++i) {
                 const auto box=reader::ui::library_add_option(i);
                 panel(box.x,box.y,box.width,box.height,i==menu_selected_);
@@ -1748,6 +1789,7 @@ private:
         selected_ = order_.empty() ? 0 : std::min(selected_, order_.size() - 1);
         for (std::size_t i = 0; i < order_.size(); ++i)
             if (entries_[order_[i]].filename == keep) { selected_ = i; break; }
+        ensure_library_visible();
         release_image();
     }
 
@@ -2060,13 +2102,10 @@ private:
             draw_pager(selected_,order_.size());return;
         }
         const char* filters[]={"All books","Reading","Finished"};
-        const auto first=selected_/4*4;
         text(232,88,palette().text,1.23f,"Library",440,reader::FontRole::Heading);
-        const auto pages=(order_.size()+3)/4;
-        if(pages>1)text(728,88,palette().muted,0.8f,"Page "+std::to_string(first/4+1)+" of "+std::to_string(pages),208);
         std::string subtitle=std::to_string(entries_.size())+" books  /  "+filters[static_cast<int>(filter_)];
         if(library_search_active_)subtitle+="  /  Search: "+library_query_;
-        text(232,110,palette().muted,0.78f,subtitle,704);
+        text(232,110,palette().muted,0.78f,subtitle,440);
         const auto add=reader::ui::library_action(0),search=reader::ui::library_action(1);
         panel(add.x,add.y,add.width,add.height);
         vita2d_draw_line(add.x+17,add.y+28,add.x+33,add.y+28,palette().text);
@@ -2074,13 +2113,23 @@ private:
         text(add.x+45,add.y+36,palette().text,0.92f,"Add Book",add.width-53);
         panel(search.x,search.y,search.width,search.height);
         reader::visual::icon(reader::visual::Icon::Search,search.x+28,search.y+28,palette().text,0.8f);
-        for(auto i=first;i<order_.size() && i<first+4;++i) {
-            const auto box=reader::ui::grid_book(i-first);
+        vita2d_enable_clipping();vita2d_set_clip_rectangle(232,reader::ui::grid_top,936,reader::ui::grid_bottom);
+        for(auto i=library_first();i<library_end();++i) {
+            const auto box=reader::ui::grid_book(i,library_scroll_);
             const auto& item=entries_[order_[i]];
             panel(box.x,box.y,box.width,box.height);
             draw_cover(item,box.x,box.y,box.width,168);
             text(box.x+8,box.y+197,palette().text,0.92f,item.title,box.width-16,reader::FontRole::Heading);
             text(box.x+8,box.y+225,palette().muted,0.80f,item.progress.percent>=0?std::to_string(item.progress.percent)+"% read":"Not started",box.width-16);
+        }
+        vita2d_disable_clipping();
+        const int content_height=order_.empty()?0:static_cast<int>((order_.size()+3)/4-1)*reader::ui::grid_pitch+240;
+        const int viewport=reader::ui::grid_bottom-reader::ui::grid_top;
+        if(content_height>viewport) {
+            const int thumb=std::max(24,viewport*viewport/content_height);
+            const int offset=library_scroll_*(viewport-thumb)/(content_height-viewport);
+            reader::visual::rounded(946,reader::ui::grid_top,3,viewport,reader::visual::border,1);
+            reader::visual::rounded(946,reader::ui::grid_top+offset,3,thumb,palette().accent,1);
         }
         if(order_.empty()) {
             text(280,260,palette().text,1.05f,library_query_.empty() && filter_==reader::LibraryFilter::All?
@@ -2261,6 +2310,7 @@ private:
     std::size_t bookmark_selected_=0;
     bool ime_library_=false;
     bool library_search_active_=false,add_book_menu_=false;
+    int library_scroll_=0;
     std::string library_query_;
     Screen settings_return_=Screen::Home, bookmarks_return_=Screen::Home;
     bool interface_layer_ = false;

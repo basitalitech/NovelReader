@@ -23,10 +23,13 @@ inline Rect home_continue() { return {232,168,480,224}; }
 constexpr int grid_columns = 4, grid_page_size = 4, contents_page_size = 5;
 inline Rect sidebar_item(int index) { return {12, 76 + index * 64, 184, 56}; }
 inline Rect library_action(int index) {
-    return index==0 ? Rect{232,120,172,56} : index==1 ? Rect{416,120,56,56} : Rect{0,0,0,0};
+    return index==0 ? Rect{692,64,172,56} : index==1 ? Rect{880,64,56,56} : Rect{0,0,0,0};
 }
-inline Rect library_add_option(int index) { return {248,200+index*68,304,56}; }
-inline Rect grid_book(int index) { return {232 + index * 180,200,164,240}; }
+inline Rect library_add_option(int index) { return {624,144+index*68,304,56}; }
+constexpr int grid_top=144, grid_bottom=480, grid_pitch=256;
+inline Rect grid_book(int index, int scroll=0) {
+    return {232 + index%grid_columns*180,grid_top+index/grid_columns*grid_pitch-scroll,164,240};
+}
 inline Rect settings_row(int index) { return {232,124+index*60,376,56}; }
 inline Rect contents_row(int index) { return {232,136+index*64,704,56}; }
 inline int grid_hit(int x, int y, int count) {
