@@ -45,6 +45,12 @@ int main() {
             if(state==ButtonState::Disabled)check((top>>24)<255,"Disabled face must be translucent");
         }
         check(pressed_top<normal_top,"Pressed face must darken");
+        const reader::ui::Popup popup_layout(11);
+        draws=0;popup(popup_layout.box);
+        check(draws==1 && captured.size()==306,"Popup surface must use one bounded geometry submission");
+        for(const auto& v:captured)
+            check(std::isfinite(v.x) && std::isfinite(v.y) && v.x>=popup_layout.box.x && v.x<=939 &&
+                  v.y>=44 && v.y<=488,"Popup or shadow escapes display margins");
         for(const int size:{4,8,16,56}) {
             button(100,100,size,size,ButtonState::Focused);
             for(const auto& v:captured)check(std::isfinite(v.x) && std::isfinite(v.y),"Small button geometry is invalid");

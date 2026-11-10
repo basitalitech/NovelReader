@@ -71,15 +71,17 @@ int main() {
             check(list_row_hit(100,y,40,610,reader::ui::library_top,reader::ui::library_pitch,
                 reader::ui::library_row_height) == row, "Modern library row is not touchable");
         }
-        for (int item=0;item<6;++item) {
-            const auto tile=reader::ui::menu_button(item);
-            check(tile.width>=400 && tile.height>=72,"Control panel target is too small");
-            check(reader::ui::menu_hit(tile.x+20,tile.y+20,6)==item,"Control panel tile is not touchable");
-            check(reader::ui::menu_hit(tile.x+tile.width,tile.y+20,6)==-1,"Control panel gap activates an action");
-            check(tile.y+tile.height<reader::ui::toolbar_top,"Control panel overlaps Close");
+        for(int count=1;count<=20;++count) {
+            const reader::ui::Popup popup(count,count-1);
+            check(popup.box.x>480 && popup.box.y>=24 && popup.box.x+popup.box.width==936 &&
+                  popup.box.y+popup.box.height==484,"Popup escaped display margins");
+            check(popup.visible==std::min(count,11),"Popup height does not follow its options");
+            for(int i=popup.first;i<popup.first+popup.visible;++i) {
+                const auto row=popup.row(i);
+                check(row.contains(row.x+20,row.y+17) && !row.contains(row.x+row.width,row.y+17),"Popup hit target includes its gutter");
+                check(row.y+row.height<496,"Popup row overlaps bottom bar");
+            }
         }
-        check(reader::ui::menu_hit(60,160,7,6)==6 && reader::ui::menu_hit(500,160,7,6)==-1,
-              "Last options page exposes an invalid action");
         for (int count=2;count<=6;++count) {
             const auto options=reader::ui::action_toolbar_button(count-1,count);
             check(options.x==776 && options.x+options.width==932,"Options must stay at the right edge");
@@ -112,7 +114,7 @@ int main() {
                 }
             }
             for(const auto& target:targets) {
-                check(target.box.height>=56,"Interactive control is below minimum height");
+                check(target.box.height>=(target.id>=2000 && target.id<3000?34:56),"Interactive control is below minimum height");
                 check(target.box.x>=0 && target.box.y>=44 && target.box.x+target.box.width<=960 &&
                     target.box.y+target.box.height<=544,"Control extends outside the screen");
             }
@@ -145,8 +147,7 @@ int main() {
         // and partial pages are skipped; Close and paging remain reachable.
         for(int entries=1;entries<=6;++entries) {
             std::vector<FocusTarget> targets;
-            for(int i=0;i<entries;++i)targets.push_back({2000+i,reader::ui::menu_button(i),i!=1});
-            for(int i=0;i<3;++i)targets.push_back({300+i,reader::ui::toolbar_button(i,3),i!=0});
+            for(int i=0;i<entries;++i)targets.push_back({2000+i,reader::ui::Popup(entries).row(i),i!=1});
             verify_focus(targets);
         }
         std::vector<FocusTarget> single{{7,{24,124,200,56},true},{8,{240,124,200,56},false}};

@@ -76,7 +76,7 @@ enum class Command { Button, More, Sort, Jump, Immersive, Resume, Retry, Appeara
     BookBookmark, RemoveBook, ConfirmRemoveBook, Online, ClearSearch, PreviousPage, NextPage,
     ApplySettings, CancelSettings, ResetSettings, Illustrations, FullTitle, AddBook,
     Speech, SpeechToggle, SpeechStop, SpeechSlower, SpeechFaster, SaveBookmark, Dismiss,
-    CloseMenu, MenuPrevious, MenuNext };
+    CloseMenu };
 struct Action {
     std::string label;
     unsigned button;
@@ -475,6 +475,33 @@ public:
         const int x = static_cast<int>(gesture.x), y = static_cast<int>(gesture.y);
         const int start_x=gesture.start_x<0?x:static_cast<int>(gesture.start_x);
         const int start_y=gesture.start_y<0?y:static_cast<int>(gesture.start_y);
+        if(!menu_.empty()) {
+            // A modal owns the entire gesture, including dismissal. Never reuse
+            // an outside tap on the screen that becomes visible underneath it.
+            if(gesture.kind==GestureKind::Tap) {
+                normalize_focus();
+                for(const auto& control:widgets())
+                    if(control.target.enabled && control.target.box.contains(x,y) && control.target.box.contains(start_x,start_y)) {
+                        set_focus(control.target.id);return activate(control);
+                    }
+                const auto popup=menu_layout();
+                if(!menu_parents_.empty() && popup.back().contains(x,y) && popup.back().contains(start_x,start_y)) {
+                    back_menu();return true;
+                }
+                const auto actions=menu_toolbar();
+                for(std::size_t i=0;i<actions.size();++i) {
+                    const auto hit=footer_touch_rect(toolbar_rect(actions,i),actions[i]);
+                    if(hit.contains(x,y) && hit.contains(start_x,start_y)) {
+                        if(actions[i].button==SCE_CTRL_CIRCLE)back_menu();
+                        else for(const auto& control:widgets())
+                            if(control.target.id==2000+static_cast<int>(menu_selected_) && control.target.enabled)return activate(control);
+                        return true;
+                    }
+                }
+                if(!popup.box.contains(x,y) && !popup.box.contains(start_x,start_y))close_menu();
+            }
+            return true;
+        }
         if (gesture.kind==GestureKind::Tap) {
             normalize_focus();
             const auto controls=widgets();
@@ -588,7 +615,7 @@ public:
 
 private:
 
-    enum class WidgetKind { Action, Sidebar, Item, Setting, Menu, Close, MenuPrevious, MenuNext, Dismiss, Description };
+    enum class WidgetKind { Action, Sidebar, Item, Setting, Menu, Close, Dismiss, Description };
     struct Widget {
         reader::ui::FocusTarget target;
         Action action;
@@ -671,9 +698,9 @@ private:
             result.push_back({{id,box,action.enabled},std::move(action),kind,index});
         };
         if(!menu_.empty()) {
-            const auto first=menu_selected_/6*6;
-            for(auto i=first;i<menu_.size() && i<first+6;++i)
-                add(2000+static_cast<int>(i),add_book_menu_?reader::ui::library_add_option(i):reader::ui::menu_button(i-first),menu_[i],WidgetKind::Menu,i);
+            const auto popup=menu_layout();
+            for(int i=popup.first;i<popup.first+popup.visible && i<static_cast<int>(menu_.size());++i)
+                add(2000+i,popup.row(i),menu_[i],WidgetKind::Menu,i);
             return result;
         }
         if(online_busy_)return result;
@@ -730,7 +757,7 @@ private:
         if(!menu_.empty())preferred=2000+menu_selected_;
         else if(paged_screen())preferred=1000+page_selection();
         for(const auto& control:controls)if(control.target.id==preferred && control.target.enabled){id=preferred;return;}
-        for(const auto& control:controls)if(control.target.enabled && control.kind!=WidgetKind::Sidebar){id=control.target.id;return;}
+        for(const auto& control:controls)if(control.target.enabled && control.kind!=WidgetKind::Sidebar){id=control.target.id;if(!menu_.empty())set_focus(id);return;}
         id=controls.empty()?-1:controls.front().target.id;
     }
     void set_focus(int id) {
@@ -770,10 +797,15 @@ private:
         }
         case WidgetKind::Item: set_item(control.index);return perform(control.action);
         case WidgetKind::Setting: return true;
-        case WidgetKind::Menu: {const auto action=control.action;close_menu();return perform(action);}
+        case WidgetKind::Menu: {
+            const auto action=control.action;
+            if(menu_opens_submenu(action.command)) {
+                menu_parents_.push_back({menu_,menu_title_,menu_selected_,add_book_menu_});
+                menu_.clear();focus_memory_.erase(100);
+            } else close_menu();
+            return perform(action);
+        }
         case WidgetKind::Close: close_menu();return true;
-        case WidgetKind::MenuPrevious: menu_selected_=menu_selected_/6*6-6;focus_memory_.erase(100);return true;
-        case WidgetKind::MenuNext: menu_selected_=(menu_selected_/6+1)*6;focus_memory_.erase(100);return true;
         case WidgetKind::Dismiss: return perform({"Dismiss",0,Command::Dismiss});
         case WidgetKind::Description: return input(SCE_CTRL_CROSS,false);
         case WidgetKind::Action: return perform(control.action);
@@ -782,6 +814,19 @@ private:
     }
     bool focus_input(unsigned pressed) {
         focus_result_=true;
+        if(!menu_.empty()) {
+            if(pressed&SCE_CTRL_START){close_menu();return true;}
+            if(pressed&SCE_CTRL_CIRCLE){back_menu();return true;}
+            normalize_focus();
+            if(pressed&SCE_CTRL_CROSS) {
+                for(const auto& control:widgets())if(control.target.id==2000+static_cast<int>(menu_selected_) && control.target.enabled){focus_result_=activate(control);break;}
+            } else if(pressed&(SCE_CTRL_UP|SCE_CTRL_DOWN)) {
+                const int step=pressed&SCE_CTRL_UP?-1:1;
+                for(int i=static_cast<int>(menu_selected_)+step;i>=0 && i<static_cast<int>(menu_.size());i+=step)
+                    if(menu_[i].enabled){set_focus(2000+i);break;}
+            }
+            return true;
+        }
         if(screen_==Screen::Settings && menu_.empty() && !feedback_active() && !online_busy_ && (pressed&SCE_CTRL_CROSS)) {
             return perform({"Apply",SCE_CTRL_CROSS,Command::ApplySettings});
         }
@@ -789,9 +834,6 @@ private:
             if(!menu_.empty()){close_menu();return true;}
             if(feedback_active()){message_.clear();return true;}
             if(screen_==Screen::Settings){finish_settings(false);return true;}
-        }
-        if(!menu_.empty() && (pressed&(SCE_CTRL_LTRIGGER|SCE_CTRL_RTRIGGER))) {
-            return perform({"",0,pressed&SCE_CTRL_LTRIGGER?Command::MenuPrevious:Command::MenuNext});
         }
         const auto mask=SCE_CTRL_LEFT|SCE_CTRL_RIGHT|SCE_CTRL_UP|SCE_CTRL_DOWN|SCE_CTRL_CROSS;
         if(!(pressed&mask))return feedback_active();
@@ -849,6 +891,7 @@ private:
         return true;
     }
     void draw_focus() const {
+        if(!menu_.empty())return; // Popup rows already draw the selected state.
         const auto found=focus_memory_.find(focus_key());
         if(found==focus_memory_.end())return;
         for(const auto& control:widgets())if(control.target.id==found->second && control.target.enabled) {
@@ -1181,7 +1224,14 @@ private:
         message_ = notice_ = value;
         notice_until_ = sceKernelGetProcessTimeWide() + 2800000;
     }
-    void close_menu() { menu_.clear(); add_book_menu_=false; focus_memory_.erase(100); ++folder_revision_; }
+    reader::ui::Popup menu_layout() const { return {static_cast<int>(menu_.size()),static_cast<int>(menu_selected_)}; }
+    void close_menu() { menu_.clear(); menu_parents_.clear(); add_book_menu_=false; focus_memory_.erase(100); ++folder_revision_; }
+    void back_menu() {
+        if(menu_parents_.empty()){close_menu();return;}
+        auto parent=std::move(menu_parents_.back());menu_parents_.pop_back();
+        menu_=std::move(parent.actions);menu_title_=std::move(parent.title);menu_selected_=parent.selected;add_book_menu_=parent.add_book;
+        focus_memory_[100]=2000+menu_selected_;++folder_revision_;
+    }
     void show_add_book() {
         focus_memory_.erase(100);
         add_book_menu_=true;
@@ -1289,10 +1339,6 @@ private:
         pressed_action_ = action.label; pressed_until_ = sceKernelGetProcessTimeWide()+160000;
         switch (action.command) {
         case Command::CloseMenu: close_menu();break;
-        case Command::MenuPrevious: case Command::MenuNext:
-            if(action.command==Command::MenuPrevious && menu_selected_>=6)menu_selected_=menu_selected_/6*6-6;
-            if(action.command==Command::MenuNext && (menu_selected_/6+1)*6<menu_.size())menu_selected_=(menu_selected_/6+1)*6;
-            focus_memory_.erase(100);break;
         case Command::Dismiss: message_.clear();break;
         case Command::SaveBookmark:
             if(!lines_.empty()) {
@@ -1455,14 +1501,7 @@ private:
         else message_ = "Could not open chapter keyboard. Use left/right to browse chapters.";
     }
     std::vector<Action> menu_toolbar() const {
-        if(menu_.size()>6) {
-            const auto first=menu_selected_/6*6;
-            return {{"Previous",SCE_CTRL_LTRIGGER,Command::MenuPrevious,first>=6},
-                {"Close",SCE_CTRL_CIRCLE,Command::CloseMenu},
-                {"Next",SCE_CTRL_RTRIGGER,Command::MenuNext,first+6<menu_.size()}};
-        }
-        if(screen_==Screen::Library || add_book_menu_)return {{"Select",SCE_CTRL_CROSS},{"Close",SCE_CTRL_CIRCLE,Command::CloseMenu}};
-        return {{"Close",SCE_CTRL_CIRCLE,Command::CloseMenu}};
+        return {{"Select",SCE_CTRL_CROSS},{"Close",SCE_CTRL_CIRCLE,Command::CloseMenu}};
     }
     std::vector<Action> toolbar() const {
         if(!menu_.empty())return menu_toolbar();
@@ -1851,7 +1890,7 @@ private:
     }
     void draw_toolbar() const {
         using namespace reader::visual;
-        if(screen_==Screen::Reader && immersive_ && !feedback_active() && !online_busy_)return;
+        if(screen_==Screen::Reader && immersive_ && menu_.empty() && !feedback_active() && !online_busy_)return;
         const auto actions=toolbar();
         if(actions.empty())return;
         hint_bar();
@@ -1892,34 +1931,40 @@ private:
         controller_hint(fonts_,key,action.label,bounds.x,hint_bar_center,edge-bounds.x,tint);
     }
     void draw_menu() const {
-        if(add_book_menu_) {
-            using namespace reader::visual;
-            rounded(612,130,328,148,0x60000000u,12);
-            rounded(608,126,328,148,border,12);
-            rounded(609,127,326,146,0xed302139u,11);
-            for(std::size_t i=0;i<menu_.size();++i) {
-                const auto box=reader::ui::library_add_option(i);
-                panel(box.x,box.y,box.width,box.height,i==menu_selected_);
-                icon(i==0?Icon::Document:Icon::Library,box.x+24,box.y+28,accent,0.65f);
-                text(box.x+48,box.y+35,palette().text,0.86f,menu_[i].label,box.width-60);
-            }
-            hint_bar();
-            draw_footer_action(reader::ui::toolbar_button(0,2),{"Select",SCE_CTRL_CROSS});
-            draw_footer_action(reader::ui::toolbar_button(1,2),{"Close",SCE_CTRL_CIRCLE});
-            return;
+        using namespace reader::visual;
+        const auto layout=menu_layout();const auto& box=layout.box;
+        popup(box);
+        const bool submenu=!menu_parents_.empty();
+        if(submenu) {
+            const auto back=layout.back();const int cx=back.x+16,cy=back.y+16;
+            vita2d_draw_line(cx+7,cy,cx-7,cy,accent);
+            vita2d_draw_line(cx-7,cy,cx-1,cy-6,accent);
+            vita2d_draw_line(cx-7,cy,cx-1,cy+6,accent);
         }
-        vita2d_draw_rectangle(0,0,960,544,0xe8000000u);
-        text(40,60,palette().text,1.3f,menu_title_+(menu_.size()>6?"  "+std::to_string(menu_selected_/6+1)+" / "+std::to_string((menu_.size()+5)/6):""),880,reader::FontRole::Heading);
-        text(40,104,palette().muted,0.85f,"Choose an action. Circle returns to the same page.",880);
-        const auto first=menu_selected_/6*6;
-        for (auto i=first;i<menu_.size() && i<first+6;++i) {
-            auto label=menu_[i];
-            if(label.button)label.button=SCE_CTRL_CROSS; // Cross activates the focused tile.
-            button(reader::ui::menu_button(static_cast<int>(i-first)),label,i==menu_selected_);
+        const int title_left=submenu?44:14;
+        text(box.x+title_left,box.y+25,reader::visual::text,0.82f,menu_title_,box.width-title_left-14,reader::FontRole::Heading);
+        for(int i=layout.first;i<layout.first+layout.visible && i<static_cast<int>(menu_.size());++i) {
+            const auto row=layout.row(i);const auto& action=menu_[i];
+            const bool selected=i==static_cast<int>(menu_selected_);
+            if(selected)reader::visual::button(row.x,row.y,row.width,row.height,ButtonState::Focused);
+            const bool active=menu_option_active(action.command);
+            const auto tint=action.enabled?reader::visual::text:muted;
+            if(active)icon(Icon::Check,row.x+16,row.y+17,accent,0.55f);
+            const bool child=menu_opens_submenu(action.command);
+            if(child)icon(Icon::Chevron,row.x+row.width-16,row.y+17,action.enabled?accent:muted,0.8f);
+            text(row.x+32,row.y+23,tint,0.78f,action.label,row.width-(child?64:42));
         }
-        reader::visual::hint_bar();
-        const auto actions=menu_toolbar();
-        for(std::size_t i=0;i<actions.size();++i)draw_footer_action(reader::ui::toolbar_button(i,actions.size()),actions[i]);
+    }
+    static bool menu_opens_submenu(Command command) {
+        return command==Command::Sort || command==Command::Speech || command==Command::RemoveBook;
+    }
+    bool menu_option_active(Command command) const {
+        return (command==Command::SortTitle && sort_==reader::LibrarySort::Title) ||
+            (command==Command::SortRecent && sort_==reader::LibrarySort::Recent) ||
+            (command==Command::SortProgress && sort_==reader::LibrarySort::Progress) ||
+            (command==Command::FilterAll && filter_==reader::LibraryFilter::All) ||
+            (command==Command::FilterReading && filter_==reader::LibraryFilter::Reading) ||
+            (command==Command::FilterFinished && filter_==reader::LibraryFilter::Finished);
     }
     std::vector<reader::Line> feedback_rows() const {
         return ui_wrap(message_,660,24,reader::FontRole::Interface);
@@ -2692,6 +2737,8 @@ private:
     std::size_t description_row_ = 0;
     bool immersive_ = true, library_initialized_ = false;
     std::vector<Action> menu_;
+    struct MenuParent { std::vector<Action> actions; std::string title; std::size_t selected; bool add_book; };
+    std::vector<MenuParent> menu_parents_;
     std::string menu_title_, notice_;
     std::size_t menu_selected_ = 0;
     std::uint64_t notice_until_ = 0;

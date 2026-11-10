@@ -46,7 +46,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Settings | D-pad: select rows; Left/Right: adjust; Cross: apply; Circle: cancel; Select: reset |
 | All screens | Start: options; Options → Save and exit |
 | Contextual Triangle | Import: refresh folder; Contents: jump; Catalog: next/reload; online details/chapters: refresh |
-| Control panels | D-pad or either stick: choose a large tile; Cross: confirm; Circle: close |
+| Popup menus | Up/Down or either stick: choose; Cross: confirm; Circle: close/back; START: close |
 
 ## Interface
 
@@ -269,7 +269,10 @@ The **front touchscreen** supports:
 
 The visible bottom shortcuts and sidebar destinations respond to touch and stay
 outside D-pad focus. L/R switches sidebar destinations once per press.
-Start opens control panels, whose content tiles support D-pad focus and touch.
+START toggles a compact bottom-right popup. Options and Triangle's Filter/Sort
+menu share vertical rows with button and touch support; active sort/filter
+choices show checkmarks. Tap a row to select it, or tap outside to dismiss
+without activating the underlying screen. Circle returns from a submenu.
 The Reader strip is hidden in immersive mode. Viewer **Back** returns directly to reading when opened
 by tapping an inline image, or to the illustration list when opened from there.
 Touch gestures act on release outside the image viewer, where drag and pinch

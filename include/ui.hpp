@@ -25,7 +25,18 @@ inline Rect sidebar_item(int index) { return {12, 76 + index * 64, 184, 56}; }
 inline Rect library_action(int index) {
     return index==0 ? Rect{692,64,172,56} : index==1 ? Rect{880,64,56,56} : Rect{0,0,0,0};
 }
-inline Rect library_add_option(int index) { return {624,144+index*68,304,56}; }
+// One geometry source for popup drawing, focus and touch. Eleven compact rows
+// fit even the Reader's complete action list without covering the whole screen.
+struct Popup {
+    static constexpr int capacity=11, pitch=36;
+    Rect box;
+    int first, visible;
+    Popup(int count,int selected=0,int width=344) :
+        box{960-24-width,484-(44+std::min(count,int(capacity))*pitch),width,44+std::min(count,int(capacity))*pitch},
+        first(std::max(0,selected-capacity+1)),visible(std::min(count,int(capacity))) {}
+    Rect row(int index) const { return {box.x+10,box.y+36+(index-first)*pitch,box.width-20,pitch-2}; }
+    Rect back() const { return {box.x+8,box.y+2,32,32}; }
+};
 constexpr int grid_top=144, grid_bottom=480, grid_pitch=256;
 inline Rect grid_book(int index, int scroll=0) {
     return {232 + index%grid_columns*180,grid_top+index/grid_columns*grid_pitch-scroll,164,240};
@@ -41,7 +52,6 @@ inline Rect toolbar_button(int index, int count) {
     const int left = 24 + 912 * index / count, right = 24 + 912 * (index+1) / count;
     return {left + 4,toolbar_top+4,right-left-8,56};
 }
-inline Rect menu_button(int index) { return {40 + (index % 2) * 448,140 + (index / 2) * 96,432,84}; }
 // Cluster primary actions on the left; reserve the far right for Options.
 inline Rect action_toolbar_button(int index, int count) {
     if (count < 2 || index < 0 || index >= count) return {0,0,0,0};
@@ -85,10 +95,6 @@ inline int focus_neighbor(const std::vector<FocusTarget>& targets,int id,Directi
 inline std::array<int,4> focus_neighbors(const std::vector<FocusTarget>& targets,int id) {
     return {{focus_neighbor(targets,id,Direction::Left),focus_neighbor(targets,id,Direction::Right),
         focus_neighbor(targets,id,Direction::Up),focus_neighbor(targets,id,Direction::Down)}};
-}
-inline int menu_hit(int x, int y, int count, int first = 0) {
-    for (int i=0;i<6 && first+i<count;++i) if (menu_button(i).contains(x,y)) return first+i;
-    return -1;
 }
 inline std::size_t page_first(std::size_t selected) { return selected / page_size * page_size; }
 inline int feedback_height(std::size_t lines, bool busy, bool retry) {

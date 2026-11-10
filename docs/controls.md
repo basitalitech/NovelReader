@@ -33,10 +33,13 @@ distinct purpose.
 
 ## Final mapping
 
-Cross activates focused content, Circle returns/cancels, and START opens the
-screen's Options/Controls. An active modal receives input exclusively: Cross
-confirms its focused tile, Circle closes it, and L/R browses long panels.
-START and background shortcuts are ignored while a modal is open.
+Cross activates focused content, Circle returns/cancels, and START toggles the
+screen's Options/Controls popup. Options and Library's Triangle Filter/Sort menu
+share a compact vertical popup anchored at the bottom-right above the bottom bar.
+Up/Down selects enabled rows; Cross confirms; Circle closes or returns to the
+parent submenu. START closes the complete popup stack. Active sorting and
+filtering choices have checkmarks. Background shortcuts are consumed.
+Error and busy overlays continue to own input exclusively.
 
 | Screen | Contextual controls |
 | --- | --- |
@@ -55,7 +58,7 @@ START and background shortcuts are ignored while a modal is open.
 L/R changes sidebar destinations on Home, Library, Bookmarks, Settings, and
 About. These destination changes are edges only. Other directional movement
 keeps the existing 350 ms initial / 140 ms repeat timing. Reader/viewer shoulders
-and long-panel pagination also repeat. Simultaneous opposing shoulders have no
+also repeat. Simultaneous opposing shoulders have no
 shortcut; release them before using a shoulder again. Cancel takes priority over
 confirm, and one physical action is dispatched per sample.
 
@@ -63,14 +66,19 @@ Both analog sticks remain deliberate alternatives to D-pad navigation for
 handedness and accessibility. TXT shoulder page turns remain an ergonomic
 alternative to Left/Right. Menu entries retain direct shortcuts' functionality
 for discoverability and touch access; these are shared actions, not additional
-physical aliases. Menu tile hints now consistently show Cross to confirm.
+physical aliases. Popup hints show Cross to select and Circle to close/back.
 
 ## Touch and event changes
 
 - Visible sidebar destinations and footer icons/labels accept taps using the
   same navigation/actions as buttons. Footer gutters remain inactive. Focus
   still stays in content; footer geometry, styling and gradients are preserved.
-- Panels support touch Close and Previous/Next. Settings supports touch Apply,
+- Popup rows activate on tap; the bottom bar stays visible with Select and Close.
+  Submenus show a tappable left arrow in their top-left corner to return to the
+  parent menu; Circle and the bottom-bar Close also return from a submenu.
+  Tapping outside dismisses the entire popup without activating the background.
+  Popup opening/dismissal is immediate and retains idle redraw suppression;
+  fonts and textures are reused. Settings supports touch Apply,
   Cancel and Reset; busy requests support touch Cancel. Background controls
   cannot receive modal taps or shortcuts.
 - Tap release must remain on the original target. Book grids retain clipped

@@ -110,6 +110,14 @@ void button(int x,int y,int width,int height,ButtonState state) {
         mesh.shape(x+2,y+2,width-4,std::min(14,height-4),7,alpha(accent,focused?36:24),alpha(accent,0));
     mesh.draw();
 }
+void popup(const ui::Rect& box) {
+    ButtonMesh mesh;
+    mesh.shape(box.x+3,box.y+4,box.width,box.height,10,alpha(background,100),alpha(background,160));
+    mesh.shape(box.x,box.y,box.width,box.height,9,border,mix(border,accent,0.15f));
+    mesh.shape(box.x+1,box.y+1,box.width-2,box.height-2,8,
+        mix(surface,accent,0.14f),mix(surface,background,0.3f));
+    mesh.draw();
+}
 void reading_card(int x,int y,int width,int height) {
     if(width<4 || height<4)return;
     ButtonMesh mesh;

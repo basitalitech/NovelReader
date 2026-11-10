@@ -21,6 +21,7 @@ void controller_icon(ControllerButton button, int x, int center_y, unsigned tint
 void hint_bar();
 void button(int x, int y, int width, int height, ButtonState state=ButtonState::Normal);
 void button_focus(int x, int y, int width, int height);
+void popup(const ui::Rect& box);
 void reading_card(int x, int y, int width, int height);
 void icon(Icon kind, int x, int y, unsigned tint=text, float scale=1);
 void progress(int x, int y, int width, float fraction, int height=5);

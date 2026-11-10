@@ -58,8 +58,8 @@ struct FrontendTest {
         tap(60,168);check(app.screen_==Screen::Library,"Touch-only Library entry failed");
         app.input(SCE_CTRL_TRIANGLE);check(app.menu_title_=="Sort and filter books","Triangle filter shortcut changed");
         const auto title=app.menu_title_;app.input(SCE_CTRL_START|SCE_CTRL_SQUARE);
-        check(app.menu_title_==title && !app.ime_active_,"START replaced an active modal");
-        footer(SCE_CTRL_CIRCLE);footer(SCE_CTRL_TRIANGLE);
+        check(app.menu_.empty() && !app.ime_active_,"START did not close the popup or leaked Square");
+        footer(SCE_CTRL_TRIANGLE);
         check(app.menu_title_==title,"Touch Filter does not share filter state");
         footer(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_SQUARE);
         check(app.ime_active_ && app.ime_library_,"Square duplicates filters instead of searching");
@@ -69,7 +69,8 @@ struct FrontendTest {
         app.apply_library_search("input-0");footer(SCE_CTRL_CIRCLE);
         check(!app.library_search_active_ && app.library_query_.empty() && app.screen_==Screen::Library,
               "Touch Back did not preserve Circle's search-exit behavior");
-        tap(700,90);tap(700,165);check(app.importing_,"Touch-only import entry failed");
+        tap(700,90);const auto import_row=app.menu_layout().row(0);
+        tap(import_row.x+60,import_row.y+17);check(app.importing_,"Touch-only import entry failed");
         app.input(SCE_CTRL_TRIANGLE);check(app.menu_.empty(),"Import refresh opened generic Options");
         const auto import_context=app.input_context();
         footer(SCE_CTRL_CIRCLE);check(!app.importing_ && app.input_context()!=import_context,"Import cancel did not change input context");
@@ -102,11 +103,20 @@ struct FrontendTest {
         check(app.screen_==Screen::Contents,"Reader Cross is not Contents");
         app.input(SCE_CTRL_CIRCLE);check(app.top_==page_top,"Contents Back lost reading position");
         footer(SCE_CTRL_START);check(app.menu_title_=="Reading controls","Touch-only Reading controls failed");
-        footer(SCE_CTRL_RTRIGGER);check(app.menu_selected_>=6,"Touch menu cannot reach second page");
-        footer(SCE_CTRL_LTRIGGER);check(app.menu_selected_<6,"Touch menu cannot return to first page");
+        reader::font_draws.clear();reader::capture_font_draws=true;app.draw_frame();reader::capture_font_draws=false;
+        bool select_hint=false,close_hint=false;
+        for(const auto& draw:reader::font_draws) {
+            select_hint=select_hint || (draw.text=="Select" && draw.y==527);
+            close_hint=close_hint || (draw.text=="Close" && draw.y==527);
+        }
+        check(select_hint && close_hint,"Popup does not show Select and Close in the bottom bar");
+        footer(SCE_CTRL_CROSS);check(app.menu_title_=="Read aloud","Bottom-bar Select did not activate the popup selection");
+        footer(SCE_CTRL_CIRCLE);check(app.menu_title_=="Reading controls","Bottom-bar Close did not return from submenu");
+        check(app.widgets().size()==app.menu_.size(),"Reader popup hides actions behind pages");
         // Save bookmark through the menu, then through a long press. Neither
         // action should accidentally open Reading Settings.
-        tap(100,370);check(app.menu_.empty() && app.screen_==Screen::Reader && app.progress_.has_bookmark,
+        const auto bookmark_row=app.menu_layout().row(4);
+        tap(bookmark_row.x+60,bookmark_row.y+17);check(app.menu_.empty() && app.screen_==Screen::Reader && app.progress_.has_bookmark,
                           "Menu bookmark action did not share the bookmark operation");
         app.gesture({reader::controls::GestureKind::Hold,500,220,0,0,1,500,220});
         check(app.screen_==Screen::Reader && app.progress_.bookmark==app.lines_[app.top_].offset,"Hold saved wrong bookmark");
@@ -332,7 +342,7 @@ struct FrontendTest {
             const auto& b=control.target.box;
             check(control.kind!=App::WidgetKind::Sidebar,"Sidebar entered the focus registry");
             check(b.y<reader::ui::toolbar_top,"Footer entered the focus registry");
-            check(b.height>=56,"Native widget is below the minimum target size");
+            check(b.height>=(control.kind==App::WidgetKind::Menu?34:56),"Native widget is below the minimum target size");
             check(b.width>=56,"Native widget is too narrow");
             check(b.x>=0 && b.x+b.width<=960 && b.y>=44 && b.y+b.height<=544,"Native widget is off screen");
             for(const auto& target:targets) {
@@ -421,7 +431,8 @@ struct FrontendTest {
         check(app.screen_==Screen::Sources && app.menu_.empty(),"Browse Online does not open sources");
         app.input(SCE_CTRL_CIRCLE);app.message_.clear();app.set_focus(200);
         app.input(SCE_CTRL_CROSS);
-        tap.x=700;tap.y=165;app.gesture(tap);
+        const auto add_row=app.menu_layout().row(0);
+        tap.x=add_row.x+60;tap.y=add_row.y+17;app.gesture(tap);
         check(app.importing_,"Touch cannot import through Add Book popup");app.input(SCE_CTRL_CIRCLE);
         const auto old_filter=app.filter_;const auto old_sort=app.sort_;
         app.input(SCE_CTRL_TRIANGLE);verify_graph(app);
@@ -534,6 +545,23 @@ struct FrontendTest {
         check(app.settings_.reading_font==1 && reader::load_settings(settings_path).reading_font==1,"Apply did not persist the reader font");
         app.show_more();verify_graph(app);app.input(SCE_CTRL_CIRCLE);
         check(app.menu_.empty() && focus(app)==1008,"Closing Options lost invoking focus");
+        const auto popup_selected=app.selected_;const auto popup_scroll=app.library_scroll_;
+        app.show_more();app.input(SCE_CTRL_DOWN);app.input(SCE_CTRL_DOWN);
+        check(app.menu_selected_==2,"Popup Down is not vertical");
+        app.input(SCE_CTRL_UP);check(app.menu_selected_==1,"Popup Up skipped an enabled action");
+        app.set_focus(2004);app.input(SCE_CTRL_CROSS);
+        check(app.menu_title_=="Sort and filter books" && app.menu_parents_.size()==1,"Sort submenu lost its parent");
+        check(app.menu_option_active(Command::SortTitle)==(app.sort_==reader::LibrarySort::Title) &&
+              app.menu_option_active(Command::FilterAll)==(app.filter_==reader::LibraryFilter::All),"Active choices are not marked");
+        const auto back=app.menu_layout().back();
+        tap.x=back.x+16;tap.y=back.y+16;app.gesture(tap);
+        check(app.menu_title_=="Options" && app.menu_selected_==4,"Submenu arrow did not restore parent selection");
+        tap.x=300;tap.y=200;app.gesture(tap);
+        check(app.menu_.empty() && app.screen_==Screen::Library && app.selected_==popup_selected && app.library_scroll_==popup_scroll,
+              "Outside dismissal activated a book or lost Library state");
+        app.show_more();app.gesture({reader::controls::GestureKind::Swipe,300,180,0,-120,1,300,300});
+        app.input(SCE_CTRL_TRIANGLE|SCE_CTRL_SQUARE);check(app.menu_title_=="Options" && !app.ime_active_,"Popup leaked shortcuts or a swipe");
+        app.input(SCE_CTRL_START);check(app.menu_.empty(),"START toggle failed");
         app.screen_=Screen::Book;app.perform({"Remove",0,Command::RemoveBook});app.normalize_focus();
         check(focus(app)==2001,"Remove confirmation does not default to Keep book");
         app.input(SCE_CTRL_CROSS);check(app.menu_.empty(),"Keep book does not close confirmation");
