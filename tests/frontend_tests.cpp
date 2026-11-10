@@ -69,7 +69,7 @@ struct FrontendTest {
         app.apply_library_search("input-0");footer(SCE_CTRL_CIRCLE);
         check(!app.library_search_active_ && app.library_query_.empty() && app.screen_==Screen::Library,
               "Touch Back did not preserve Circle's search-exit behavior");
-        tap(700,90);const auto import_row=app.menu_layout().row(0);
+        tap(800,48);const auto import_row=app.menu_layout().row(0);
         tap(import_row.x+60,import_row.y+17);check(app.importing_,"Touch-only import entry failed");
         app.input(SCE_CTRL_TRIANGLE);check(app.menu_.empty(),"Import refresh opened generic Options");
         const auto import_context=app.input_context();
@@ -78,9 +78,10 @@ struct FrontendTest {
         // Hit targets exclude gutters, clipped cards, and tap drift crossing an
         // element boundary. Footer hit targets follow the visible hint text.
         const auto selected=app.selected_;
-        tap(410,220);tap(680,520); // Cover gutter / between footer hints.
+        tap(410,220);tap(740,520); // Cover gutter / between footer hints.
         check(app.screen_==Screen::Library && app.menu_.empty() && app.selected_==selected,"Empty space activated a control");
-        tap(883,90,877,90);check(!app.ime_active_,"Tap drifting onto Search activated it");
+        footer(SCE_CTRL_SQUARE);check(app.ime_active_,"Touch footer Search did not open the keyboard");
+        test_ime_status()=SCE_COMMON_DIALOG_STATUS_FINISHED;test_ime_button()=0;app.input(0);test_ime_status()=0;
         reader::controls::Touch touch;
         touch.sample({{1,300,320}},1000,false);touch.sample({{1,300,200}},101000,false);
         app.gesture(touch.sample({},201000,false));
@@ -88,12 +89,18 @@ struct FrontendTest {
         app.gesture(touch.sample({},202000,false));
         check(app.selected_==4,"A released scroll repeated");
         tap(300,300);check(app.screen_==Screen::Book && app.selected_==4,"Touch opened wrong scrolled card");
-        app.normalize_focus();check(app.widgets().size()==1 && app.toolbar()[0].label=="Select" && app.toolbar()[0].enabled,
+        app.normalize_focus();check(app.widgets().size()==2 && app.toolbar()[0].label=="Select" && app.toolbar()[0].enabled,
             "Book details retained Bookmark or lost the Select hint");
         reader::font_draws.clear();reader::capture_font_draws=true;app.draw_frame();reader::capture_font_draws=false;
         int formats=0;
         for(const auto& draw:reader::font_draws)if(draw.text=="TXT") {++formats;check(draw.x==730,"Duplicate format badge remains below the author");}
         check(formats==1,"Local details do not show the format exactly once");
+        const auto local_read_time=app.entries_[app.order_[app.selected_]].progress.last_read;
+        const auto local_chapters=reader::ui::details_secondary(false);
+        tap(local_chapters.x+50,local_chapters.y+28);
+        check(app.screen_==Screen::Contents && app.lines_.empty() && app.progress_.last_read==local_read_time,
+            "Local Chapters started reading instead of opening the chapter list");
+        app.input(SCE_CTRL_CIRCLE);check(app.screen_==Screen::Book,"Local Chapters Back did not return to details");
         app.set_focus(200);tap(300,420);check(app.screen_==Screen::Reader,"Touch-only Read failed");
         app.message_.clear();const auto original_top=app.top_;
         tap(322,220,319,220);
@@ -133,7 +140,7 @@ struct FrontendTest {
         app.input(SCE_CTRL_SQUARE);app.set_focus(1000);app.input(SCE_CTRL_RIGHT);
         app.input(SCE_CTRL_CIRCLE|SCE_CTRL_CROSS);
         check(app.screen_==Screen::Reader && app.settings_.reading_font==0,"Simultaneous cancel/confirm applied Settings");
-        app.input(SCE_CTRL_SQUARE);tap(590,145);footer(SCE_CTRL_CROSS);
+        app.input(SCE_CTRL_SQUARE);tap(590,101);footer(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Reader && app.settings_.reading_font==1,"Touch-only Settings Apply failed");
         app.input(SCE_CTRL_SQUARE);app.input(SCE_CTRL_SQUARE);
         check(app.screen_==Screen::Settings,"Settings still has duplicate Apply buttons");
@@ -181,7 +188,7 @@ struct FrontendTest {
         app.input(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_CIRCLE);footer(SCE_CTRL_CIRCLE);
         check(app.screen_==Screen::Library,"Touch Reader Back failed");
         tap(60,360);check(app.screen_==Screen::About,"Touch-only About entry failed");
-        tap(700,220);check(app.feedback_active(),"Touch-only credits failed");footer(SCE_CTRL_CIRCLE);
+        tap(700,176);check(app.feedback_active(),"Touch-only credits failed");footer(SCE_CTRL_CIRCLE);
         tap(60,104);check(app.screen_==Screen::Home,"Touch-only Home return failed");
         app.navigate(1);app.input(SCE_CTRL_SELECT);
         check(app.screen_==Screen::Sources,"Library Online utility shortcut failed");footer(SCE_CTRL_CIRCLE);
@@ -311,6 +318,12 @@ struct FrontendTest {
         const auto chapters=reader::ui::details_secondary(true);
         online.gesture({reader::controls::GestureKind::Tap,float(chapters.x+50),float(chapters.y+28)});
         check(online.screen_==Screen::OnlineChapters,"Unified details Chapters CTA failed");
+        check(online.page_limit()==5 && online.widgets().size()==5,"Online chapter layout does not expose five rows");
+        online.set_focus(1004);online.input(SCE_CTRL_DOWN);
+        check(online.online_selected_==5 && focus(online)==1005 && online.widgets().front().target.box.x==288,
+            "Chapter navigation did not cross into the next page beside the cover");
+        online.draw_frame();online.input(SCE_CTRL_LEFT);
+        check(online.online_selected_==0,"Chapter page-back did not restore the first page");
         online.input(SCE_CTRL_CIRCLE);check(online.screen_==Screen::Novel,"Chapters Back lost online details");
         online.online_novel_.description=std::string(1000,'a');online.set_focus(1000);online.input(SCE_CTRL_DOWN);
         check(online.toolbar()[0].label=="Select" && !online.toolbar()[0].enabled,"Select is not dimmed on the summary");
@@ -412,7 +425,7 @@ struct FrontendTest {
             check(b.y<reader::ui::toolbar_top,"Footer entered the focus registry");
             check(b.height>=(control.kind==App::WidgetKind::Menu?34:56),"Native widget is below the minimum target size");
             check(b.width>=56,"Native widget is too narrow");
-            check(b.x>=0 && b.x+b.width<=960 && b.y>=44 && b.y+b.height<=544,"Native widget is off screen");
+            check(b.x>=0 && b.x+b.width<=960 && b.y>=20 && b.y+b.height<=544,"Native widget is off screen");
             for(const auto& target:targets) {
                 check(target.id!=control.target.id,"Duplicate control identity");
                 const auto& a=target.box;
@@ -478,9 +491,9 @@ struct FrontendTest {
         app.set_focus(1000);app.input(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Library,"First-launch Home does not open Library");
         app.message_.clear();app.set_focus(200);app.input(SCE_CTRL_RIGHT);
-        check(focus(app)==201,"Add Book does not lead to Search");
-        app.input(SCE_CTRL_CROSS);
-        check(app.ime_active_ && app.ime_library_,"Search cannot be activated by D-pad");
+        check(focus(app)==200,"Removed Search target is still focusable");
+        app.input(SCE_CTRL_SQUARE);
+        check(app.ime_active_ && app.ime_library_,"Square Search cannot be activated");
         app.ime_active_=false;app.input(SCE_CTRL_DOWN);
         check(focus(app)>=1000,"Search cannot enter the book row");
         app.input(SCE_CTRL_DOWN);
@@ -528,10 +541,10 @@ struct FrontendTest {
             saw_filter_hint=saw_filter_hint || (draw.y>496 && draw.text=="Filter");
         }
         check(saw_count && !saw_pages && saw_filter_hint,"Library header contains pagination or misses count/hints");
-        check(reader::ui::library_action(1).x+reader::ui::library_action(1).width==936,
-              "Search is not aligned to the right header edge");
+        check(reader::ui::library_action(0).x+reader::ui::library_action(0).width==936,
+              "Add Book is not aligned to the right header edge");
         const auto enter_query=[&](const std::u16string& query) {
-            app.set_focus(201);app.input(SCE_CTRL_CROSS);
+            app.input(SCE_CTRL_SQUARE);
             check(app.ime_active_,"Reopened search has no keyboard");
             std::copy(query.begin(),query.end(),app.ime_input_);app.ime_input_[query.size()]=0;
             test_ime_status()=SCE_COMMON_DIALOG_STATUS_FINISHED;test_ime_button()=SCE_IME_DIALOG_BUTTON_ENTER;
@@ -545,7 +558,7 @@ struct FrontendTest {
         enter_query(u"Book");
         check(app.order_.size()==2,"Search discarded the active filter");
         app.input(SCE_CTRL_RIGHT);app.input(SCE_CTRL_CIRCLE);
-        check(!app.library_search_active_ && app.library_query_.empty() && app.order_.size()==2 && focus(app)==201,
+        check(!app.library_search_active_ && app.library_query_.empty() && app.order_.size()==2 && focus(app)==200,
               "Circle did not exit navigated results in one press");
         check(app.sort_==reader::LibrarySort::Recent && app.filter_==reader::LibraryFilter::Reading,
               "Search cancellation reset filter or sorting");
@@ -553,10 +566,10 @@ struct FrontendTest {
         for(const auto query:{u"missing",u"Boo",u""}) {
             enter_query(query);verify_graph(app);
             app.input(SCE_CTRL_CIRCLE);
-            check(!app.library_search_active_ && app.library_query_.empty() && app.order_.size()==9 && focus(app)==201,
+            check(!app.library_search_active_ && app.library_query_.empty() && app.order_.size()==9 && focus(app)==200,
                   "Zero, partial or empty search did not clear in one press");
         }
-        app.set_focus(201);app.input(SCE_CTRL_CROSS);app.input(SCE_CTRL_CIRCLE);
+        app.input(SCE_CTRL_SQUARE);app.input(SCE_CTRL_CIRCLE);
         check(app.ime_active_,"App intercepted keyboard cancellation");
         test_ime_status()=SCE_COMMON_DIALOG_STATUS_FINISHED;test_ime_button()=0;
         app.input(SCE_CTRL_CIRCLE);test_ime_status()=0;
@@ -565,8 +578,9 @@ struct FrontendTest {
         check(app.screen_==Screen::Book && app.selected_filename()=="book5.txt","Search result opened the wrong book");
         app.input(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_CIRCLE);
         check(app.screen_==Screen::Library && app.order_.size()==9,"Back from searched book cannot exit search");
-        tap.x=908;tap.y=92;app.gesture(tap);
-        check(app.ime_active_,"Touch cannot open compact Search");
+        const auto search_actions=app.toolbar();const auto search_hit=app.footer_touch_rect(app.toolbar_rect(search_actions,2),search_actions[2]);
+        tap.x=search_hit.x+search_hit.width/2;tap.y=520;app.gesture(tap);
+        check(app.ime_active_,"Touch cannot open footer Search");
         test_ime_status()=SCE_COMMON_DIALOG_STATUS_FINISHED;test_ime_button()=0;app.input(0);test_ime_status()=0;
         enter_query(u"Book 5");
         reader::capture_font_draws=true;reader::font_draws.clear();app.draw();reader::capture_font_draws=false;
@@ -575,7 +589,7 @@ struct FrontendTest {
         app.set_focus(200);app.input(SCE_CTRL_CROSS);app.input(SCE_CTRL_CIRCLE);
         check(app.library_search_active_ && app.order_.size()==1,"Popup cancel changed search results");
         app.input(SCE_CTRL_CIRCLE);
-        check(app.toolbar().size()==4 && app.toolbar()[1].label=="Back" && app.toolbar()[2].button==SCE_CTRL_TRIANGLE,
+        check(app.toolbar().size()==5 && app.toolbar()[1].label=="Back" && app.toolbar()[2].button==SCE_CTRL_SQUARE && app.toolbar()[3].button==SCE_CTRL_TRIANGLE,
               "Search exit did not restore normal Library hints");
         app.sort_=reader::LibrarySort::Title;app.selected_=0;app.refresh_library("");
         verify_graph(app);app.set_focus(1003);app.input(SCE_CTRL_RIGHT);
@@ -638,7 +652,9 @@ struct FrontendTest {
             std::ofstream fixture("fixture-book.txt");fixture<<"A story\n\n";
             for(int i=0;i<80;++i)fixture<<"The first page of a quiet adventure follows a winding path beyond the mountains.\n\n";
         }
-        app.message_.clear();app.open();check(app.screen_==Screen::Reader,"Fixture book did not open");
+        app.message_.clear();app.perform({"Chapters",0,Command::LocalContents});
+        check(app.screen_==Screen::Contents && app.lines_.empty(),"Local chapter list loaded an unselected chapter");
+        app.input(SCE_CTRL_CROSS);check(app.screen_==Screen::Reader && !app.lines_.empty(),"Selecting a local chapter did not open the reader");
         const auto active=reader::ui::recent_book(app.entries_);
         check(active<app.entries_.size(),"Opening a book did not populate Continue Reading");
         const auto same_second=static_cast<std::uint64_t>(std::time(nullptr))+60;
@@ -718,9 +734,9 @@ struct FrontendTest {
         app.message_="An operation failed";app.retry_available_=true;verify_graph(app);
         const auto controls=app.widgets();check(controls.size()==2,"Error modal exposes background controls");
         const auto dialog=app.feedback_box();
-        check(dialog.width*16==dialog.height*9 && dialog.x+dialog.width/2==480 && dialog.y+dialog.height/2==272,"Feedback popup is not 9:16 and centered");
+        check(dialog.width*9==dialog.height*16 && dialog.x+dialog.width/2==480 && dialog.y+dialog.height/2==272,"Feedback popup is not 16:9 and centered");
         for(const auto& control:controls)
-            check(control.target.box.y==dialog.y+dialog.height-(control.target.id==4000?136:72),"Dialog actions are not stacked at the bottom");
+            check(control.target.box.y==dialog.y+dialog.height-72,"Dialog actions are not along the bottom");
         app.set_focus(4001);app.input(SCE_CTRL_CROSS);check(app.message_.empty(),"Dismiss cannot be selected with D-pad");
         app.online_busy_=true;app.message_="Loading artwork...";
         check(app.widgets().size()==1 && app.widgets()[0].action.label=="Cancel","Loading popup has no cancel CTA");

@@ -52,7 +52,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 
 The native 960 × 544 interface follows the supplied screen designs: charcoal and
 violet surfaces, lavender focus outlines and progress bars, rounded cover cards,
-refined white line icons, a text-only NovelReader header, and a slim controller
+refined white line icons, text-only NovelReader branding, and a slim controller
 legend using native Vita button geometry. The supplied [logo](assets/ui/logo.png)
 appears on the About page and as the app icon (using a resized 128 × 128 copy).
 The physical Vita housing
@@ -61,7 +61,9 @@ Wi-Fi is used only when an online request initializes the network module and
 NetCtl. Offline startup does not call uninitialized networking APIs.
 
 The status strip containing Wi-Fi, clock, and battery indicators is intentionally
-omitted. The application bar begins at the top edge of the screen.
+omitted. Home, Library, Bookmarks, Settings, and About place NovelReader at the
+top of the sidebar and use the full content height. Other screens retain the
+top application bar; immersive reading continues to hide it.
 
 Startup shows the full-screen moonlit background, the app logo, **NovelReader**,
 and **by basitalitech**, with a purple progress bar beneath. Progress follows
@@ -119,20 +121,23 @@ destination and leaves controller focus in its content.
 **Library** shows four columns of larger cover cards. D-pad or either
 stick moves focus through the action row and covers; Up/Down or vertical swipes
 scroll between grid rows. Cross or a cover tap
-opens book details; Cross again starts or resumes reading. Add Book and Search
-are above the covers; Filter is in the footer, and Online is available through
+opens book details; Cross again starts or resumes reading. Add Book is above the
+covers; Search (Square) and Filter are in the footer, and Online is available through
 SELECT, Add Book → Browse Online, or Options.
 Search or Square uses the system keyboard (submit an empty search to clear it).
 Circle exits and clears an active search while preserving sorting and filtering.
 Triangle or the Filter hint opens Title/Recent/Progress sorting and All/Reading/Finished filtering. L/R cycles
 through the sidebar destinations. Import and Online
 remain available through Start → Options. Library's Add Book opens import directly.
-Library card titles use up to two lines. Only visible covers are decoded, as
+Library cards have taller artwork, two title lines with an ellipsis for overflow,
+and a separate progress line with extra spacing. Only visible covers are decoded, as
 bounded 144 × 200 thumbnails; missing covers show plain title text centered
 horizontally and vertically. Local and online book details share a three-column layout with
 a larger 240 × 360 cover near the top, title and author beside it, and saved
 progress, chapters, and last-read time on the right. The reading CTA has no icon;
-local format appears once in the right panel. Online details retain description
+local format appears once in the right panel. Local details offer a Chapters
+button that opens the list without changing reading progress; Back returns to
+details until a chapter is selected. Online details retain description
 scrolling, Chapters, Download all, Refresh chapters, and Save.
 Options → Save bookmark saves the book's current position. Options → Remove from library asks for
 confirmation, removes only the library reference, and keeps the original file
@@ -163,7 +168,11 @@ and stays registered between sessions. At chapter end the reader drains playback
 clears borrowed callback pointers, and keeps the book open for reading or replay.
 Speed settings are approximate words per minute; voice pace varies with text.
 
-**Table of Contents** shows the cover beside five chapter rows. Up/Down selects;
+**Chapters / Table of Contents** shows the same large cover as book details beside
+five chapter rows, with a heading and total count. A play icon marks the current
+chapter; ticks mark chapters before the saved position (including the final one
+when finished). Separate icons show offline, available-to-download, and locked
+chapters. The total chapter count and page number appear below the list. Up/Down selects;
 Left/Right browses five entries; Up/Down also crosses page boundaries. Jump uses the numeric system keyboard. The
 illustration list, downloads, online browsing, and import browser retain their
 four-row lists with the shared purple surfaces and controller footer.
@@ -205,7 +214,7 @@ on demand; failed requests leave the current chapter and position intact.
 | Catalog | Up/Down: choose; Left/Right: move four entries; Cross: details |
 | Catalog | Square: search; Select: initial catalog; Options → Next/Reload catalog |
 | Novel details | Cross (Select): focused Read/Chapters/Download all/Refresh; Square (Add to Library): save a favorite; Select: start/resume reading; Up/Down scrolls the focused description |
-| Chapters | Up/Down: choose; Left/Right: move four entries; Cross: read; Square: download selected chapter |
+| Chapters | Up/Down: choose; Left/Right: move five entries; Cross: read; Square: download selected chapter |
 | Chapters | Select or Options → Download all: download public chapters; Options → Refresh chapters; Circle: details |
 | Request/download in progress | Circle: cancel |
 
@@ -224,7 +233,7 @@ Requests show an activity indicator; downloads show a progress bar and completed
 count. Failed requests expose a direct **Retry** button and **Options → Retry request**,
 preserving the original operation and completed downloads.
 
-Loading and error dialogs use a centered 9:16 portrait popup, with Cancel, Retry, or
+Loading and error dialogs use a centered 16:9 landscape popup, with Cancel, Retry, or
 Dismiss actions along its bottom edge. Online cover artwork is fetched on the
 background worker and cached for offline Library thumbnails. For favorites saved
 before artwork support, open the novel and use **Refresh chapters** once while
@@ -244,7 +253,8 @@ the download folders still changes the library save identity.
 This phase supports **public/free text chapters**. Locked entries are labeled
 and skipped by Download all; account login and purchased chapters are not
 implemented. Online chapter formatting is plain UTF-8 text with paragraph breaks;
-remote illustrations and covers are not downloaded. The initial catalogs reflect
+remote inline illustrations are not downloaded; supported PNG/JPEG covers are
+cached for offline artwork. The initial catalogs reflect
 each site's public listing, and search results may be limited by the source.
 Source layout changes, browser verification, and service outages can interrupt
 access; errors are shown without replacing a saved chapter with an error page.

@@ -115,7 +115,7 @@ int main() {
             }
             for(const auto& target:targets) {
                 check(target.box.height>=(target.id>=2000 && target.id<3000?34:56),"Interactive control is below minimum height");
-                check(target.box.x>=0 && target.box.y>=44 && target.box.x+target.box.width<=960 &&
+                check(target.box.x>=0 && target.box.y>=20 && target.box.x+target.box.width<=960 &&
                     target.box.y+target.box.height<=544,"Control extends outside the screen");
             }
         };
@@ -123,13 +123,13 @@ int main() {
         // and footer are hints/navigation shortcuts, not focusable widgets.
         for(int books=0;books<=4;++books) {
             std::vector<FocusTarget> targets;
-            for(int i=0;i<2;++i)targets.push_back({200+i,reader::ui::library_action(i),true});
+            targets.push_back({200,reader::ui::library_action(0),true});
             for(int i=0;i<books;++i)targets.push_back({1000+i,reader::ui::grid_book(i),true});
             verify_focus(targets);
-            check(reader::ui::focus_neighbor(targets,200,Direction::Right)==201,"Library header skips Search");
+            check(reader::ui::focus_neighbor(targets,200,Direction::Right)==200,"Add Book exposes a removed Search target");
             if(books) {
-                check(reader::ui::focus_neighbor(targets,201,Direction::Down)>=1000,
-                      "Sparse Library pulls Search focus into the sidebar");
+                check(reader::ui::focus_neighbor(targets,200,Direction::Down)>=1000,
+                      "Sparse Library pulls Add Book focus into the sidebar");
                 check(reader::ui::focus_neighbor(targets,1000,Direction::Up)==200,"Cover cannot reach action row");
                 const auto down=reader::ui::focus_neighbor(targets,1000,Direction::Down);
                 check(down==1000,"Last grid row moved focus into a non-content region");

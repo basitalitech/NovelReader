@@ -19,11 +19,11 @@ struct Rect {
 };
 constexpr int sidebar_width = 208;
 constexpr int sidebar_count = 5;
-inline Rect home_continue() { return {232,168,480,224}; }
+inline Rect home_continue() { return {232,124,480,224}; }
 constexpr int grid_columns = 4, grid_page_size = 4, contents_page_size = 5;
 inline Rect sidebar_item(int index) { return {12, 76 + index * 64, 184, 56}; }
 inline Rect library_action(int index) {
-    return index==0 ? Rect{692,64,172,56} : index==1 ? Rect{880,64,56,56} : Rect{0,0,0,0};
+    return index==0 ? Rect{764,20,172,56} : Rect{0,0,0,0};
 }
 // One geometry source for popup drawing, focus and touch. Eleven compact rows
 // fit even the Reader's complete action list without covering the whole screen.
@@ -37,14 +37,16 @@ struct Popup {
     Rect row(int index) const { return {box.x+10,box.y+36+(index-first)*pitch,box.width-20,pitch-2}; }
     Rect back() const { return {box.x+8,box.y+2,32,32}; }
 };
-constexpr int grid_top=144, grid_bottom=480, grid_pitch=256;
+constexpr int grid_top=100, grid_bottom=480, grid_height=300, grid_cover_height=208, grid_pitch=316;
 inline Rect grid_book(int index, int scroll=0) {
-    return {232 + index%grid_columns*180,grid_top+index/grid_columns*grid_pitch-scroll,164,240};
+    return {232 + index%grid_columns*180,grid_top+index/grid_columns*grid_pitch-scroll,164,grid_height};
 }
-inline Rect settings_row(int index) { return {232,124+index*60,376,56}; }
-inline Rect contents_row(int index) { return {232,136+index*64,704,56}; }
+inline Rect settings_row(int index) { return {232,80+index*60,376,56}; }
+inline Rect bookmark_row(int index) { return {232,100+index*104,704,96}; }
+inline Rect about_action(int index) { return {638,154+index*72,286,56}; }
+inline Rect contents_row(int index) { return {288,136+index*64,648,56}; }
 inline Rect details_cover() { return {24,72,240,360}; }
-inline Rect details_primary(bool online) { return {288,online?352:396,online?248:412,56}; }
+inline Rect details_primary(bool online) { return {288,online?352:396,248,56}; }
 inline Rect details_secondary(bool online) { return {552,online?352:396,148,56}; }
 inline Rect details_utility(int index) { return {288+index*212,416,200,56}; }
 inline int grid_hit(int x, int y, int count) {

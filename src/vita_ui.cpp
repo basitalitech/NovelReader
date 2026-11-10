@@ -281,6 +281,15 @@ void icon(Icon kind,int x,int y,unsigned tint,float scale) {
     } else if(kind==Icon::Check) {line(-8,0,-2,6);line(-2,6,9,-7);
     } else if(kind==Icon::Trash) {line(-10,-8,10,-8);line(-4,-12,4,-12);line(-7,-8,-6,12);line(-6,12,6,12);line(6,12,7,-8);line(-2,-4,-2,8);line(2,-4,2,8);
     } else if(kind==Icon::Refresh) {circle(0,0,10);line(9,-9,9,-2);line(9,-2,2,-2);
+    } else if(kind==Icon::Download) {
+        line(0,-11,0,4);line(-6,-2,0,4);line(0,4,6,-2);
+        line(-10,5,-10,11);line(-10,11,10,11);line(10,11,10,5);
+    } else if(kind==Icon::Downloaded) {
+        line(-8,-12,4,-12);line(4,-12,10,-6);line(10,-6,10,12);line(10,12,-8,12);line(-8,12,-8,-12);
+        line(-4,2,0,6);line(0,6,7,-2);
+    } else if(kind==Icon::Lock) {
+        line(-6,-2,-6,-9);line(-6,-9,6,-9);line(6,-9,6,-2);
+        line(-10,-2,10,-2);line(10,-2,10,12);line(10,12,-10,12);line(-10,12,-10,-2);line(0,3,0,7);
     } else {line(-8,-12,4,-12);line(4,-12,10,-6);line(10,-6,10,12);line(10,12,-8,12);line(-8,12,-8,-12);for(int i=0;i<3;++i)line(-4,-3+i*5,6,-3+i*5);}
 }
 } }

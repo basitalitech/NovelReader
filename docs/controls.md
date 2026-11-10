@@ -46,7 +46,7 @@ Error and busy overlays continue to own input exclusively.
 | Home / About | D-pad or either stick selects content; Cross continues/opens Library or activates the selected credits/license item. Home omits the unused Back hint. |
 | Library | Cross opens focused book details or header action; Circle clears an active search first, then returns Home; Triangle filters/sorts; Square searches; Select opens Online. |
 | Import browser | Cross opens/imports; Circle parent/cancel at root; Triangle refreshes; Square sorts. |
-| Book details | Cross (Select) starts/resumes reading; Circle returns to the preserved Library selection and scroll. Save bookmark remains available in Options. |
+| Book details | Cross (Select) activates Read or Chapters. Chapters opens the list without marking the book read; Circle returns to details. Circle from details returns to the preserved Library selection and scroll. Save bookmark remains available in Options. |
 | Bookmarks | Cross opens position; Square removes; directions select/page; Circle restores the caller and its sidebar destination. |
 | Reader | Cross Contents; Circle saves and returns to Library/online chapters; Triangle Bookmarks; Square Settings; Select saved bookmark; START Reading controls. Left/Right pages, Up/Down steps; L/R changes EPUB/online chapters or pages TXT. Save bookmark and narration remain in Reading controls. |
 | Contents / illustrations | Cross opens; Circle returns; directions select/page. Contents Triangle jumps by number; Square opens current chapter illustrations. |
