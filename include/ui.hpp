@@ -44,7 +44,7 @@ inline Rect grid_book(int index, int scroll=0) {
 inline Rect settings_row(int index) { return {232,124+index*60,376,56}; }
 inline Rect contents_row(int index) { return {232,136+index*64,704,56}; }
 inline Rect details_cover() { return {24,72,240,360}; }
-inline Rect details_primary(bool online) { return {288,online?352:396,248,56}; }
+inline Rect details_primary(bool online) { return {288,online?352:396,online?248:412,56}; }
 inline Rect details_secondary(bool online) { return {552,online?352:396,148,56}; }
 inline Rect details_utility(int index) { return {288+index*212,416,200,56}; }
 inline int grid_hit(int x, int y, int count) {

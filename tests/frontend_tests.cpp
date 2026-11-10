@@ -88,7 +88,8 @@ struct FrontendTest {
         app.gesture(touch.sample({},202000,false));
         check(app.selected_==4,"A released scroll repeated");
         tap(300,300);check(app.screen_==Screen::Book && app.selected_==4,"Touch opened wrong scrolled card");
-        app.set_focus(201);check(app.toolbar()[0].label=="Bookmark","Book hint ignores focused secondary action");
+        app.normalize_focus();check(app.widgets().size()==1 && app.toolbar()[0].label=="Select" && app.toolbar()[0].enabled,
+            "Book details retained Bookmark or lost the Select hint");
         reader::font_draws.clear();reader::capture_font_draws=true;app.draw_frame();reader::capture_font_draws=false;
         int formats=0;
         for(const auto& draw:reader::font_draws)if(draw.text=="TXT") {++formats;check(draw.x==730,"Duplicate format badge remains below the author");}
@@ -302,6 +303,8 @@ struct FrontendTest {
         online.open();
         check(online.screen_==Screen::Novel && online.offline_count_==1,"Online summary fixture");
         online.normalize_focus();check(focus(online)==200,"Online details do not focus the reading CTA");
+        check(online.toolbar()[0].label=="Select" && online.toolbar()[0].enabled &&
+              online.toolbar()[2].label=="Add to Library" && !online.toolbar()[2].enabled,"Details footer labels or saved-book dimming changed");
         const auto enlarged=reader::ui::details_cover();
         check(enlarged.width>198 && enlarged.height>280 && enlarged.y<106,"Shared details artwork was not enlarged or moved up");
         check(online.widgets().size()==5,"Unified online details lost description or actions");
@@ -310,6 +313,8 @@ struct FrontendTest {
         check(online.screen_==Screen::OnlineChapters,"Unified details Chapters CTA failed");
         online.input(SCE_CTRL_CIRCLE);check(online.screen_==Screen::Novel,"Chapters Back lost online details");
         online.online_novel_.description=std::string(1000,'a');online.set_focus(1000);online.input(SCE_CTRL_DOWN);
+        check(online.toolbar()[0].label=="Select" && !online.toolbar()[0].enabled,"Select is not dimmed on the summary");
+        online.set_focus(201);check(online.toolbar()[0].label=="Select" && online.toolbar()[0].enabled,"Select label changes with focused actions");online.set_focus(1000);
         check(online.description_row_==1,"Unified description does not scroll");
         online.input(SCE_CTRL_CROSS);check(online.screen_==Screen::Novel,"Description activation unexpectedly navigated away");
         reader::font_draws.clear();reader::capture_font_draws=true;online.draw_frame();reader::capture_font_draws=false;
@@ -339,6 +344,32 @@ struct FrontendTest {
         online.refresh_online_library_item(manifest);
         check(online.entries_[0].progress.bookmark_chapter==1 && online.bookmark_previews_.empty(),
             "Online refresh retained stale bookmark identity/quote");
+        check(online.add_to_library(names[0]),"Cannot add unrelated book for removal regression");
+        online.message_.clear();online.refresh_library(names[0]);
+        check(online.selected_filename()==names[0],"Removal regression did not select an unrelated library book");
+        const auto remove_option=[&]() {
+            for(std::size_t i=0;i<online.menu_.size();++i)if(online.menu_[i].command==Command::RemoveBook)return static_cast<int>(i);
+            return -1;
+        };
+        online.screen_=Screen::OnlineChapters;online.show_more();check(remove_option()>=0,"Saved online chapter list has no Remove option");online.close_menu();
+        online.screen_=Screen::Novel;online.show_more();const auto remove=remove_option();
+        check(remove>=0,"Saved online details have no Remove option");
+        online.set_focus(2000+remove);online.input(SCE_CTRL_CROSS);online.normalize_focus();
+        check(online.menu_selected_==1,"Online removal does not default to Keep");
+        online.input(SCE_CTRL_CROSS);check(online.in_library(),"Cancel removed an online favorite");
+        online.show_more();online.set_focus(2000+remove_option());online.input(SCE_CTRL_CROSS);
+        online.set_focus(2000);online.input(SCE_CTRL_CROSS);
+        check(online.screen_==Screen::Library && !online.in_library() && online.library_books_==std::vector<std::string>{names[0]},
+            "Online removal removed the selected background book or retained the favorite");
+        std::vector<std::string> persisted;
+        check(reader::load_library(library_path,persisted) && persisted==online.library_books_,"Online removal was not persisted");
+        reader::online::Novel kept;
+        check(reader::online::load_novel(manifest,kept,artwork_error) && reader::online::cached(manifest,novel.chapters[1].url) &&
+              reader::online::load_cover(manifest,artwork_bytes,artwork_error) &&
+              reader::load_progress(reader::progress_path(progress_directory,identity)).last_read>0,
+              "Removing an online favorite deleted downloaded content, artwork, or progress");
+        online.message_.clear();online.screen_=Screen::Novel;online.show_more();
+        check(remove_option()==-1,"Unsaved online novel still offers removal");online.close_menu();
     }
 #ifdef NOVELREADER_PROFILE
     static void benchmark() {
@@ -566,7 +597,7 @@ struct FrontendTest {
         check(app.screen_==Screen::Library && app.selected_==8 && app.library_scroll_>0,"Book return lost grid scroll");
         app.set_focus(1008);app.input(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Book,"Book cannot open details from the partial page");verify_graph(app);
-        app.set_focus(201);app.input(SCE_CTRL_LEFT);check(focus(app)==200,"Bookmark cannot reach Read");
+        app.set_focus(200);app.input(SCE_CTRL_LEFT);check(focus(app)==200,"Details Read focus escaped its boundary");
         app.input(SCE_CTRL_CIRCLE);check(app.screen_==Screen::Library && app.selected_==8 && focus(app)==1008,"Details return lost page or focus");
         app.perform({"Settings",0,Command::Appearance});app.normalize_focus();
         const auto before=app.settings_;app.set_focus(1000);app.input(SCE_CTRL_LEFT);

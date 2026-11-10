@@ -46,14 +46,14 @@ Error and busy overlays continue to own input exclusively.
 | Home / About | D-pad or either stick selects content; Cross continues/opens Library or activates the selected credits/license item. Home omits the unused Back hint. |
 | Library | Cross opens focused book details or header action; Circle clears an active search first, then returns Home; Triangle filters/sorts; Square searches; Select opens Online. |
 | Import browser | Cross opens/imports; Circle parent/cancel at root; Triangle refreshes; Square sorts. |
-| Book details | Cross activates focused Read/Bookmark; Circle returns to the preserved Library selection and scroll. |
+| Book details | Cross (Select) starts/resumes reading; Circle returns to the preserved Library selection and scroll. Save bookmark remains available in Options. |
 | Bookmarks | Cross opens position; Square removes; directions select/page; Circle restores the caller and its sidebar destination. |
 | Reader | Cross Contents; Circle saves and returns to Library/online chapters; Triangle Bookmarks; Square Settings; Select saved bookmark; START Reading controls. Left/Right pages, Up/Down steps; L/R changes EPUB/online chapters or pages TXT. Save bookmark and narration remain in Reading controls. |
 | Contents / illustrations | Cross opens; Circle returns; directions select/page. Contents Triangle jumps by number; Square opens current chapter illustrations. |
 | Image viewer | Cross zooms in; Square zooms out; Triangle fits; D-pad pans; either stick pans continuously; L/R chooses image; Circle restores Reader or illustration list, according to origin. |
 | Settings | Up/Down selects; Left/Right adjusts; Cross applies; Circle discards; Select resets preview. Square has no assignment. |
 | Online sources / catalog | Cross selects; Circle parent. Catalog Square searches; Triangle next/reload; Select initial catalog. |
-| Online details / chapters | Details Cross activates focused Read/Chapters/Download all/Refresh; Square favorites; Select reads. The description accepts focus for Up/Down scrolling. Chapters Cross reads, Square downloads one, Select downloads all. Triangle refreshes on both. |
+| Online details / chapters | Details Cross (Select) activates focused Read/Chapters/Download all/Refresh; the Select hint dims on the description. Square (Add to Library) favorites and dims once saved; Select reads. The description accepts focus for Up/Down scrolling. Chapters Cross reads, Square downloads one, Select downloads all. Triangle refreshes on both. |
 
 L/R changes sidebar destinations on Home, Library, Bookmarks, Settings, and
 About. These destination changes are edges only. Other directional movement
