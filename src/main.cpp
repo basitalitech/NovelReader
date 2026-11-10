@@ -76,7 +76,8 @@ enum class Command { Button, More, Sort, Jump, Immersive, Resume, Retry, Appeara
     FilterAll, FilterReading, FilterFinished, Exit, Home, Library, Bookmarks, Import, DeleteBookmark, Credits, License, Search,
     BookBookmark, RemoveBook, ConfirmRemoveBook, Online, ClearSearch, PreviousPage, NextPage,
     ApplySettings, CancelSettings, ResetSettings, Illustrations, FullTitle, AddBook,
-    Speech, SpeechToggle, SpeechStop, SpeechSlower, SpeechFaster };
+    Speech, SpeechToggle, SpeechStop, SpeechSlower, SpeechFaster, SaveBookmark, Dismiss,
+    CloseMenu, MenuPrevious, MenuNext };
 struct Action {
     std::string label;
     unsigned button;
@@ -199,30 +200,40 @@ public:
 
     bool input(unsigned pressed, bool physical = true) {
         if(pressed)redraw_=true;
+        const auto context=input_context();
         tick_speech();
         const bool keyboard_was_active=ime_active_;
         tick_online();
         if (keyboard_was_active) return true; // Never reuse the keyboard's dismissing press.
-        if (ime_active_) return true;
-        if (physical && focus_input(pressed)) return focus_result_;
-        if (pressed & SCE_CTRL_START) { if (!online_busy_) show_more(); return true; }
-        if (online_busy_) {
-            if (pressed & SCE_CTRL_CIRCLE) { pending_bookmark_=false; online_.cancel(); message_ = "Canceling..."; }
+        if (ime_active_ || input_context()!=context) return true;
+        // One action per sample. Cancel wins even when confirm is also pressed.
+        if(physical) {
+            for(const unsigned key:{SCE_CTRL_CIRCLE,SCE_CTRL_START,SCE_CTRL_CROSS,
+                    SCE_CTRL_TRIANGLE,SCE_CTRL_SQUARE,SCE_CTRL_SELECT,SCE_CTRL_LTRIGGER,SCE_CTRL_RTRIGGER,
+                    SCE_CTRL_LEFT,SCE_CTRL_RIGHT,SCE_CTRL_UP,SCE_CTRL_DOWN})
+                if(pressed&key){pressed=key;break;}
+        }
+        // Active layers own all input, including START and contextual shortcuts.
+        if(online_busy_) {
+            if(pressed&SCE_CTRL_CIRCLE){pending_bookmark_=false;online_.cancel();message_="Canceling...";}
             return true;
         }
+        if(physical && (!menu_.empty() || feedback_active())) {
+            focus_input(pressed);return focus_result_;
+        }
+        if (physical && focus_input(pressed)) return focus_result_;
+        if (pressed & SCE_CTRL_START) { show_more(); return true; }
         if (!menu_.empty()) return true;
         if (physical && has_sidebar() && (pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER))) {
             const int step=pressed&SCE_CTRL_RTRIGGER?1:reader::ui::sidebar_count-1;
             navigate((nav_active_+step)%reader::ui::sidebar_count);sidebar_focus_=false;normalize_focus();return true;
         }
-        if ((pressed & SCE_CTRL_LTRIGGER) && (pressed & SCE_CTRL_RTRIGGER)) { show_more(); return true; }
-        if (physical && screen_==Screen::Reader) {
-            if (pressed & SCE_CTRL_CROSS) { show_more(); return true; }
+        if (screen_==Screen::Reader) {
             if (pressed & SCE_CTRL_TRIANGLE) return perform({"Bookmarks",0,Command::Bookmarks});
             if (pressed & SCE_CTRL_SQUARE) return perform({"Font",0,Command::Appearance});
         }
-        if (physical && (pressed & SCE_CTRL_TRIANGLE) && screen_ != Screen::Settings) {
-            if(screen_==Screen::Library && !importing_)show_sort();else show_more();
+        if ((pressed & SCE_CTRL_TRIANGLE) && screen_==Screen::Library && !importing_) {
+            show_sort();
             return true;
         }
         if (screen_ == Screen::Home) {
@@ -241,7 +252,10 @@ public:
             if ((pressed & SCE_CTRL_UP) && bookmark_selected_) --bookmark_selected_;
             if ((pressed & SCE_CTRL_DOWN) && bookmark_selected_+1<marks.size()) ++bookmark_selected_;
             if (pressed & SCE_CTRL_SQUARE) delete_bookmark();
-            if (pressed & SCE_CTRL_CIRCLE) { screen_=bookmarks_return_; sidebar_focus_=screen_!=Screen::Reader; }
+            if (pressed & SCE_CTRL_CIRCLE) {
+                screen_=bookmarks_return_;nav_active_=nav_selected_=bookmarks_nav_return_;
+                sidebar_focus_=false;return true;
+            }
             if ((pressed & SCE_CTRL_CROSS) && bookmark_selected_<marks.size()) open_bookmark(marks[bookmark_selected_]);
             return true;
         }
@@ -290,7 +304,8 @@ public:
                 if ((pressed & SCE_CTRL_RIGHT) && !order_.empty()) selected_ = std::min(selected_ + list_page, order_.size() - 1);
             }
             if (pressed & SCE_CTRL_SQUARE) {
-                show_sort(); return true;
+                if(importing_)show_sort();else perform({"Search",0,Command::Search});
+                return true;
             }
             if (pressed & SCE_CTRL_TRIANGLE) {
                 if (!importing_) { importing_ = true; browse_folder(""); }
@@ -315,7 +330,6 @@ public:
                 ensure_library_order(keep);
                 if (screen_ == Screen::Library) update_cover();
             }
-            else if (pressed & SCE_CTRL_TRIANGLE) show_more();
             else if (pressed & SCE_CTRL_CROSS) {
                 contents_selected_ = chapter_; screen_ = Screen::Contents; message_.clear();
             }
@@ -339,17 +353,10 @@ public:
                     if (top_ == 0 && chapter_ > 0) change_chapter(chapter_ - 1, 0, true);
                     else top_ = reader::previous_page_start(pages_, top_);
                 }
-                if ((pressed & SCE_CTRL_UP) && top_ > 0) --top_;
-                if ((pressed & SCE_CTRL_DOWN) && top_ + 1 < lines_.size()) ++top_;
+                if (pressed & SCE_CTRL_UP) step_reading(false);
+                if (pressed & SCE_CTRL_DOWN) step_reading(true);
                 bool changed = previous != top_ || previous_chapter != chapter_;
                 if (changed) message_.clear();
-                if (pressed & SCE_CTRL_SQUARE) {
-                    progress_.has_bookmark = true;
-                    progress_.bookmark = lines_[top_].offset;
-                    progress_.bookmark_chapter = chapter_;
-                    notify("Bookmark saved. SELECT returns here.");
-                    changed = true;
-                }
                 if (pressed & SCE_CTRL_SELECT) {
                     if (progress_.has_bookmark) {
                         if (progress_.bookmark_chapter == chapter_) {
@@ -408,6 +415,16 @@ public:
     }
 
     Screen screen() const { return screen_; }
+    std::uint64_t input_context() const {
+        // Content identity plus exclusive input layer; no strings or allocation.
+        return folder_revision_*512 + static_cast<unsigned>(screen_)*32 + (importing_?16:0) +
+            (!menu_.empty()?1:0) + (online_busy_?2:0) + (feedback_active()?4:0) + (ime_active_?8:0);
+    }
+    unsigned repeatable_buttons() const {
+        const unsigned directions=SCE_CTRL_UP|SCE_CTRL_DOWN|SCE_CTRL_LEFT|SCE_CTRL_RIGHT;
+        return directions | ((!menu_.empty() || screen_==Screen::Reader || screen_==Screen::Image)?
+            SCE_CTRL_LTRIGGER|SCE_CTRL_RTRIGGER:0);
+    }
     bool can_pan_image() const { return screen_ == Screen::Image && menu_.empty() && !ime_active_ && !feedback_active() && !online_busy_; }
     std::size_t folder_revision() const { return folder_revision_; }
     void pan_image(float dx, float dy) {
@@ -432,10 +449,12 @@ public:
         if (gesture.kind == GestureKind::None || ime_active_) return true;
         redraw_=true;
         const int x = static_cast<int>(gesture.x), y = static_cast<int>(gesture.y);
+        const int start_x=gesture.start_x<0?x:static_cast<int>(gesture.start_x);
+        const int start_y=gesture.start_y<0?y:static_cast<int>(gesture.start_y);
         if (gesture.kind==GestureKind::Tap) {
             normalize_focus();
             const auto controls=widgets();
-            for(const auto& control:controls) if(control.target.enabled && control.target.box.contains(x,y)) {
+            for(const auto& control:controls) if(control.target.enabled && control.target.box.contains(x,y) && control.target.box.contains(start_x,start_y)) {
                 set_focus(control.target.id);
                 if(control.kind==WidgetKind::Setting) {
                     adjust_setting(control.index,x<control.target.box.x+control.target.box.width/2?-1:1);
@@ -443,40 +462,70 @@ public:
                 }
                 return activate(control);
             }
+            // The existing legend and sidebar also serve as touch controls;
+            // keep them out of the D-pad content focus graph.
+            if(!(screen_==Screen::Reader && immersive_ && menu_.empty() && !feedback_active() && !online_busy_)) {
+                const auto actions=!menu_.empty()?menu_toolbar():toolbar();
+                for(std::size_t i=0;i<actions.size();++i) {
+                    auto box=!menu_.empty()?reader::ui::toolbar_button(i,actions.size()):toolbar_rect(actions,i);
+                    box=footer_touch_rect(box,actions[i]);
+                    if(box.contains(x,y) && box.contains(start_x,start_y) && actions[i].enabled) {
+                        if(actions[i].command==Command::Button)return input(actions[i].button);
+                        return perform(actions[i]);
+                    }
+                }
+            }
             if(!menu_.empty() || feedback_active() || online_busy_) return true;
+            if(has_sidebar())for(int i=0;i<reader::ui::sidebar_count;++i) {
+                const auto box=reader::ui::sidebar_item(i);
+                if(box.contains(x,y) && box.contains(start_x,start_y)){navigate(i);normalize_focus();return true;}
+            }
             if(screen_!=Screen::Reader && screen_!=Screen::Image) return true;
         }
-        if(!menu_.empty() || feedback_active()) return true;
+        if(!menu_.empty())return true;
+        if(feedback_active()) return true;
         if (online_busy_) return true;
-        if(gesture.kind==GestureKind::Tap && y>=reader::ui::toolbar_top)return true;
+        if(gesture.kind==GestureKind::Tap && y>=reader::visual::hint_bar_top && !(screen_==Screen::Reader && immersive_))return true;
         if (gesture.kind == GestureKind::Transform) {
-            if (screen_ == Screen::Image && y >= reader::ui::image_top && y < reader::ui::image_top+reader::ui::image_height) transform_image(gesture);
+            const reader::ui::Rect image_area{48,reader::ui::image_top,864,reader::ui::image_height};
+            if (screen_ == Screen::Image && image_area.contains(start_x,start_y) && image_area.contains(x,y)) transform_image(gesture);
             return true;
         }
         if (gesture.kind == GestureKind::Hold) {
             if (screen_ == Screen::Reader && x >= 48 && x < 912 && y >= reading_area().top &&
-                y < reading_area().top + reading_area().height) return input(SCE_CTRL_SQUARE,false);
+                y < reading_area().top + reading_area().height &&
+                reader::ui::Rect{48,reading_area().top,864,reading_area().height}.contains(start_x,start_y))
+                return perform({"Save bookmark",0,Command::SaveBookmark});
             return true;
         }
         if (gesture.kind == GestureKind::Swipe) {
-            const auto start_y = gesture.y - gesture.dy;
-            if (start_y < (screen_ == Screen::Reader ? reading_area().top : 124) ||
-                start_y >= (screen_ == Screen::Reader ? reading_area().top + reading_area().height : 490)) return true;
+            const int origin_x=gesture.start_x<0?static_cast<int>(gesture.x-gesture.dx):start_x;
+            const int origin_y=gesture.start_y<0?static_cast<int>(gesture.y-gesture.dy):start_y;
+            const int left=has_sidebar() || screen_==Screen::Contents?232:screen_==Screen::Reader?48:24;
+            const int top=screen_==Screen::Reader?reading_area().top:screen_==Screen::Settings?124:screen_==Screen::Contents?136:144;
+            const int bottom=screen_==Screen::Reader?reading_area().top+reading_area().height:480;
+            if(!reader::ui::Rect{left,top,936-left,bottom-top}.contains(origin_x,origin_y))return true;
             const bool horizontal = std::abs(gesture.dx) > std::abs(gesture.dy);
             const bool forward = horizontal ? gesture.dx < 0 : gesture.dy < 0;
             if (screen_ == Screen::Reader) {
+                if(std::max(std::abs(gesture.dx),std::abs(gesture.dy)) < 1.5f*std::min(std::abs(gesture.dx),std::abs(gesture.dy)))return true;
                 if (horizontal) return input(forward ? SCE_CTRL_RIGHT : SCE_CTRL_LEFT);
                 const auto amount = static_cast<std::size_t>(std::max(1,std::min(6,static_cast<int>(std::abs(gesture.dy)/40))));
-                top_ = forward ? std::min(top_+amount,lines_.size()-1) : top_ > amount ? top_-amount : 0;
+                step_reading(forward,amount);
                 message_.clear(); save();
             } else if (screen_ == Screen::Novel) {
                 return input(forward ? SCE_CTRL_DOWN : SCE_CTRL_UP);
             } else if (screen_ == Screen::Settings) {
+                if(horizontal) {
+                    bool row_hit=false;
+                    for(int i=0;i<5;++i)if(reader::ui::settings_row(i).contains(origin_x,origin_y)){set_focus(1000+i);row_hit=true;break;}
+                    if(!row_hit)return true;
+                }
                 return input(horizontal ? (forward ? SCE_CTRL_RIGHT : SCE_CTRL_LEFT) : (forward ? SCE_CTRL_DOWN : SCE_CTRL_UP));
             } else if(screen_==Screen::Library && !importing_) {
                 if(!horizontal)move_library_row(forward);
             } else if (screen_ == Screen::Library || screen_ == Screen::Contents || screen_ == Screen::Illustrations ||
-                       screen_ == Screen::Catalog || screen_ == Screen::OnlineChapters || screen_ == Screen::Sources) {
+                       screen_ == Screen::Catalog || screen_ == Screen::OnlineChapters || screen_ == Screen::Sources || screen_==Screen::Bookmarks) {
                 turn_collection_page(forward);
             }
             return true;
@@ -484,22 +533,27 @@ public:
         if (gesture.kind != GestureKind::Tap) return true;
         if (screen_ == Screen::Reader) {
             const auto area = reading_area();
-            if (!immersive_ && y < area.top) { show_more(); return true; }
-            if (y < area.top || y >= area.top+area.height || x < 48 || x >= 912) return true;
+            if (!immersive_ && y < area.top && start_y<area.top) { show_more(); return true; }
+            const reader::ui::Rect body{48,area.top,864,area.height};
+            if(!body.contains(x,y) || !body.contains(start_x,start_y))return true;
             int block_y = area.top;
             for (auto at=top_;at<visible_end();++at) {
                 const auto& block = lines_[at];
                 if (block.illustration != reader::no_illustration && y >= block_y && y < block_y+block.height &&
                     (!block.image_width || std::abs(x-480) <= block.image_width/2)) {
+                    if(start_y<block_y || start_y>=block_y+block.height || (block.image_width && std::abs(start_x-480)>block.image_width/2))return true;
                     show_illustration(block.illustration,Screen::Reader); return true;
                 }
                 block_y += block.height;
             }
+            const auto zone=[](int px){return px<320?0:px<640?1:2;};
+            if(zone(x)!=zone(start_x))return true;
             if (x >= 320 && x < 640) { show_more(); return true; }
             return input(x < 320 ? SCE_CTRL_LEFT : SCE_CTRL_RIGHT);
         }
         if (screen_ == Screen::Image) {
-            if (x >= 48 && x < 912 && y >= reader::ui::image_top && y < reader::ui::image_top+reader::ui::image_height) {
+            const reader::ui::Rect body{48,reader::ui::image_top,864,reader::ui::image_height};
+            if (body.contains(x,y) && body.contains(start_x,start_y)) {
                 auto zoom=gesture; zoom.scale=zoom_>1 ? 1/zoom_ : 2; transform_image(zoom);
             }
             return true;
@@ -696,16 +750,16 @@ private:
         case WidgetKind::Close: close_menu();return true;
         case WidgetKind::MenuPrevious: menu_selected_=menu_selected_/6*6-6;focus_memory_.erase(100);return true;
         case WidgetKind::MenuNext: menu_selected_=(menu_selected_/6+1)*6;focus_memory_.erase(100);return true;
-        case WidgetKind::Dismiss: message_.clear();return true;
-        case WidgetKind::Description: return true;
+        case WidgetKind::Dismiss: return perform({"Dismiss",0,Command::Dismiss});
+        case WidgetKind::Description: return input(SCE_CTRL_CROSS,false);
         case WidgetKind::Action: return perform(control.action);
         }
         return true;
     }
     bool focus_input(unsigned pressed) {
         focus_result_=true;
-        if(screen_==Screen::Settings && menu_.empty() && !feedback_active() && !online_busy_ && (pressed&SCE_CTRL_SQUARE)) {
-            return perform({"Apply",SCE_CTRL_SQUARE,Command::ApplySettings});
+        if(screen_==Screen::Settings && menu_.empty() && !feedback_active() && !online_busy_ && (pressed&SCE_CTRL_CROSS)) {
+            return perform({"Apply",SCE_CTRL_CROSS,Command::ApplySettings});
         }
         if(pressed&SCE_CTRL_CIRCLE) {
             if(!menu_.empty()){close_menu();return true;}
@@ -713,9 +767,7 @@ private:
             if(screen_==Screen::Settings){finish_settings(false);return true;}
         }
         if(!menu_.empty() && (pressed&(SCE_CTRL_LTRIGGER|SCE_CTRL_RTRIGGER))) {
-            if((pressed&SCE_CTRL_LTRIGGER) && menu_selected_>=6)menu_selected_=menu_selected_/6*6-6;
-            if((pressed&SCE_CTRL_RTRIGGER) && (menu_selected_/6+1)*6<menu_.size())menu_selected_=(menu_selected_/6+1)*6;
-            focus_memory_.erase(100);return true;
+            return perform({"",0,pressed&SCE_CTRL_LTRIGGER?Command::MenuPrevious:Command::MenuNext});
         }
         const auto mask=SCE_CTRL_LEFT|SCE_CTRL_RIGHT|SCE_CTRL_UP|SCE_CTRL_DOWN|SCE_CTRL_CROSS;
         if(!(pressed&mask))return feedback_active();
@@ -829,7 +881,7 @@ private:
             update_cover();save_library_preferences();
 
         } else if (destination==2) {
-            screen_=Screen::Bookmarks; bookmarks_return_=Screen::Home; bookmark_selected_=0;
+            screen_=Screen::Bookmarks; bookmarks_return_=Screen::Home;bookmarks_nav_return_=0; bookmark_selected_=0;
         } else if (destination==3) {
             previous_settings_=settings_;settings_return_=origin==Screen::Settings?Screen::Home:origin;
             settings_nav_return_=origin_nav;settings_sidebar_return_=true;setting_row_=0;screen_=Screen::Settings;
@@ -1169,7 +1221,7 @@ private:
                 {"Book details",0,Command::Details,!order_.empty()},
                 {"Import books",0,Command::Import},{"Online novels",SCE_CTRL_SELECT},{"Sort books",0,Command::Sort},{"Search library",0,Command::Search}};
         } else if (screen_ == Screen::Reader) {
-            menu_={{"Read aloud",0,Command::Speech},{"Contents",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reading settings",0,Command::Appearance},{"Save bookmark",SCE_CTRL_SQUARE},
+            menu_={{"Read aloud",0,Command::Speech},{"Contents",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reading settings",0,Command::Appearance},{"Save bookmark",0,Command::SaveBookmark},
                 {"Go to bookmark",SCE_CTRL_SELECT,Command::Button,progress_.has_bookmark},{"All bookmarks",0,Command::Bookmarks},{publication_.online?"Back to chapters":"Back to library",SCE_CTRL_CIRCLE},
                 {immersive_ ? "Show reading bar" : "Hide reading bar",0,Command::Immersive}};
         } else if (screen_ == Screen::Catalog) {
@@ -1213,6 +1265,18 @@ private:
         redraw_=true;
         pressed_action_ = action.label; pressed_until_ = sceKernelGetProcessTimeWide()+160000;
         switch (action.command) {
+        case Command::CloseMenu: close_menu();break;
+        case Command::MenuPrevious: case Command::MenuNext:
+            if(action.command==Command::MenuPrevious && menu_selected_>=6)menu_selected_=menu_selected_/6*6-6;
+            if(action.command==Command::MenuNext && (menu_selected_/6+1)*6<menu_.size())menu_selected_=(menu_selected_/6+1)*6;
+            focus_memory_.erase(100);break;
+        case Command::Dismiss: message_.clear();break;
+        case Command::SaveBookmark:
+            if(!lines_.empty()) {
+                progress_.has_bookmark=true;progress_.bookmark=lines_[top_].offset;progress_.bookmark_chapter=chapter_;
+                save();notify("Bookmark saved. SELECT returns here.");
+            }
+            break;
         case Command::Speech: show_speech(); break;
         case Command::SpeechToggle: {
             const auto state = speech_.status().state;
@@ -1283,7 +1347,7 @@ private:
         case Command::Library: navigate(1); sidebar_focus_=false; break;
         case Command::Import: begin_import(); break;
         case Command::Bookmarks:
-            bookmarks_return_=screen_; save(); screen_=Screen::Bookmarks; bookmark_selected_=0;
+            bookmarks_return_=screen_;bookmarks_nav_return_=nav_active_; save(); screen_=Screen::Bookmarks; bookmark_selected_=0;
             nav_active_=nav_selected_=2; sidebar_focus_=false; break;
         case Command::DeleteBookmark: delete_bookmark(); break;
         case Command::Credits:
@@ -1367,27 +1431,45 @@ private:
         if (sceImeDialogInit(&param) >= 0) ime_active_ = true;
         else message_ = "Could not open chapter keyboard. Use left/right to browse chapters.";
     }
+    std::vector<Action> menu_toolbar() const {
+        if(menu_.size()>6) {
+            const auto first=menu_selected_/6*6;
+            return {{"Previous",SCE_CTRL_LTRIGGER,Command::MenuPrevious,first>=6},
+                {"Close",SCE_CTRL_CIRCLE,Command::CloseMenu},
+                {"Next",SCE_CTRL_RTRIGGER,Command::MenuNext,first+6<menu_.size()}};
+        }
+        if(screen_==Screen::Library || add_book_menu_)return {{"Select",SCE_CTRL_CROSS},{"Close",SCE_CTRL_CIRCLE,Command::CloseMenu}};
+        return {{"Close",SCE_CTRL_CIRCLE,Command::CloseMenu}};
+    }
     std::vector<Action> toolbar() const {
-        if(!menu_.empty() && screen_==Screen::Library)return {{"Select",SCE_CTRL_CROSS},{"Close",SCE_CTRL_CIRCLE}};
+        if(!menu_.empty())return menu_toolbar();
         if(ime_active_)return {};
         if(online_busy_)return {{"Cancel",SCE_CTRL_CIRCLE}};
-        if(screen_==Screen::Reader || screen_==Screen::Image)return {};
+        if(feedback_active())return {{"Select",SCE_CTRL_CROSS},{"Close",SCE_CTRL_CIRCLE}};
         const Action options{"Options",SCE_CTRL_START,Command::More};
-        if(screen_==Screen::Library && !importing_)return {{"Open",SCE_CTRL_CROSS},
+        const auto confirm=[&](const std::string& fallback) {
+            const auto focus=focus_memory_.find(focus_key());
+            if(focus!=focus_memory_.end())for(const auto& control:widgets())if(control.target.id==focus->second && control.kind==WidgetKind::Action)
+                return Action{control.action.label,SCE_CTRL_CROSS,Command::Button,control.action.enabled};
+            return Action{fallback,SCE_CTRL_CROSS};
+        };
+        if(screen_==Screen::Reader || screen_==Screen::Image)return {{screen_==Screen::Reader?"Contents":"Zoom in",SCE_CTRL_CROSS},
+            {"Back",SCE_CTRL_CIRCLE},{screen_==Screen::Reader?"Controls":"Options",SCE_CTRL_START,Command::More}};
+        if(screen_==Screen::Library && !importing_)return {confirm("Open"),
             {library_search_active_?"Clear search":"Back",SCE_CTRL_CIRCLE},{"Filter",SCE_CTRL_TRIANGLE,Command::Sort},options};
-        if(screen_==Screen::Settings)return {{"Apply",SCE_CTRL_SQUARE,Command::ApplySettings},{"Cancel",SCE_CTRL_CIRCLE,Command::CancelSettings},
+        if(screen_==Screen::Settings)return {{"Apply",SCE_CTRL_CROSS,Command::ApplySettings},{"Cancel",SCE_CTRL_CIRCLE,Command::CancelSettings},
             {"Reset",SCE_CTRL_SELECT,Command::ResetSettings},options};
         if(paged_screen()) {
             const auto count=page_count();
             return {{screen_==Screen::Library && importing_?"Import":"Open",SCE_CTRL_CROSS,Command::Button,count>0},
                 {"Back",SCE_CTRL_CIRCLE},options};
         }
-        if(screen_==Screen::Book)return {{"Read",SCE_CTRL_CROSS,Command::Button,
-            !order_.empty() && entries_[order_[selected_]].error.empty()},{"Back",SCE_CTRL_CIRCLE},options};
+        if(screen_==Screen::Book)return {confirm("Read"),{"Back",SCE_CTRL_CIRCLE},options};
         if(screen_==Screen::Novel)return {{online_started_?"Resume":"Read",SCE_CTRL_SELECT},
-            {"Back",SCE_CTRL_CIRCLE},{"Chapters",SCE_CTRL_CROSS},
+            {"Back",SCE_CTRL_CIRCLE},confirm("Chapters"),
             {in_library()?"Saved":"Save",SCE_CTRL_SQUARE,Command::Button,!in_library()},options};
-        return {{"Open",SCE_CTRL_CROSS},{"Back",SCE_CTRL_CIRCLE},options};
+        if(screen_==Screen::Home)return {{reader::ui::recent_book(entries_)<entries_.size()?"Continue":"Library",SCE_CTRL_CROSS},options};
+        return {{screen_==Screen::About?"Select":"Open",SCE_CTRL_CROSS},{"Back",SCE_CTRL_CIRCLE},options};
     }
 
     void start_online(reader::online::Request request) {
@@ -1752,6 +1834,10 @@ private:
     }
     reader::ui::Rect toolbar_rect(const std::vector<Action>& actions,int index) const {
         const int count=static_cast<int>(actions.size());
+        if((screen_==Screen::Reader || screen_==Screen::Image) && !feedback_active() && !online_busy_ && count==3) {
+            const reader::ui::Rect boxes[]={{28,484,170,56},{228,484,150,56},{776,484,156,56}};
+            return boxes[index];
+        }
         if(screen_==Screen::Library && !importing_ && menu_.empty() && !online_busy_ && count==4) {
             const reader::ui::Rect boxes[]={{28,484,156,56},{204,484,240,56},{464,484,180,56},{776,484,156,56}};
             return boxes[index];
@@ -1761,36 +1847,45 @@ private:
     }
     void draw_toolbar() const {
         using namespace reader::visual;
-        if(screen_==Screen::Reader || screen_==Screen::Image) {
-            if(screen_==Screen::Reader && immersive_)return;
-            hint_bar();
-            controller_hint(fonts_,ControllerButton::Cross,screen_==Screen::Reader?"Controls":"Zoom in",44,hint_bar_center,170);
-            controller_hint(fonts_,ControllerButton::Circle,"Back",244,hint_bar_center,150);
-            draw_footer_action({776,484,156,56},{"Options",SCE_CTRL_START,Command::More});
-            return;
-        }
+        if(screen_==Screen::Reader && immersive_ && !feedback_active() && !online_busy_)return;
         const auto actions=toolbar();
         if(actions.empty())return;
         hint_bar();
         for(std::size_t i=0;i<actions.size();++i)draw_footer_action(toolbar_rect(actions,i),actions[i]);
     }
-    void draw_footer_action(const reader::ui::Rect& box,const Action& action) const {
+    reader::visual::ControllerButton controller_key(unsigned button) const {
         using namespace reader::visual;
-        const auto key=action.button==SCE_CTRL_CROSS?ControllerButton::Cross:
-            action.button==SCE_CTRL_CIRCLE?ControllerButton::Circle:
-            action.button==SCE_CTRL_SQUARE?ControllerButton::Square:
-            action.button==SCE_CTRL_TRIANGLE?ControllerButton::Triangle:
-            action.button==SCE_CTRL_START?ControllerButton::Start:
-            action.button==SCE_CTRL_SELECT?ControllerButton::Select:
-            action.button==SCE_CTRL_LTRIGGER?ControllerButton::L:
-            action.button==SCE_CTRL_RTRIGGER?ControllerButton::R:ControllerButton::None;
+        return button==SCE_CTRL_CROSS?ControllerButton::Cross:
+            button==SCE_CTRL_CIRCLE?ControllerButton::Circle:
+            button==SCE_CTRL_SQUARE?ControllerButton::Square:
+            button==SCE_CTRL_TRIANGLE?ControllerButton::Triangle:
+            button==SCE_CTRL_START?ControllerButton::Start:
+            button==SCE_CTRL_SELECT?ControllerButton::Select:
+            button==SCE_CTRL_LTRIGGER?ControllerButton::L:
+            button==SCE_CTRL_RTRIGGER?ControllerButton::R:ControllerButton::None;
+    }
+    reader::ui::Rect footer_hint_rect(const reader::ui::Rect& box,const Action& action) const {
+        using namespace reader::visual;
+        const auto key=controller_key(action.button);
         const int desired=controller_icon_width(key)+(key==ControllerButton::None?0:10)+fonts_.width(reader::FontRole::Interface,22,action.label);
         const bool right=action.button==SCE_CTRL_START;
         const int edge=box.x+box.width-16;
         const int left=right?std::max(box.x,edge-desired):box.x+16;
+        return {left,hint_bar_top,std::min(desired,edge-left),544-hint_bar_top};
+    }
+    reader::ui::Rect footer_touch_rect(const reader::ui::Rect& box,const Action& action) const {
+        auto hit=footer_hint_rect(box,action);
+        hit.x-=8;hit.width+=16;
+        return hit;
+    }
+    void draw_footer_action(const reader::ui::Rect& box,const Action& action) const {
+        using namespace reader::visual;
+        const auto key=controller_key(action.button);
+        const auto bounds=footer_hint_rect(box,action);
+        const int edge=box.x+box.width-16;
         const bool pressed=action.enabled && action.label==pressed_action_ && sceKernelGetProcessTimeWide()<pressed_until_;
         const auto tint=!action.enabled?mix(surface,muted,0.55f):pressed?accent:reader::visual::text;
-        controller_hint(fonts_,key,action.label,left,hint_bar_center,edge-left,tint);
+        controller_hint(fonts_,key,action.label,bounds.x,hint_bar_center,edge-bounds.x,tint);
     }
     void draw_menu() const {
         if(add_book_menu_) {
@@ -1813,16 +1908,14 @@ private:
         text(40,60,palette().text,1.3f,menu_title_+(menu_.size()>6?"  "+std::to_string(menu_selected_/6+1)+" / "+std::to_string((menu_.size()+5)/6):""),880,reader::FontRole::Heading);
         text(40,104,palette().muted,0.85f,"Choose an action. Circle returns to the same page.",880);
         const auto first=menu_selected_/6*6;
-        for (auto i=first;i<menu_.size() && i<first+6;++i) button(reader::ui::menu_button(static_cast<int>(i-first)),menu_[i],i==menu_selected_);
+        for (auto i=first;i<menu_.size() && i<first+6;++i) {
+            auto label=menu_[i];
+            if(label.button)label.button=SCE_CTRL_CROSS; // Cross activates the focused tile.
+            button(reader::ui::menu_button(static_cast<int>(i-first)),label,i==menu_selected_);
+        }
         reader::visual::hint_bar();
-        if (menu_.size()>6) {
-            draw_footer_action(reader::ui::toolbar_button(0,3),{"Previous",SCE_CTRL_LTRIGGER,Command::Button,first>=6});
-            draw_footer_action(reader::ui::toolbar_button(1,3),{"Close",SCE_CTRL_CIRCLE});
-            draw_footer_action(reader::ui::toolbar_button(2,3),{"Next",SCE_CTRL_RTRIGGER,Command::Button,first+6<menu_.size()});
-        } else if(screen_==Screen::Library) {
-            draw_footer_action(reader::ui::toolbar_button(0,2),{"Select",SCE_CTRL_CROSS});
-            draw_footer_action(reader::ui::toolbar_button(1,2),{"Close",SCE_CTRL_CIRCLE});
-        } else draw_footer_action(reader::ui::toolbar_button(0,1),{"Close",SCE_CTRL_CIRCLE});
+        const auto actions=menu_toolbar();
+        for(std::size_t i=0;i<actions.size();++i)draw_footer_action(reader::ui::toolbar_button(i,actions.size()),actions[i]);
     }
     std::vector<reader::Line> feedback_rows() const {
         return ui_wrap(message_,660,24,reader::FontRole::Interface);
@@ -1863,6 +1956,10 @@ private:
     }
 
     std::size_t visible_end() const { return reader::layout_page_end(lines_, top_, reading_area().height); }
+    void step_reading(bool forward,std::size_t amount=1) {
+        if(lines_.empty())return;
+        top_=forward?std::min(top_+amount,lines_.size()-1):top_>amount?top_-amount:0;
+    }
 
     void sync_inline_images() {
         std::vector<std::size_t> visible;
@@ -2548,7 +2645,7 @@ private:
     std::map<int,LibraryView> library_views_;
     std::map<int,int> focus_memory_;
     bool focus_result_=true,settings_sidebar_return_=false;
-    int settings_nav_return_=0;
+    int settings_nav_return_=0,bookmarks_nav_return_=0;
     std::size_t import_selected_=0,source_selected_=0,catalog_selected_=0;
     reader::LibraryFilter import_filter_=reader::LibraryFilter::All;
     std::string import_query_;
@@ -2660,9 +2757,7 @@ int main() {
         std::vector<reader::controls::Point> points;
         points.reserve(SCE_TOUCH_MAX_REPORT);
         std::uint64_t previous_time = 0;
-        constexpr unsigned repeatable = SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_LEFT |
-                                        SCE_CTRL_RIGHT | SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER;
-        bool running = true, shoulder_chord = false;
+        bool running = true;
         while (running) {
             SceCtrlData pad{};
             pad.lx = pad.ly = pad.rx = pad.ry = 128;
@@ -2674,7 +2769,7 @@ int main() {
             const auto seconds = previous_time && now >= previous_time ? std::min<std::uint64_t>(now - previous_time, 50000) / 1000000.0f : 0;
             previous_time = now;
             const auto before = app.screen();
-            const auto folder_before = app.folder_revision();
+            const auto context_before = app.input_context();
             const auto left = left_stick.direction(pad.lx, pad.ly), right = right_stick.direction(pad.rx, pad.ry);
             const auto buttons = [](unsigned directions) {
                 unsigned result = 0;
@@ -2688,17 +2783,13 @@ int main() {
             auto held = pad.buttons | (image_pan ? 0 : buttons(left | right));
             if ((held & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) == (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) held &= ~(SCE_CTRL_LEFT | SCE_CTRL_RIGHT);
             if ((held & (SCE_CTRL_UP | SCE_CTRL_DOWN)) == (SCE_CTRL_UP | SCE_CTRL_DOWN)) held &= ~(SCE_CTRL_UP | SCE_CTRL_DOWN);
-            auto pressed = pad_ready ? repeat.sample(held, repeatable, now) : 0;
             const unsigned shoulders = SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER;
-            if ((held & shoulders) == shoulders) {
-                if (!shoulder_chord && (pressed & shoulders)) pressed = shoulders;
-                else pressed &= ~shoulders;
-                shoulder_chord = true;
-            } else shoulder_chord = false;
+            if((held&shoulders)==shoulders)repeat.cancel_until_release(shoulders);
+            const auto pressed = pad_ready ? repeat.sample(held, app.repeatable_buttons(), now) : 0;
             reader::controls::Gesture gesture;
             if (touch_enabled) {
                 SceTouchData data{};
-                if (sceTouchPeek(SCE_TOUCH_PORT_FRONT, &data, 1) > 0 && !pressed) {
+                if (sceTouchPeek(SCE_TOUCH_PORT_FRONT, &data, 1) > 0 && !pad.buttons && !left && !right) {
                     points.clear();
                     for (unsigned i = 0; i < std::min<unsigned>(data.reportNum, SCE_TOUCH_MAX_REPORT); ++i)
                         points.push_back({data.report[i].id,
@@ -2715,8 +2806,9 @@ int main() {
                 app.pan_image(-std::max(-1.0f, std::min(1.0f, x)) * 480 * seconds,
                               -std::max(-1.0f, std::min(1.0f, y)) * 480 * seconds);
             }
-            if (app.screen() == before && app.folder_revision() == folder_before) running = app.gesture(gesture);
-            if (app.screen() != before || app.folder_revision() != folder_before) {
+            if (app.input_context() == context_before) running = app.gesture(gesture);
+            if (app.input_context() != context_before) {
+                repeat.cancel_until_release(held);
                 left_stick.cancel_until_neutral(); right_stick.cancel_until_neutral(); touch.cancel_until_release();
             }
             if(app.needs_redraw())app.draw();

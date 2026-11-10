@@ -15,9 +15,13 @@ private:
 float axis(int value); // Rescaled dead zone, for continuous image panning.
 class Repeat {
 public:
+    // Returns edges plus timed navigation repeats. Other buttons stay edges.
     unsigned sample(unsigned held, unsigned repeatable, std::uint64_t now);
+    unsigned held() const { return held_; }
+    unsigned released() const { return released_; }
+    void cancel_until_release(unsigned held); // Block only these buttons, with no cooldown.
 private:
-    unsigned previous_ = 0;
+    unsigned previous_ = 0, blocked_ = 0, held_ = 0, released_ = 0;
     std::uint64_t repeat_at_ = 0;
 };
 
@@ -26,6 +30,7 @@ enum class GestureKind { None, Tap, Hold, Swipe, Transform };
 struct Gesture {
     GestureKind kind = GestureKind::None;
     float x = 0, y = 0, dx = 0, dy = 0, scale = 1;
+    float start_x = -1, start_y = -1;
 };
 class Touch {
 public:

@@ -7,7 +7,7 @@ illustration viewer, local book imports, analog-stick navigation, and front touc
 Online novel sources are **Novgo, Asura Novels, and Beast Novels**, using packaged
 Lua adapters for public catalogs and chapters.
 
-**Offline read aloud:** open a book, press Cross, choose **Read aloud**, then
+**Offline read aloud:** open a book, press START, choose **Read aloud**, then
 **Start here**. The bundled **Flite SLT English voice** reads from the current text
 position through the end of the chapter. The same panel offers pause/resume,
 stop, and a saved speed setting from 100 to 350 words per minute. No connection,
@@ -29,7 +29,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | --- | --- |
 | Home / Library | D-pad/sticks: move focus within content; Cross: activate; Start: options |
 | Home / Library / sidebar screens | L/R: previous/next sidebar destination |
-| Library | Square: choose Title/Recent/Progress sorting or All/Reading/Finished filtering |
+| Library | Triangle: sorting/filtering; Square: search; Circle clears an active search before returning Home |
 | Library | Select: online sources |
 | Import | Cross: open folder/import book; Circle: parent folder or Library at root; Options → Refresh folder |
 | Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
@@ -39,13 +39,13 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Contents | Square: illustrations in the current reading chapter |
 | Contents | Options → Jump to chapter: enter a number and focus that entry |
 | Illustrations | Up/Down: choose; Cross: view; Circle: contents |
-| Image viewer | Cross: zoom in; Square: zoom out; D-pad: pan; Fit button or Triangle → Fit image |
+| Image viewer | Cross: zoom in; Square: zoom out; D-pad: pan; Triangle: fit image |
 | Image viewer | L/R: previous/next image in chapter; Circle: illustration list |
-| Reader | Cross → Save bookmark (or hold page); Select: jump to bookmark |
-| Reader | Cross: menu; Triangle: Bookmarks; Square: font settings; Circle: library |
-| Settings | D-pad: select rows; Left/Right: adjust; Square: apply; Circle: cancel; Select: reset |
+| Reader | START → Save bookmark (or hold page); Select: jump to bookmark |
+| Reader | Cross: Contents; Triangle: Bookmarks; Square: font settings; Circle: library/online chapters |
+| Settings | D-pad: select rows; Left/Right: adjust; Cross: apply; Circle: cancel; Select: reset |
 | All screens | Start: options; Options → Save and exit |
-| Other content screens | Triangle: options/control panel; L+R is an optional shortcut |
+| Contextual Triangle | Import: refresh folder; Contents: jump; Catalog: next/reload; online details/chapters: refresh |
 | Control panels | D-pad or either stick: choose a large tile; Cross: confirm; Circle: close |
 
 ## Interface
@@ -65,9 +65,9 @@ omitted. The application bar begins at the top edge of the screen.
 Collection, header, and modal buttons share a focus registry with touch hit
 regions. D-pad moves focus only within content or the active modal; Cross
 activates, and Circle returns or closes the current modal. The sidebar is
-controlled only by L/R triggers. The bottom bar is a shortcut legend: only its
-named physical buttons activate its actions; it has no D-pad focus or touch
-targets. Disabled actions are skipped. Focus/page/query
+controlled by L/R triggers or touch. The bottom bar is a shortcut legend whose
+visible hints also accept touch; it has no D-pad focus.
+Disabled actions are skipped. Focus/page/query
 state is restored when returning from details, Settings, import cancellation, or
 online details. Sidebar selection is visually distinct from controller focus.
 Buttons use subtle purple vertical gradients, rounded highlights and borders,
@@ -83,14 +83,15 @@ continues to hide the footer.
 Footer actions and labels are defined by `App::toolbar()` in [main.cpp](src/main.cpp).
 Change or add an `Action` there to reuse the footer rendering. Each footer action
 must name a physical button and have a matching input handler; footer hints
-are never registered as focusable or touchable controls.
+are never registered as focusable controls. Touch uses the same actions, with
+hit regions around the visible icon and label; gaps remain inactive.
 The reusable [controller hint component](include/vita_hints.hpp) accepts the
 loaded `VitaFonts`, a `ControllerButton` (Cross, Circle, Square, Triangle, Start,
 Select, L, R, or None), label, left position, vertical center, and available width.
 It draws START/SELECT as ASCII text inside outlined capsules, without relying
 on symbol glyphs. The component clips long labels to the supplied width.
 In Settings, Left/Right adjusts the selected value; Up from Typeface stays on
-that row. Square applies, Circle cancels, and Select resets the preview.
+that row. Cross applies, Circle cancels, and Select resets the preview.
 
 **Home** opens on a moonlit reading scene, with one large Continue Reading card.
 The narrower, dark translucent card leaves more of the artwork visible, with a
@@ -104,12 +105,15 @@ When there is no recent book, the card opens Library. Add Book lives in Library.
 Bookmarks, Settings, and About. L/R switches directly to the previous/next
 destination and leaves controller focus in its content.
 
-**Library** shows four larger cover cards per page. D-pad or either
-stick moves focus through the action row and covers; Left/Right at a page edge
-or swiping browses pages through the grid. Cross or a cover tap
-opens book details; Cross again starts or resumes reading. Add Book, Search, Filter, and Online are labeled actions above the covers.
-Search uses the system keyboard (submit an empty search to clear it). Filter or Square opens
-Title/Recent/Progress sorting and All/Reading/Finished filtering. L/R cycles
+**Library** shows four columns of larger cover cards. D-pad or either
+stick moves focus through the action row and covers; Up/Down or vertical swipes
+scroll between grid rows. Cross or a cover tap
+opens book details; Cross again starts or resumes reading. Add Book and Search
+are above the covers; Filter is in the footer, and Online is available through
+SELECT, Add Book → Browse Online, or Options.
+Search or Square uses the system keyboard (submit an empty search to clear it).
+Circle exits and clears an active search while preserving sorting and filtering.
+Triangle or the Filter hint opens Title/Recent/Progress sorting and All/Reading/Finished filtering. L/R cycles
 through the sidebar destinations. Import and Online
 remain available through Start → Options. Library's Add Book opens import directly.
 Only visible covers are decoded, as bounded 144 × 200 thumbnails; missing covers
@@ -121,7 +125,7 @@ and saved progress. The bundled guide cannot be removed.
 
 **Reader** starts with the title bar, chapter/page information, purple progress
 bar, and bottom shortcut legend. Existing saved reading-view preferences are kept.
-Cross opens Reading controls, Triangle opens Bookmarks, Square opens Reading
+START opens Reading controls, Cross opens Contents, Triangle opens Bookmarks, Square opens Reading
 Settings, and Circle returns to Library (or online chapters). The control panel contains Contents, Illustrations, Reading Settings, Save bookmark,
 Go to bookmark, All bookmarks, and Show/Hide reading bar. Select still jumps directly to the saved bookmark. Hold and release on the
 reading area to save one. Inline illustrations still open their viewer. Control
@@ -233,8 +237,8 @@ Wi-Fi, TLS, the system keyboard, and controls still need Vita hardware testing.
 ## Analog and touch controls
 
 Both analog sticks navigate menus and the reader: vertical movement selects
-items or moves through text/illustrations. Horizontal movement traverses the Library
-cover grid, browses list pages, or turns reading pages. Settings use vertical selection and horizontal
+items or moves through text/illustrations. Horizontal movement traverses a Library
+cover row, browses list pages, or turns reading pages. Settings use vertical selection and horizontal
 adjustment. In the image viewer, either stick pans smoothly; the D-pad still
 provides discrete pan steps. Sticks have a dead zone, axis hysteresis, and the
 same 350 ms initial / 140 ms repeat timing as directional buttons. After a
@@ -244,23 +248,25 @@ The **front touchscreen** supports:
 
 | Screen | Touch controls |
 | --- | --- |
-| Home / Library | Tap Continue Reading to resume, a cover for details, or Library's Add Book to import; swipe Library for four covers |
+| Home / Library | Tap Continue Reading to resume, a cover for details, or Library's Add Book to import; swipe Library vertically to scroll |
 | Reader | Swipe left/right for next/previous page; swipe up/down to move through text and images |
 | Reader | Tap an illustration to zoom; left/right body taps turn pages, center taps open Reading controls |
 | Reader | Hold and release on the reading area to save a bookmark |
 | Contents / illustration list | Tap an entry to open; swipe to browse five chapters or four illustrations |
-| Settings | Tap the left/right halves of rows to adjust; Square applies, Circle discards |
+| Settings | Tap the left/right halves of rows to adjust; tap Apply, Cancel, or Reset in the footer |
 | Image viewer | Drag to pan; pinch to zoom around the fingers' midpoint; tap the image to toggle fit/2× zoom |
 
-The bottom shortcut bar and sidebar do not respond to touch or D-pad focus.
-Use the named physical buttons for footer actions and L/R for sidebar destinations.
+The visible bottom shortcuts and sidebar destinations respond to touch and stay
+outside D-pad focus. L/R switches sidebar destinations once per press.
 Start opens control panels, whose content tiles support D-pad focus and touch.
 The Reader strip is hidden in immersive mode. Viewer **Back** returns directly to reading when opened
 by tapping an inline image, or to the illustration list when opened from there.
 Touch gestures act on release outside the image viewer, where drag and pinch
 updates are live. Swiping a list never opens the row under the finger. Physical
-button/directional actions take priority over an active touch gesture; changing
-screens cancels it until the fingers lift. Rear touch is not used.
+button/directional holds take priority over an active touch gesture; changing
+screens or dialog layers suppresses held buttons and gestures until released.
+Directions repeat after 350 ms, then every 140 ms; confirm/cancel and sidebar
+switching do not repeat. A new press is immediate after release. Rear touch is not used.
 
 Reading progress saves on navigation, bookmark changes, and return to the
 library. Each book has one bookmark and an independent reading position. EPUB
@@ -303,7 +309,7 @@ bookmarks are disabled.
   selected entry, online updates refresh the affected novel, and removing a book
   preserves the other entries. Import → Options → Refresh folder rereads the
   listed files after external replacements; restart also reloads metadata.
-- Square opens a Title/Recent/Progress and All/Reading/Finished chooser. L/R
+- Triangle opens a Title/Recent/Progress and All/Reading/Finished chooser; Square searches. L/R
   navigates to the previous or next sidebar destination.
   Preferences survive restarts. Title sorting ignores ASCII case. Recent uses
   last-read time; Progress puts highest percentages first. The guide appears last
@@ -354,7 +360,7 @@ hardware testing.
   Headings use the accent color, bold uses a second glyph pass, and emphasis is
   underlined using the selected reader font. Scripts, styles, and ruby annotations are
   omitted; ruby base text remains. Illustrations render between their surrounding
-  paragraphs. Open **Cross → Contents → Square** from the reader for the full chapter image
+  paragraphs. Open **Cross (Contents) → Square** from the reader for the full chapter image
   list and zoom viewer.
 - CSS, publisher-embedded fonts, and exact publisher layouts are not supported. XHTML must
   be well-formed UTF-8 XML. XML/numeric entities and common
@@ -385,7 +391,7 @@ The viewer supports embedded PNG and JPEG images, fits them to the screen, and
 zooms from 1× to 4× the fitted size. Pan is clamped to the image edges; smaller
 axes stay centered. The image is clipped to the viewing area, leaving controls
 visible. Viewing images does not move the reading position or bookmark. Tap an
-inline image to zoom it directly, or use **Cross → Contents → Square** to choose an image
+inline image to zoom it directly, or use **Cross (Contents) → Square** to choose an image
 from the chapter list. **Circle** or the touch Back button returns to the screen
 that opened the viewer.
 

@@ -34,6 +34,23 @@ int main() {
         check(repeat.sample(Right | confirm, Right, 360000) == confirm, "Confirm edge lost or direction repeated early");
         check(repeat.sample(Right | confirm, Right, 491000) == Right, "Held confirm repeated or direction stalled");
         check(repeat.sample(0, Right, 500000) == 0 && repeat.sample(Right, Right, 510000) == Right, "Repress not immediate");
+        check(repeat.held()==Right && repeat.released()==0,"Held state does not match the sample");
+        repeat.sample(0,Right,520000);
+        check(repeat.held()==0 && repeat.released()==Right,"Direction release was lost");
+        repeat.sample(Right|confirm,Right,530000);
+        repeat.cancel_until_release(Right|confirm);
+        check(repeat.sample(Right|confirm,Right,1000000)==0,"Held inputs leaked across a transition");
+        check(repeat.sample(Right,Right,1100000)==0,"Releasing confirm rearmed a held direction");
+        check(repeat.sample(Right|confirm,Right,1200000)==confirm,"A fresh confirm was blocked by another held key");
+        repeat.sample(0,Right,1210000);
+        check(repeat.sample(Right,Right,1220000)==Right,"Transition suppression imposed a cooldown after release");
+        Repeat shoulders;
+        check(shoulders.sample(confirm,0,1000)==confirm && shoulders.sample(confirm,0,900000)==0,
+              "A nonrepeatable shortcut repeats when held");
+        shoulders.cancel_until_release(Left|Right);
+        check(shoulders.sample(confirm|Left|Right,Left|Right,1000000)==0 &&
+              shoulders.sample(confirm|Right,Left|Right,1100000)==0,
+              "Opposing-shoulder cancellation rearmed a held confirm or shoulder");
 
         check(display_coordinate(0, 0, 1919, 960) == 0 && display_coordinate(1919, 0, 1919, 960) == 959 &&
               display_coordinate(960, 0, 1919, 960) == 480, "Touch display scaling");
@@ -199,6 +216,7 @@ int main() {
         touch.sample({{1, 400, 225}}, 1100000, false);
         gesture = touch.sample({}, 1200000, false);
         check(gesture.kind == GestureKind::Swipe && near(gesture.dx, -300) && near(gesture.dy, 5), "Page swipe recognition");
+        check(near(gesture.start_x,700) && near(gesture.start_y,220),"Swipe lost its touch-down position");
         touch.sample({{1, 100, 100}}, 1300000, false);
         touch.sample({{1, 180, 100}}, 1400000, false);
         touch.sample({{1, 100, 100}}, 1500000, false);
@@ -224,6 +242,11 @@ int main() {
         touch.sample({{1, 100, 100}}, 3000000, true);
         touch.sample({{1, 140, 100}}, 3100000, true);
         check(touch.sample({}, 3200000, true).kind == GestureKind::None, "Image drag generated a page swipe");
+        touch.sample({{1, 319, 200}},3300000,false);
+        touch.sample({{1, 322, 200}},3350000,false);
+        gesture=touch.sample({},3400000,false);
+        check(gesture.kind==GestureKind::Tap && near(gesture.start_x,319) && near(gesture.x,322),
+              "Tap cannot validate its original hit target");
         std::cout << "Analog and touch control tests passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     return 0;

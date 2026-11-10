@@ -31,6 +31,10 @@ float axis(int value) {
 }
 
 unsigned Repeat::sample(unsigned held, unsigned repeatable, std::uint64_t now) {
+    blocked_ &= held;
+    held &= ~blocked_;
+    held_ = held;
+    released_ = previous_ & ~held;
     auto pressed = held & ~previous_;
     const auto directions = held & repeatable;
     if (directions != (previous_ & repeatable)) repeat_at_ = now + 350000;
@@ -40,6 +44,13 @@ unsigned Repeat::sample(unsigned held, unsigned repeatable, std::uint64_t now) {
     }
     previous_ = held;
     return pressed;
+}
+
+void Repeat::cancel_until_release(unsigned held) {
+    blocked_ |= held;
+    previous_ &= ~held;
+    held_ &= ~held;
+    released_ = 0;
 }
 
 void Touch::cancel_until_release() {
@@ -62,6 +73,7 @@ Gesture Touch::sample(const std::vector<Point>& points, std::uint64_t now, bool 
             else if (!live_transform && duration <= 1500000 && std::max(std::abs(dx), std::abs(dy)) >= 48)
                 result = {GestureKind::Swipe, float(last_.x), float(last_.y), dx, dy, 1};
         }
+        result.start_x = start_.x; result.start_y = start_.y;
         active_ = false; multi_ = false; second_id_ = -1; distance_ = 0;
         return result;
     }
@@ -83,6 +95,7 @@ Gesture Touch::sample(const std::vector<Point>& points, std::uint64_t now, bool 
         if (second_id_ == second.id && distance_ >= 12 && distance >= 12)
             result = {GestureKind::Transform, middle_x, middle_y, middle_x - middle_x_, middle_y - middle_y_, distance / distance_};
         second_id_ = second.id; distance_ = distance; middle_x_ = middle_x; middle_y_ = middle_y;
+        result.start_x = start_.x; result.start_y = start_.y;
         last_ = *primary;
         return result;
     }
@@ -91,7 +104,7 @@ Gesture Touch::sample(const std::vector<Point>& points, std::uint64_t now, bool 
     if (std::max(std::abs(primary->x - start_.x), std::abs(primary->y - start_.y)) > 12) moved_ = true;
     last_ = *primary;
     if (live_transform && moved_ && (dx || dy))
-        return {GestureKind::Transform, float(last_.x), float(last_.y), float(dx), float(dy), 1};
+        return {GestureKind::Transform, float(last_.x), float(last_.y), float(dx), float(dy), 1, float(start_.x), float(start_.y)};
     return {};
 }
 

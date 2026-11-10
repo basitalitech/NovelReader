@@ -29,6 +29,160 @@ vita2d_texture* decode_thumbnail(const std::string&,unsigned,unsigned,std::strin
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 struct FrontendTest {
+    static void control_regressions() {
+        std::vector<std::string> names;
+        for(int i=0;i<8;++i) {
+            const auto name="input-"+std::to_string(i)+".txt";names.push_back(name);
+            std::ofstream text(books_directory+'/'+name);
+            for(int line=0;line<100;++line)text<<"A long reading fixture follows the path across the mountains.\n\n";
+            reader::Progress saved;saved.has_bookmark=true;
+            check(reader::save_progress(reader::progress_path(progress_directory,name),saved),"Input bookmark fixture");
+        }
+        check(reader::save_library(library_path,names) && reader::save_settings(settings_path,{}),"Input library fixture");
+        vita2d_pgf font;App app(&font);app.message_.clear();
+        const auto tap=[&](int x,int y,int start_x=-1,int start_y=-1) {
+            return app.gesture({reader::controls::GestureKind::Tap,float(x),float(y),0,0,1,float(start_x),float(start_y)});
+        };
+        const auto footer=[&](unsigned key) {
+            app.normalize_focus();
+            const auto actions=app.toolbar();
+            for(std::size_t i=0;i<actions.size();++i)if(actions[i].button==key) {
+                const auto slot=app.menu_.empty()?app.toolbar_rect(actions,i):reader::ui::toolbar_button(i,actions.size());
+                const auto hit=app.footer_touch_rect(slot,actions[i]);
+                tap(hit.x+hit.width/2,520);return;
+            }
+            throw std::runtime_error("Missing footer action in input test");
+        };
+        // Touch-only entry, filtering, search and import; the same actions are
+        // subsequently used by controller focus and shortcuts.
+        tap(60,168);check(app.screen_==Screen::Library,"Touch-only Library entry failed");
+        app.input(SCE_CTRL_TRIANGLE);check(app.menu_title_=="Sort and filter books","Triangle filter shortcut changed");
+        const auto title=app.menu_title_;app.input(SCE_CTRL_START|SCE_CTRL_SQUARE);
+        check(app.menu_title_==title && !app.ime_active_,"START replaced an active modal");
+        footer(SCE_CTRL_CIRCLE);footer(SCE_CTRL_TRIANGLE);
+        check(app.menu_title_==title,"Touch Filter does not share filter state");
+        footer(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_SQUARE);
+        check(app.ime_active_ && app.ime_library_,"Square duplicates filters instead of searching");
+        test_ime_status()=SCE_COMMON_DIALOG_STATUS_FINISHED;test_ime_button()=0;
+        app.input(SCE_CTRL_CROSS|SCE_CTRL_CIRCLE);test_ime_status()=0;
+        check(app.screen_==Screen::Library && !app.ime_active_,"Keyboard close leaked a button into Library");
+        app.apply_library_search("input-0");footer(SCE_CTRL_CIRCLE);
+        check(!app.library_search_active_ && app.library_query_.empty() && app.screen_==Screen::Library,
+              "Touch Back did not preserve Circle's search-exit behavior");
+        tap(700,90);tap(700,165);check(app.importing_,"Touch-only import entry failed");
+        app.input(SCE_CTRL_TRIANGLE);check(app.menu_.empty(),"Import refresh opened generic Options");
+        const auto import_context=app.input_context();
+        footer(SCE_CTRL_CIRCLE);check(!app.importing_ && app.input_context()!=import_context,"Import cancel did not change input context");
+
+        // Hit targets exclude gutters, clipped cards, and tap drift crossing an
+        // element boundary. Footer hit targets follow the visible hint text.
+        const auto selected=app.selected_;
+        tap(410,220);tap(680,520); // Cover gutter / between footer hints.
+        check(app.screen_==Screen::Library && app.menu_.empty() && app.selected_==selected,"Empty space activated a control");
+        tap(883,90,877,90);check(!app.ime_active_,"Tap drifting onto Search activated it");
+        reader::controls::Touch touch;
+        touch.sample({{1,300,320}},1000,false);touch.sample({{1,300,200}},101000,false);
+        app.gesture(touch.sample({},201000,false));
+        check(app.screen_==Screen::Library && app.selected_==4,"Library scrolling opened a book or lost focus");
+        app.gesture(touch.sample({},202000,false));
+        check(app.selected_==4,"A released scroll repeated");
+        tap(300,300);check(app.screen_==Screen::Book && app.selected_==4,"Touch opened wrong scrolled card");
+        app.set_focus(201);check(app.toolbar()[0].label=="Bookmark","Book hint ignores focused secondary action");
+        app.set_focus(200);tap(300,420);check(app.screen_==Screen::Reader,"Touch-only Read failed");
+        app.message_.clear();const auto original_top=app.top_;
+        tap(322,220,319,220);
+        check(app.menu_.empty() && app.top_==original_top,"Reading tap crossed action zones");
+        const auto next_page=app.visible_end();app.input(SCE_CTRL_RIGHT|SCE_CTRL_DOWN);
+        check(app.top_==next_page,"One diagonal D-pad sample ran two reading actions");app.input(SCE_CTRL_LEFT);
+        app.gesture({reader::controls::GestureKind::Swipe,700,200,-80,70,1,780,130});
+        check(app.top_==original_top,"Diagonal reading gesture accidentally turned a page");
+        app.gesture({reader::controls::GestureKind::Swipe,500,220,-250,0,1,750,220});
+        check(app.top_>original_top,"Reading swipe did not turn a page");
+        const auto page_top=app.top_;app.input(SCE_CTRL_CROSS);
+        check(app.screen_==Screen::Contents,"Reader Cross is not Contents");
+        app.input(SCE_CTRL_CIRCLE);check(app.top_==page_top,"Contents Back lost reading position");
+        footer(SCE_CTRL_START);check(app.menu_title_=="Reading controls","Touch-only Reading controls failed");
+        footer(SCE_CTRL_RTRIGGER);check(app.menu_selected_>=6,"Touch menu cannot reach second page");
+        footer(SCE_CTRL_LTRIGGER);check(app.menu_selected_<6,"Touch menu cannot return to first page");
+        // Save bookmark through the menu, then through a long press. Neither
+        // action should accidentally open Reading Settings.
+        tap(100,370);check(app.menu_.empty() && app.screen_==Screen::Reader && app.progress_.has_bookmark,
+                          "Menu bookmark action did not share the bookmark operation");
+        app.gesture({reader::controls::GestureKind::Hold,500,220,0,0,1,500,220});
+        check(app.screen_==Screen::Reader && app.progress_.bookmark==app.lines_[app.top_].offset,"Hold saved wrong bookmark");
+        app.input(SCE_CTRL_TRIANGLE);check(app.screen_==Screen::Bookmarks,"Reader bookmarks shortcut failed");
+        app.gesture({reader::controls::GestureKind::Swipe,300,180,0,-120,1,300,300});
+        check(app.bookmark_selected_>=3,"Bookmarks cannot be browsed by touch");
+        footer(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Reader && app.nav_active_==1 && app.top_==page_top,"Bookmarks Back restored wrong context");
+        app.input(SCE_CTRL_SQUARE);app.set_focus(1000);app.input(SCE_CTRL_RIGHT);
+        app.input(SCE_CTRL_CIRCLE|SCE_CTRL_CROSS);
+        check(app.screen_==Screen::Reader && app.settings_.reading_font==0,"Simultaneous cancel/confirm applied Settings");
+        app.input(SCE_CTRL_SQUARE);tap(590,145);footer(SCE_CTRL_CROSS);
+        check(app.screen_==Screen::Reader && app.settings_.reading_font==1,"Touch-only Settings Apply failed");
+        app.input(SCE_CTRL_SQUARE);app.input(SCE_CTRL_SQUARE);
+        check(app.screen_==Screen::Settings,"Settings still has duplicate Apply buttons");
+        footer(SCE_CTRL_SELECT);check(app.settings_.reading_font==0,"Touch Settings reset failed");
+        footer(SCE_CTRL_CIRCLE);check(app.settings_.reading_font==1,"Touch Settings cancel did not discard reset");
+
+        // Modal isolation also covers START, sidebars, gestures and shortcuts.
+        app.message_="Modal failure";const auto modal_context=app.input_context();const auto modal_top=app.top_;
+        for(const auto key:{SCE_CTRL_START,SCE_CTRL_TRIANGLE,SCE_CTRL_SQUARE,SCE_CTRL_SELECT,SCE_CTRL_RTRIGGER})app.input(key);
+        tap(60,170);app.gesture({reader::controls::GestureKind::Swipe,500,220,-250,0,1,750,220});
+        check(app.input_context()==modal_context && app.top_==modal_top,"Error modal leaked input to Reader");
+        footer(SCE_CTRL_CIRCLE);check(app.message_.empty(),"Touch-only error dismissal failed");
+        app.immersive_=true;tap(480,490);check(!app.menu_.empty(),"Immersive reading body is blocked by hidden footer");
+        footer(SCE_CTRL_CIRCLE);app.immersive_=false;
+
+        // Exercise held state through the actual screen dispatcher, including
+        // a press which opens a dialog while a navigation key is still down.
+        reader::controls::Repeat buttons;std::uint64_t now=1000;
+        const auto poll=[&](unsigned held) {
+            const auto context=app.input_context();
+            app.input(buttons.sample(held,app.repeatable_buttons(),now));
+            if(context!=app.input_context())buttons.cancel_until_release(held);
+            now+=400000;
+        };
+        poll(SCE_CTRL_START|SCE_CTRL_DOWN);const auto first_tile=app.menu_selected_;
+        poll(SCE_CTRL_START|SCE_CTRL_DOWN);
+        check(app.menu_selected_==first_tile,"Held navigation leaked into a new modal");
+        poll(0);poll(SCE_CTRL_CIRCLE);poll(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Reader && app.menu_.empty(),"Held modal Back exited Reader");
+        poll(0);poll(SCE_CTRL_CIRCLE);check(app.screen_==Screen::Library,"Fresh Back was delayed after release");
+        app.navigate(0);reader::controls::Repeat sidebar;
+        check(sidebar.sample(SCE_CTRL_RTRIGGER,app.repeatable_buttons(),1000)==SCE_CTRL_RTRIGGER &&
+              sidebar.sample(SCE_CTRL_RTRIGGER,app.repeatable_buttons(),900000)==0,"Held sidebar trigger cycles destinations");
+
+        // Contextual Triangle shortcuts must reach their implementation.
+        app.publication_.chapters.push_back({"Chapter 1",""});app.screen_=Screen::Contents;app.input(SCE_CTRL_TRIANGLE);
+        check(app.ime_active_ && app.menu_.empty(),"Contents Triangle was intercepted by Options");
+        app.ime_active_=false;app.screen_=Screen::Image;app.zoom_=3;app.pan_x_=30;app.pan_y_=20;
+        app.input(SCE_CTRL_TRIANGLE);check(app.zoom_==1 && app.pan_x_==0 && app.pan_y_==0,"Viewer Triangle does not fit image");
+        app.zoom_=2;app.gesture({reader::controls::GestureKind::Transform,400,200,10,10,1.25f,400,500});
+        check(app.zoom_==2,"Viewer transformed a gesture starting in the footer");
+        app.image_return_=Screen::Reader;footer(SCE_CTRL_CIRCLE);check(app.screen_==Screen::Reader,"Viewer touch Back lost its origin");
+        app.image_return_=Screen::Illustrations;app.screen_=Screen::Image;footer(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Illustrations,"Viewer touch Back skipped the illustration list");
+        app.input(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_CIRCLE);footer(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Library,"Touch Reader Back failed");
+        tap(60,360);check(app.screen_==Screen::About,"Touch-only About entry failed");
+        tap(700,220);check(app.feedback_active(),"Touch-only credits failed");footer(SCE_CTRL_CIRCLE);
+        tap(60,104);check(app.screen_==Screen::Home,"Touch-only Home return failed");
+        app.navigate(1);app.input(SCE_CTRL_SELECT);
+        check(app.screen_==Screen::Sources,"Library Online utility shortcut failed");footer(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Library,"Touch-only Sources Back failed");
+        // An unknown source fails before HTTP. Inspect the actual dispatched
+        // request without contacting a catalog or changing the service API.
+        for(const auto screen:{Screen::Catalog,Screen::Novel,Screen::OnlineChapters}) {
+            App online(&font);online.message_.clear();online.screen_=screen;online.online_source_="input-test-no-source";
+            online.online_catalog_.next="https://invalid.invalid/next";
+            online.input(SCE_CTRL_TRIANGLE);
+            check(online.menu_.empty(),"Online Triangle was intercepted by generic Options");
+            check(online.retry_request_.action==(screen==Screen::Catalog?reader::online::Action::Browse:reader::online::Action::Chapters),
+                  "Online Triangle dispatched the wrong request");
+            if(screen==Screen::Catalog)check(online.retry_request_.url==online.online_catalog_.next,"Catalog Triangle lost next page");
+        }
+    }
     static void cache_regressions() {
         std::vector<std::string> names;
         for(int i=0;i<30;++i) {
@@ -65,7 +219,7 @@ struct FrontendTest {
             const auto name=names[run%3];app.refresh_library(name);app.open();
             check(app.screen_==Screen::Reader,"Repeated book open failed");
             check(app.needs_redraw(),"Loading draw consumed the completed reader redraw");
-            app.message_.clear();app.input(SCE_CTRL_SQUARE,false);app.input(SCE_CTRL_CIRCLE);
+            app.message_.clear();app.perform({"Save bookmark",0,Command::SaveBookmark});app.input(SCE_CTRL_CIRCLE);
             check(app.screen_==Screen::Library && app.book_.text.empty() && app.lines_.empty() && app.publication_.chapters.empty(),
                 "Reader exit retained book buffers or changed destination");
             check(app.selected_filename()==name,"Reader exit lost selected book");
@@ -211,8 +365,8 @@ struct FrontendTest {
         for(const auto key:{SCE_CTRL_LEFT,SCE_CTRL_RIGHT,SCE_CTRL_UP,SCE_CTRL_DOWN})for(int i=0;i<8;++i)app.input(key);
         check(app.screen_==Screen::Home && app.nav_active_==0 && focus(app)==1000,"D-pad left Home content");
         reader::controls::Gesture tap;tap.kind=reader::controls::GestureKind::Tap;tap.x=60;tap.y=170;
-        app.gesture(tap);check(app.screen_==Screen::Home,"Touch activated the sidebar");
-        tap.y=520;app.gesture(tap);check(app.screen_==Screen::Home,"Touch activated the footer");
+        app.gesture(tap);check(app.screen_==Screen::Library,"Touch cannot activate the sidebar");
+        tap.x=230;tap.y=520;app.gesture(tap);check(app.screen_==Screen::Home,"Touch cannot activate footer Back");
         app.input(SCE_CTRL_RTRIGGER);
         check(app.screen_==Screen::Library && app.nav_active_==1 && !app.sidebar_focus_,"R did not switch sidebar destination into content");
         app.input(SCE_CTRL_LTRIGGER);
@@ -366,8 +520,7 @@ struct FrontendTest {
         check(app.screen_==Screen::Library && app.settings_.reading_font==before.reading_font,"Circle did not cancel Settings");
         app.perform({"Settings",0,Command::Appearance});app.set_focus(1000);app.input(SCE_CTRL_RIGHT);
         tap.x=60;tap.y=520;app.gesture(tap);
-        check(app.screen_==Screen::Settings,"Touch applied Settings through the footer");
-        app.input(SCE_CTRL_SQUARE);
+        check(app.screen_==Screen::Library,"Touch could not apply Settings through the footer");
         check(app.settings_.reading_font==1 && reader::load_settings(settings_path).reading_font==1,"Apply did not persist the reader font");
         app.show_more();verify_graph(app);app.input(SCE_CTRL_CIRCLE);
         check(app.menu_.empty() && focus(app)==1008,"Closing Options lost invoking focus");
@@ -402,7 +555,9 @@ struct FrontendTest {
         }
         check(title_lines==2,"Home title did not wrap at the reduced font size");
         check(chapter_color && chapter_color==percent_color,"Chapter text should share percentage contrast");
-        app.input(SCE_CTRL_CROSS);check(!app.menu_.empty(),"Reader Cross does not open Reading controls");
+        app.input(SCE_CTRL_CROSS);check(app.screen_==Screen::Contents && app.menu_.empty(),"Reader Cross does not open Contents");
+        app.input(SCE_CTRL_CIRCLE);
+        app.input(SCE_CTRL_START);check(!app.menu_.empty(),"Reader START does not open Reading controls");
         verify_graph(app);app.input(SCE_CTRL_CIRCLE);check(app.menu_.empty(),"Reader panel cannot close");
         app.perform({"Read aloud",0,Command::Speech});
         check(app.menu_title_=="Read aloud" && app.menu_[0].label=="Start here","Narration controls unavailable");
@@ -451,7 +606,7 @@ struct FrontendTest {
         check(offset>0,"Reading-anchor fixture never left the first line");
         check(app.entries_[active].progress.offset==offset,"Reading movement did not update Home's cached progress");
         app.perform({"Settings",0,Command::Appearance});app.set_focus(1000);app.input(SCE_CTRL_LEFT);
-        app.input(SCE_CTRL_SQUARE);
+        app.input(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Reader && app.lines_[app.top_].offset<=offset &&
             (app.top_+1==app.lines_.size() || app.lines_[app.top_+1].offset>offset),"Reader font change lost reading anchor");
         app.message_="An operation failed";app.retry_available_=true;verify_graph(app);
@@ -526,7 +681,7 @@ struct FrontendTest {
             guide.input(SCE_CTRL_CROSS);check(guide.screen_==Screen::Reader && guide.active_filename_=="@welcome",
                 "Continue Reading cannot reopen the welcome TXT");
         }
-        cache_regressions();
+        control_regressions();cache_regressions();
     }
 };
 }

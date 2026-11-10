@@ -1,6 +1,6 @@
 # Offline narration with Flite SLT
 
-In Reader, press **Cross → Read aloud → Start here**. The bundled English (US)
+In Reader, press **START → Read aloud → Start here**. The bundled English (US)
 SLT voice reads from the current text offset through the current chapter.
 Pause/resume, Stop, and slower/faster controls are in the same panel. The saved
 speed is an approximate 100–350 words per minute, with 175 as the default; Flite
