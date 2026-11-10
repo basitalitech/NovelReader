@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "performance.hpp"
 #include "online.hpp"
 #include "tinyxml2.h"
 #include "unzip.h"
@@ -332,6 +333,7 @@ void check_encryption(Archive& archive, const Publication& publication) {
 } // namespace
 
 bool open_publication(const std::string& path, Publication& publication, std::string& error) {
+    const perf::Scope timing(perf::Event::Metadata);
     error.clear();
     if (is_online_book(path)) return online::open_cached(path, publication, error);
     try {
@@ -416,6 +418,7 @@ bool open_publication(const std::string& path, Publication& publication, std::st
 }
 
 bool load_chapter(const Publication& publication, std::size_t index, Book& chapter, std::string& error) {
+    const perf::Scope timing(perf::Event::Chapter);
     error.clear();
     try {
         if (index >= publication.chapters.size()) throw std::runtime_error("Chapter no longer exists in this book.");

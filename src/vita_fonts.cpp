@@ -1,4 +1,5 @@
 #include "vita_fonts.hpp"
+#include "performance.hpp"
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include <array>
@@ -133,6 +134,7 @@ struct VitaFonts::Impl {
     }
 
     explicit Impl(vita2d_pgf* pgf) : system(pgf) {
+        const perf::Scope timing(perf::Event::FontInit);
         const char* files[] = {
             "app0:/fonts/SourceSans3-Regular.ttf", "app0:/fonts/SourceSans3-Semibold.ttf",
             "app0:/fonts/Literata-Regular.ttf", "app0:/fonts/AtkinsonHyperlegibleNext-Regular.ttf"
@@ -165,15 +167,15 @@ struct VitaFonts::Impl {
         int advance = 0;
         std::string run;
         bool custom_run = false;
-        const auto flush = [&] {
+        const auto flush = [&](bool last = false) {
             if (run.empty()) return;
             if (custom_run) {
                 if (drawing) vita2d_font_draw_text(sized_font, x + advance, y, color, pixels, run.c_str());
-                advance += vita2d_font_text_width(sized_font, pixels, run.c_str());
+                if(!drawing || !last)advance += vita2d_font_text_width(sized_font, pixels, run.c_str());
             } else {
                 const float scale = pixels / 20.0f;
                 if (drawing) vita2d_pgf_draw_text(system, x + advance, y, color, scale, run.c_str());
-                advance += vita2d_pgf_text_width(system, scale, run.c_str());
+                if(!drawing || !last)advance += vita2d_pgf_text_width(system, scale, run.c_str());
             }
             run.clear();
         };
@@ -196,7 +198,7 @@ struct VitaFonts::Impl {
             custom_run = custom;
             run.append(text, start, at - start);
         }
-        flush();
+        flush(true);
         return advance;
     }
 };

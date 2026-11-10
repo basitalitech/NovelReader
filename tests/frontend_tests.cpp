@@ -29,6 +29,147 @@ vita2d_texture* decode_thumbnail(const std::string&,unsigned,unsigned,std::strin
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 struct FrontendTest {
+    static void cache_regressions() {
+        std::vector<std::string> names;
+        for(int i=0;i<30;++i) {
+            const auto name="cache-"+std::to_string(i)+".txt";names.push_back(name);
+            std::ofstream book(books_directory+'/'+name);book<<"Original bookmarked passage.\n\nAnother page.\n";
+            reader::Progress saved;saved.has_bookmark=true;
+            check(reader::save_progress(reader::progress_path(progress_directory,name),saved),"Cache progress fixture");
+        }
+        check(reader::save_library(library_path,names),"Cache library fixture");
+        check(reader::save_settings(settings_path,{}),"Cache settings fixture");
+        vita2d_pgf font;App app(&font);app.message_.clear();
+        app.navigate(1);app.draw();app.navigate(2);app.draw();
+        check(app.bookmark_previews_.size()==3,"Visible bookmark previews were not cached");
+        const auto first_preview=app.bookmark_previews_.front().quote;
+#ifdef NOVELREADER_PROFILE
+        reader::perf::reset();
+#endif
+        for(int i=0;i<10;++i) {
+            app.navigate(0);app.draw();app.navigate(1);app.draw();app.navigate(2);app.draw();
+        }
+        check(app.bookmark_previews_.front().quote==first_preview,"Warm navigation lost preview contents");
+#ifdef NOVELREADER_PROFILE
+        for(const auto event:{reader::perf::Event::Scan,reader::perf::Event::Metadata,reader::perf::Event::Chapter,
+                             reader::perf::Event::SettingsWrite,reader::perf::Event::LibraryOrder})
+            check(reader::perf::samples()[static_cast<unsigned>(event)].calls==0,"Warm navigation repeated I/O or sorting");
+#endif
+        for(std::size_t page=0;page<10;++page){app.bookmark_selected_=page*3;app.sync_bookmark_previews();}
+        check(app.bookmark_previews_.size()==24,"Bookmark preview cache is not bounded");
+        app.bookmark_selected_=0;app.delete_bookmark();
+        check(app.bookmarks().size()==29 && !reader::load_progress(reader::progress_path(progress_directory,names[0])).has_bookmark,
+            "Bookmark deletion did not invalidate membership/persist");
+        app.message_.clear();app.navigate(1);
+        for(int run=0;run<6;++run) {
+            const auto name=names[run%3];app.refresh_library(name);app.open();
+            check(app.screen_==Screen::Reader,"Repeated book open failed");
+            check(app.needs_redraw(),"Loading draw consumed the completed reader redraw");
+            app.message_.clear();app.input(SCE_CTRL_SQUARE,false);app.input(SCE_CTRL_CIRCLE);
+            check(app.screen_==Screen::Library && app.book_.text.empty() && app.lines_.empty() && app.publication_.chapters.empty(),
+                "Reader exit retained book buffers or changed destination");
+            check(app.selected_filename()==name,"Reader exit lost selected book");
+        }
+        app.message_.clear();app.begin_import();
+        check(app.collection_suspended_ && app.collection_entries_.size()==31,"Import discarded the cached collection");
+        app.input(SCE_CTRL_CIRCLE);
+        check(!app.collection_suspended_ && app.entries_.size()==31,"Import cancel did not restore cached collection");
+        app.message_.clear();app.begin_import();app.input(SCE_CTRL_SELECT);app.input(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Library && !app.collection_suspended_ && app.entries_.size()==31,
+            "Online shortcut from import did not restore collection");
+        // Refresh is the explicit invalidation boundary for externally replaced files.
+        {std::ofstream changed(books_directory+'/'+names[1]);changed<<"Replacement passage for the same book.\n";}
+        app.begin_import();app.scan({},true);app.input(SCE_CTRL_CIRCLE);app.message_.clear();
+        app.navigate(2);app.bookmark_selected_=0;app.sync_bookmark_previews();
+        bool replacement=false;
+        for(const auto& preview:app.bookmark_previews_)replacement=replacement || preview.quote.find("Replacement passage")!=std::string::npos;
+        check(replacement,"Import refresh kept a stale bookmark quote");
+        app.navigate(1);app.refresh_library(names[1]);
+        app.perform({"Remove",0,Command::ConfirmRemoveBook});app.message_.clear();
+        check(app.entries_.size()==30 && app.bookmarks().size()==29,"Removal left stale collection/bookmark membership");
+        check(app.add_to_library(names[1]),"Could not reimport removed book");app.navigate(1);
+        check(app.entries_.size()==31 && app.bookmarks().size()==30,"Reimport did not reload progress");
+        for(auto& item:app.entries_)if(!item.guide)item.cover_path="missing.png";
+        for(std::size_t i=0;i<app.order_.size();i+=4){app.selected_=i;app.ensure_library_visible();app.sync_covers();}
+        check(app.covers_.size()==12,"Cover cache is not bounded");
+        const auto count=app.covers_.size();app.navigate(2);app.sync_covers();
+        check(app.covers_.size()==count,"Leaving Library discarded its covers");
+        app.update_cover();check(app.cover_key_.empty(),"Bookmarks decoded an invisible full-size cover");
+        app.screen_=Screen::Library;app.importing_=true;app.update_cover();
+        check(app.cover_key_.empty(),"Import rows decoded an invisible full-size cover");
+        app.importing_=false;app.navigate(0);app.update_cover();
+        check(app.cover_key_.empty(),"Home decoded an invisible full-size cover");
+        app.message_.clear();app.notice_until_=0;app.pressed_until_=0;app.draw();
+        for(int i=0;i<120;++i){app.input(0);check(!app.needs_redraw(),"Idle polling invalidates an unchanged screen");}
+        app.input(SCE_CTRL_RTRIGGER);check(app.needs_redraw(),"Navigation failed to request redraw");app.draw();
+        app.notify("Temporary notice");check(app.needs_redraw(),"Notice failed to request redraw");app.draw();
+        test_process_time()+=2800001;
+        check(app.needs_redraw() && app.message_.empty(),"Notice expiry failed to request redraw");app.draw();
+        app.perform({"Feedback"});app.draw();test_process_time()+=160001;
+        check(app.needs_redraw(),"Pressed feedback expiry failed to request redraw");app.draw();
+        app.ime_active_=true;check(app.needs_redraw(),"System keyboard updates were suspended");app.ime_active_=false;
+        test_process_time()=1000000;
+
+        reader::online::Novel novel{"novgo","Cached online novel","Author","https://novgo.net/cache-test.html","Description",{}};
+        for(int i=0;i<1024;++i)novel.chapters.push_back({"Chapter "+std::to_string(i),"https://novgo.net/cache-test/"+std::to_string(i)+".html",false});
+        const std::string identity="cache-online.nvr",manifest=books_directory+'/'+identity;
+        check(reader::online::save_novel(manifest,novel),"Online cache fixture");
+        mkdir((books_directory+"/.chapters").c_str(),0777);mkdir((books_directory+"/.chapters/"+identity).c_str(),0777);
+        check(reader::online::atomic_write(reader::online::chapter_path(manifest,novel.chapters[0].url),"An offline chapter.\n"),"Offline chapter fixture");
+        reader::Progress progress;progress.has_bookmark=true;
+        check(reader::save_progress(reader::progress_path(progress_directory,identity),progress),"Online progress fixture");
+        check(reader::save_library(library_path,{identity}),"Online library fixture");
+        App online(&font);online.message_.clear();online.navigate(1);online.refresh_library(identity);online.open();
+        check(online.screen_==Screen::Novel && online.offline_count_==1,"Online summary fixture");
+        online.open_online_reader(0);check(online.screen_==Screen::Reader,"Offline reader fixture");
+#ifdef NOVELREADER_PROFILE
+        reader::perf::reset();
+#endif
+        online.input(SCE_CTRL_CIRCLE);
+        check(online.screen_==Screen::OnlineChapters && online.online_saved_chapter_==0 && online.offline_count_==1,
+            "Online exit lost destination/progress/availability");
+#ifdef NOVELREADER_PROFILE
+        check(reader::perf::samples()[static_cast<unsigned>(reader::perf::Event::Metadata)].calls==0 &&
+              reader::perf::samples()[static_cast<unsigned>(reader::perf::Event::OfflineProbe)].calls==0,
+              "Online exit reopened the manifest or probed every chapter");
+#endif
+        std::swap(novel.chapters[0],novel.chapters[1]);
+        check(reader::online::save_novel(manifest,novel),"Cannot reorder online fixture");
+        online.refresh_online_library_item(manifest);
+        check(online.entries_[0].progress.bookmark_chapter==1 && online.bookmark_previews_.empty(),
+            "Online refresh retained stale bookmark identity/quote");
+    }
+#ifdef NOVELREADER_PROFILE
+    static void benchmark() {
+        // Real files, progress and layout; Vita font/GPU/input APIs are mocked.
+        std::vector<std::string> names;
+        const std::string paragraph="A quiet adventure follows a winding path beyond the mountains.\n\n";
+        for(int i=0;i<512;++i) {
+            const auto name="perf-"+std::to_string(i)+".txt";names.push_back(name);
+            std::ofstream book(books_directory+'/'+name);
+            if(i<3)for(int j=0;j<32768;++j)book<<paragraph;
+            else book<<paragraph;
+            reader::Progress progress;progress.has_bookmark=i<3;progress.bookmark=100;
+            check(reader::save_progress(reader::progress_path(progress_directory,name),progress),"Benchmark progress fixture");
+        }
+        check(reader::save_library(library_path,names),"Benchmark collection fixture");
+        check(reader::save_settings(settings_path,{}),"Benchmark settings fixture");
+        vita2d_pgf font;App app(&font);app.message_.clear();
+        reader::perf::reset();
+        for(int i=0;i<12;++i) {
+            app.navigate(1);app.draw();app.navigate(0);app.draw();
+            app.navigate(2);app.draw();app.navigate(1);app.draw();
+        }
+        std::cout<<"Warm navigation (512 TXT, three 2 MiB bookmarks, 12 cycles)\n";
+        reader::perf::dump(stdout);reader::perf::reset();
+        app.refresh_library("perf-511.txt");app.open();app.message_.clear();
+        for(int i=0;i<12;++i) {
+            app.input(SCE_CTRL_CIRCLE);app.draw();
+            if(i+1<12){app.open();app.message_.clear();}
+        }
+        std::cout<<"Reader open/exit (12 cycles, small TXT)\n";reader::perf::dump(stdout);
+    }
+#endif
     static int focus(App& app){app.normalize_focus();return app.focus_memory_[app.focus_key()];}
     static void verify_graph(App& app) {
         const auto controls=app.widgets();
@@ -385,8 +526,15 @@ struct FrontendTest {
             guide.input(SCE_CTRL_CROSS);check(guide.screen_==Screen::Reader && guide.active_filename_=="@welcome",
                 "Continue Reading cannot reopen the welcome TXT");
         }
+        cache_regressions();
     }
 };
 }
-int main(){try{FrontendTest::run();std::cout<<"Native frontend navigation tests passed\n";return 0;}
+int main(int argc,char** argv){try{
+#ifdef NOVELREADER_PROFILE
+    if(argc>1 && std::string(argv[1])=="--benchmark"){FrontendTest::benchmark();return 0;}
+#else
+    (void)argc;(void)argv;
+#endif
+    FrontendTest::run();std::cout<<"Native frontend navigation tests passed\n";return 0;}
     catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}

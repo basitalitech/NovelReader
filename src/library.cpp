@@ -102,6 +102,9 @@ std::vector<std::size_t> library_order(const std::vector<LibraryItem>& items, Li
         for (auto& ch : value) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
         return value;
     };
+    // A comparator runs O(n log n) times; normalize each title only once.
+    std::vector<std::string> titles(items.size());
+    for(const auto i:order)titles[i]=folded(items[i].title);
     std::sort(order.begin(), order.end(), [&](std::size_t left, std::size_t right) {
         const auto& a = items[left]; const auto& b = items[right];
         if (a.directory != b.directory) return a.directory;
@@ -110,7 +113,7 @@ std::vector<std::size_t> library_order(const std::vector<LibraryItem>& items, Li
             return a.progress.last_read > b.progress.last_read;
         if (!a.directory && sort == LibrarySort::Progress && a.progress.percent != b.progress.percent)
             return a.progress.percent > b.progress.percent;
-        const auto title_a = folded(a.title), title_b = folded(b.title);
+        const auto& title_a = titles[left]; const auto& title_b = titles[right];
         return title_a == title_b ? a.filename < b.filename : title_a < title_b;
     });
     return order;

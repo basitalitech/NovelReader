@@ -3,7 +3,7 @@
 struct vita2d_color_vertex { float x,y,z; unsigned color; };
 enum SceGxmPrimitiveType { SCE_GXM_PRIMITIVE_TRIANGLES };
 inline void* vita2d_pool_memalign(unsigned size,unsigned) {
-    alignas(16) static unsigned char storage[16384];
+    alignas(16) static unsigned char storage[65536];
     return size<=sizeof(storage)?storage:nullptr;
 }
 using DrawArrayObserver=void (*)(const vita2d_color_vertex*,std::size_t);

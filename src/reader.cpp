@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "performance.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -103,6 +104,7 @@ std::string title_from_filename(const std::string& name) {
 }
 
 bool load_book(const std::string& path, Book& book, std::string& error) {
+    const perf::Scope timing(perf::Event::TextRead);
     error.clear();
     std::ifstream input(path, std::ios::binary | std::ios::ate);
     if (!input) { error = "Cannot open this book."; return false; }
@@ -206,6 +208,7 @@ Progress load_progress(const std::string& path) {
 }
 
 bool save_progress(const std::string& path, const Progress& progress) {
+    const perf::Scope timing(perf::Event::ProgressWrite);
     std::ostringstream output;
     output << "NRP4\n" << progress.offset << ' ' << progress.has_bookmark << ' ' << progress.bookmark
            << ' ' << progress.chapter << ' ' << progress.bookmark_chapter << ' ' << progress.percent
@@ -236,6 +239,7 @@ Settings load_settings(const std::string& path) {
 }
 
 bool save_settings(const std::string& path, const Settings& settings) {
+    const perf::Scope timing(perf::Event::SettingsWrite);
     std::ostringstream output;
     output << "NRS4\n" << bounded(settings.font) << ' ' << bounded(settings.spacing) << ' '
            << bounded(settings.theme) << ' ' << bounded(settings.library_sort) << ' '

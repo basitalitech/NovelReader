@@ -299,8 +299,10 @@ bookmarks are disabled.
   locations. Import references files rather than copying them.
 - Four covers appear per Library page; opening a cover shows author, chapters, and progress.
   Only visible covers are decoded as thumbnails. Broken or missing files stay visible with
-  an error. Metadata is read on launch and return from online browsing or import;
-  there is no persistent metadata cache yet.
+  an error. Metadata stays in memory across screen visits. Import adds only the
+  selected entry, online updates refresh the affected novel, and removing a book
+  preserves the other entries. Import → Options → Refresh folder rereads the
+  listed files after external replacements; restart also reloads metadata.
 - Square opens a Title/Recent/Progress and All/Reading/Finished chooser. L/R
   navigates to the previous or next sidebar destination.
   Preferences survive restarts. Title sorting ignores ASCII case. Recent uses
@@ -395,7 +397,8 @@ can add loading time for chapters with many images. Font changes reuse these
 dimensions. Only visible inline images are decoded; their textures are reduced
 to reading-area sizes and released when they leave the visible page. Thumbnail
 creation temporarily decodes one full image within the existing pixel limits.
-A cover or viewer texture is released when leaving its screen;
+A small cache retains up to twelve cover thumbnails across screen visits.
+Full-size detail covers and viewer textures are released when leaving their screen;
 replacing a viewer image temporarily retains the old texture until the new one
 has decoded successfully. Full SVG artwork, GIF, WebP, animation, EXIF rotation,
 and decoding images above the source size limits are not implemented.
@@ -428,6 +431,12 @@ cmake -S . -B build/host -DNOVELREADER_HOST_TESTS=ON
 cmake --build build/host -j2
 ctest --test-dir build/host --output-on-failure
 ```
+
+Idle screens retain the displayed frame and wait for VBlank while polling input.
+Input, notices, button feedback, keyboard activity, downloads, and narration
+invalidate the display. Bookmark previews and UI text layouts have bounded
+in-memory caches. See [performance investigation and profiling](docs/performance.md)
+for measured host comparisons, diagnostic builds, and the Vita validation checklist.
 
 ## Current limits
 
@@ -494,7 +503,7 @@ ctest --test-dir build/host --output-on-failure
   multitouch cancellation, and screen-transition suppression. Hardware testing
   is still needed to tune gesture feel and confirm touch calibration.
 
-Next local milestones: a metadata/thumbnail cache for larger libraries, more
+Next local milestones: persistent metadata caching for faster cold startup, more
 image formats/downsampling, and search.
 Online source adapters live in [assets/sources](assets/sources). They expose
 catalog/search, novel/chapter-list, and chapter-text operations through bounded

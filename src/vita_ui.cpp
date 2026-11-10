@@ -13,7 +13,22 @@ unsigned mix(unsigned a, unsigned b, float amount) {
     return result;
 }
 void gradient(int x,int y,int width,int height,unsigned top,unsigned bottom) {
-    for (int i=0;i<height;++i) vita2d_draw_rectangle(x,y+i,width,1,mix(top,bottom,float(i)/std::max(1,height-1)));
+    if(width<=0 || height<=0)return;
+    // Preserve every original scanline color (including mix's rounding), but
+    // submit all rows together instead of up to 500 individual GPU commands.
+    auto* vertices=static_cast<vita2d_color_vertex*>(vita2d_pool_memalign(height*6*sizeof(vita2d_color_vertex),8));
+    if(!vertices) {
+        for(int i=0;i<height;++i)vita2d_draw_rectangle(x,y+i,width,1,mix(top,bottom,float(i)/std::max(1,height-1)));
+        return;
+    }
+    for(int i=0;i<height;++i) {
+        const auto color=mix(top,bottom,float(i)/std::max(1,height-1));
+        const vita2d_color_vertex a{float(x),float(y+i),0.5f,color},b{float(x+width),float(y+i),0.5f,color};
+        const vita2d_color_vertex c{float(x),float(y+i+1),0.5f,color},d{float(x+width),float(y+i+1),0.5f,color};
+        auto* row=vertices+i*6;
+        row[0]=a;row[1]=b;row[2]=c;row[3]=b;row[4]=d;row[5]=c;
+    }
+    vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES,vertices,height*6);
 }
 void rounded(int x,int y,int width,int height,unsigned fill,int radius) {
     radius=std::min(radius,std::min(width,height)/2);

@@ -18,6 +18,13 @@ int main() {
     try {
         using namespace reader::visual;
         draw_array_observer()=capture;
+        draws=0;gradient(0,44,960,500,color(22,20,31),color(32,27,46));
+        check(draws==1 && captured.size()==3000,"Background gradient is not batched");
+        for(int row=0;row<500;++row) {
+            const auto expected=mix(color(22,20,31),color(32,27,46),row/499.f);
+            for(int col=0;col<6;++col)check(captured[row*6+col].color==expected,"Gradient scanline colors changed");
+            check(captured[row*6].y==44+row && captured[row*6+5].y==45+row,"Gradient scanline geometry changed");
+        }
         unsigned normal_top=0,pressed_top=0;
         for(const auto state:{ButtonState::Normal,ButtonState::Focused,ButtonState::Pressed,ButtonState::Disabled}) {
             draws=0;button(100,100,180,56,state);

@@ -1,4 +1,5 @@
 #include "online.hpp"
+#include "performance.hpp"
 #include <cstdio>
 #include <fstream>
 #include <iomanip>
@@ -47,6 +48,7 @@ std::string chapter_path(const std::string& manifest, const std::string& url) {
     return manifest.substr(0, slash) + "/.chapters/" + manifest.substr(slash + 1) + '/' + stable_id(url) + ".txt";
 }
 bool cached(const std::string& manifest, const std::string& url) {
+    const perf::Scope timing(perf::Event::OfflineProbe);
     std::ifstream in(chapter_path(manifest, url), std::ios::binary | std::ios::ate);
     return in && in.tellg() > 0 && in.tellg() <= static_cast<std::streamoff>(max_chapter_bytes);
 }

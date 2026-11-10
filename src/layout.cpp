@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "performance.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -29,6 +30,7 @@ std::size_t previous_page_start(const std::vector<std::size_t>& pages, std::size
 }
 
 ChapterLayout layout_book(const Book& book, int width, int page_height, int line_height, const Measure& measure) {
+    const perf::Scope timing(perf::Event::Layout);
     if (width <= 0 || width > 4096 || page_height < 24 || page_height > 4096 || line_height <= 0 || line_height > page_height)
         throw std::invalid_argument("Invalid reader layout dimensions");
     ChapterLayout result;
