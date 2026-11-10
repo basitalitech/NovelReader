@@ -223,6 +223,8 @@ Settings load_settings(const std::string& path) {
     if ((magic == "NRS3" || magic == "NRS4") && !(input >> result.reading_font)) return {};
     if (magic == "NRS4" && !(input >> result.immersive)) return {};
     if (magic != "NRS4") result.immersive = 1; // Preserve the view used by older installations.
+    int speech_rate = 175;
+    if (magic == "NRS4" && (input >> speech_rate)) result.speech_rate = std::max(100, std::min(350, speech_rate));
     result.font = bounded(result.font);
     result.spacing = bounded(result.spacing);
     result.theme = bounded(result.theme);
@@ -238,7 +240,8 @@ bool save_settings(const std::string& path, const Settings& settings) {
     output << "NRS4\n" << bounded(settings.font) << ' ' << bounded(settings.spacing) << ' '
            << bounded(settings.theme) << ' ' << bounded(settings.library_sort) << ' '
            << bounded(settings.library_filter) << ' ' << bounded(settings.reading_font) << ' '
-           << std::max(0, std::min(1, settings.immersive)) << '\n';
+           << std::max(0, std::min(1, settings.immersive)) << ' '
+           << std::max(100, std::min(350, settings.speech_rate)) << '\n';
     return atomic_write(path, output.str());
 }
 

@@ -66,6 +66,7 @@ struct Settings {
     int library_filter = 0;
     int reading_font = 0; // Literata, Atkinson Hyperlegible Next, Vita system.
     int immersive = 0; // Show the reading chrome by default; immersive remains optional.
+    int speech_rate = 175; // Offline narration, words per minute (100–350).
 };
 
 struct Progress {

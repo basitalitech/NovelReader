@@ -261,6 +261,15 @@ struct FrontendTest {
         check(chapter_color && chapter_color==percent_color,"Chapter text should share percentage contrast");
         app.input(SCE_CTRL_CROSS);check(!app.menu_.empty(),"Reader Cross does not open Reading controls");
         verify_graph(app);app.input(SCE_CTRL_CIRCLE);check(app.menu_.empty(),"Reader panel cannot close");
+        app.perform({"Read aloud",0,Command::Speech});
+        check(app.menu_title_=="Read aloud" && app.menu_[0].label=="Start here","Narration controls unavailable");
+        verify_graph(app);
+        const auto old_rate=app.settings_.speech_rate;
+        app.perform({"Faster",0,Command::SpeechFaster});
+        check(app.settings_.speech_rate==old_rate+25 && reader::load_settings(settings_path).speech_rate==old_rate+25,
+              "Narration speed did not persist");
+        app.perform({"Slower",0,Command::SpeechSlower});
+        app.close_menu();
         for(int i=0;i<10;++i)app.input(SCE_CTRL_DOWN);
         const auto offset=app.lines_[app.top_].offset;
         check(offset>0,"Reading-anchor fixture never left the first line");

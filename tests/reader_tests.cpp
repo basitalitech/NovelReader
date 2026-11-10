@@ -102,6 +102,10 @@ int main() {
 
         check(reader::save_settings(settings_path, {2, 0, 1}), "Settings save failed");
         auto settings = reader::load_settings(settings_path);
+        check(settings.speech_rate == 175, "Old settings lost the default speech speed");
+        settings.speech_rate = 225;
+        check(reader::save_settings(settings_path, settings) && reader::load_settings(settings_path).speech_rate == 225,
+              "Speech speed failed round trip");
         check(settings.font == 2 && settings.spacing == 0 && settings.theme == 1, "Settings failed round trip");
         settings.immersive=0;
         check(reader::save_settings(settings_path,settings) && reader::load_settings(settings_path).immersive==0,

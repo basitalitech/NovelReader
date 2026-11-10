@@ -38,3 +38,28 @@ Online novels additionally use:
 [Online dependency configuration](../cmake/OnlineDependencies.cmake) applies to
 desktop tests and Vita builds. The bundled dependencies require no Python,
 network downloads, or extra SDK packages during configuration/build.
+
+Offline narration uses **eSpeak NG 1.52.0**, from the
+[upstream tag](https://github.com/espeak-ng/espeak-ng/tree/1.52.0).
+The source archive SHA-256 is
+`bb4338102ff3b49a81423da8a1a158b420124b055b60fa76cfb4b18677130a23`.
+The vendored subset retains the unmodified sources and headers used by the
+configured engine, Unicode library, native data compiler, English dictionary,
+English voice definitions, and applicable license files. Disabled MBROLA,
+upstream async, and speechPlayer implementations, upstream tests/tools/docs,
+other languages' dictionaries, and unreferenced phoneme samples are omitted.
+The app uses its own [build integration](../cmake/EspeakDependencies.cmake).
+The shared phoneme tables contain references beyond English; their referenced
+source samples are retained so the bundled binary data remains reproducible.
+
+eSpeak NG is [GPL-3.0-or-later](espeak-ng/COPYING); additional notices are in
+[COPYING.APACHE](espeak-ng/COPYING.APACHE), [COPYING.BSD2](espeak-ng/COPYING.BSD2),
+[COPYING.UCD](espeak-ng/COPYING.UCD), and the
+[Unicode library notices](espeak-ng/src/ucd-tools/COPYING). These are also bundled
+in the VPK. Preserve these notices and the corresponding source when publishing
+the app. Making the repository public alone does not replace choosing compatible
+licensing terms for the application.
+
+The checked-in [English speech data](../assets/espeak-ng-data/) is generated
+from these sources. Normal host/Vita builds require no native eSpeak installation
+or downloads. See [regeneration instructions](../docs/text-to-speech.md).

@@ -13,6 +13,17 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 include(cmake/OnlineDependencies.cmake)
+include(cmake/EspeakDependencies.cmake)
+add_library(reader_speech src/speech.cpp src/speech_audio.cpp src/speech_buffer.cpp)
+target_include_directories(reader_speech PUBLIC include)
+target_link_libraries(reader_speech PRIVATE espeak-ng)
+target_compile_options(reader_speech PRIVATE -Wall -Wextra -Wpedantic)
+if(NOVELREADER_HOST_TESTS)
+    find_package(Threads REQUIRED)
+    target_link_libraries(reader_speech PRIVATE Threads::Threads)
+else()
+    target_link_libraries(reader_speech PRIVATE -Wl,--whole-archive pthread -Wl,--no-whole-archive SceAudio_stub)
+endif()
 
 add_library(epub_dependencies STATIC third_party/tinyxml2/tinyxml2.cpp
     third_party/minizip/unzip.c third_party/minizip/ioapi.c)
@@ -46,6 +57,19 @@ endif()
 
 if(NOVELREADER_HOST_TESTS)
     enable_testing()
+    add_executable(speech_tests tests/speech_tests.cpp)
+    target_link_libraries(speech_tests PRIVATE reader_speech reader_core)
+    target_compile_definitions(speech_tests PRIVATE NOVELREADER_SPEECH_DATA="${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    add_test(NAME offline_speech COMMAND speech_tests)
+    set_tests_properties(offline_speech PROPERTIES TIMEOUT 30)
+    add_executable(speech_audio_tests tests/speech_audio_tests.cpp src/speech_audio.cpp)
+    target_include_directories(speech_audio_tests PRIVATE tests/audio_stubs include)
+    target_compile_definitions(speech_audio_tests PRIVATE __vita__)
+    add_test(NAME vita_speech_audio COMMAND speech_audio_tests)
+    add_executable(speech_buffer_tests tests/speech_buffer_tests.cpp)
+    target_link_libraries(speech_buffer_tests PRIVATE reader_speech)
+    add_test(NAME speech_buffering COMMAND speech_buffer_tests)
+    set_tests_properties(speech_buffering PROPERTIES TIMEOUT 15)
     add_executable(vita_ui_tests tests/vita_ui_tests.cpp src/vita_ui.cpp)
     target_include_directories(vita_ui_tests PRIVATE tests/frontend_stubs include)
     target_compile_options(vita_ui_tests PRIVATE -Wall -Wextra -Wpedantic)
@@ -88,7 +112,7 @@ if(NOVELREADER_HOST_TESTS)
     add_test(NAME vita_font_routing COMMAND vita_font_tests)
     add_executable(frontend_tests tests/frontend_tests.cpp src/vita_ui.cpp src/vita_hints.cpp)
     target_include_directories(frontend_tests PRIVATE tests/frontend_stubs)
-    target_link_libraries(frontend_tests PRIVATE reader_online)
+    target_link_libraries(frontend_tests PRIVATE reader_online reader_speech)
     target_compile_options(frontend_tests PRIVATE -Wall -Wextra -Wpedantic)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture/ux0:data/NovelReader/progress")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture/ux0:data/NovelReader/books")
@@ -108,7 +132,7 @@ else()
     # Leave space for vita-elf-create's import metadata between load segments.
     target_link_options(novelreader PRIVATE -Wl,--defsym=__sce_headroom=0x10000)
     target_compile_options(novelreader PRIVATE -Wall -Wextra -Wpedantic)
-    target_link_libraries(novelreader PRIVATE reader_online vita2d
+    target_link_libraries(novelreader PRIVATE reader_online reader_speech vita2d
         SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub SceTouch_stub
         ScePgf_stub ScePvf_stub SceCommonDialog_stub SceAppMgr_stub
         SceIofilemgr_stub ScePower_stub SceProcessmgr_stub SceIme_stub SceAppUtil_stub
@@ -118,8 +142,20 @@ else()
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckVitaThreads.cmake"
         COMMENT "Checking Vita pthread runtime support" VERBATIM)
     vita_create_self(eboot.bin novelreader UNSAFE)
+    file(GLOB_RECURSE SPEECH_DATA_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/assets" "assets/espeak-ng-data/*")
+    set(SPEECH_PACKAGE_FILES)
+    foreach(speech_file IN LISTS SPEECH_DATA_FILES)
+        list(APPEND SPEECH_PACKAGE_FILES FILE "assets/${speech_file}" "${speech_file}")
+    endforeach()
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
         VERSION "00.70" NAME "NovelReader"
+        ${SPEECH_PACKAGE_FILES}
+        FILE third_party/espeak-ng/COPYING licenses/espeak-ng-COPYING.txt
+        FILE third_party/espeak-ng/COPYING.UCD licenses/espeak-ng-COPYING-UCD.txt
+        FILE third_party/espeak-ng/COPYING.APACHE licenses/espeak-ng-COPYING-APACHE.txt
+        FILE third_party/espeak-ng/COPYING.BSD2 licenses/espeak-ng-COPYING-BSD2.txt
+        FILE third_party/espeak-ng/src/ucd-tools/COPYING licenses/ucd-tools-COPYING.txt
+        FILE third_party/espeak-ng/src/ucd-tools/COPYING.UCD licenses/ucd-tools-COPYING-UCD.txt
         FILE assets/welcome.txt welcome.txt
         FILE assets/ui/moonlit.png ui/moonlit.png
         FILE assets/icons/novelreader.png icons/novelreader.png

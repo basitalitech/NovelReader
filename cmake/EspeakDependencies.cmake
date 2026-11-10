@@ -1,0 +1,21 @@
+# eSpeak is used synchronously on our own worker; no upstream audio or threads.
+set(ESPEAK_SOURCE "${CMAKE_CURRENT_LIST_DIR}/../third_party/espeak-ng")
+set(USE_ASYNC OFF)
+set(USE_MBROLA OFF)
+set(USE_LIBSONIC OFF)
+set(USE_LIBPCAUDIO OFF)
+set(USE_SPEECHPLAYER OFF)
+set(USE_KLATT ON)
+set(HAVE_MKSTEMP ON)
+add_library(espeak-include INTERFACE)
+target_include_directories(espeak-include INTERFACE "${ESPEAK_SOURCE}/src/include")
+add_subdirectory("${ESPEAK_SOURCE}/src/ucd-tools" "${CMAKE_CURRENT_BINARY_DIR}/espeak-ucd")
+add_subdirectory("${ESPEAK_SOURCE}/src/libespeak-ng" "${CMAKE_CURRENT_BINARY_DIR}/espeak-lib")
+# Upstream's C compatibility replacements must not override the app's C++ headers.
+target_include_directories(espeak-ng PRIVATE "${ESPEAK_SOURCE}/src/include/compat")
+if(CMAKE_SYSTEM_NAME STREQUAL "Generic")
+    target_include_directories(espeak-ng BEFORE PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../include/espeak_vita")
+    # vita-elf-create cannot encode ARM GOT relocations from upstream's -fPIC.
+    set_property(TARGET ucd espeak-ng PROPERTY POSITION_INDEPENDENT_CODE OFF)
+    target_compile_options(espeak-ng PRIVATE -fno-pic -fno-PIE)
+endif()

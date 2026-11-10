@@ -6,6 +6,7 @@
 #include "ui.hpp"
 #include "vita_ui.hpp"
 #include "vita_hints.hpp"
+#include "speech.hpp"
 
 #ifdef NOVELREADER_FRONTEND_TESTS
 #include "vita_frontend_stubs.hpp"
@@ -69,7 +70,8 @@ enum class ControllerIcon { Cross, Circle, Triangle, Square, L, R, Select, Start
 enum class Command { Button, More, Sort, Jump, Immersive, Resume, Retry, Appearance, Details, DownloadAll, SortTitle, SortRecent, SortProgress,
     FilterAll, FilterReading, FilterFinished, Exit, Home, Library, Bookmarks, Import, DeleteBookmark, Credits, License, Search,
     BookBookmark, RemoveBook, ConfirmRemoveBook, Online, ClearSearch, PreviousPage, NextPage,
-    ApplySettings, CancelSettings, ResetSettings, Illustrations, FullTitle, AddBook };
+    ApplySettings, CancelSettings, ResetSettings, Illustrations, FullTitle, AddBook,
+    Speech, SpeechToggle, SpeechStop, SpeechSlower, SpeechFaster };
 struct Action {
     std::string label;
     unsigned button;
@@ -113,12 +115,14 @@ public:
         if (!fonts_.complete()) message_ = "Some bundled fonts are unavailable. Using the system font as fallback.";
     }
     ~App() {
+        speech_.stop();
         online_.cancel();
         if (ime_active_) { sceImeDialogAbort(); sceImeDialogTerm(); }
         release_image();
     }
 
     void draw() {
+        tick_speech();
         if (message_ == notice_ && sceKernelGetProcessTimeWide() >= notice_until_) message_.clear();
         if (screen_ == Screen::Reader) sync_inline_images();
         normalize_focus();
@@ -253,6 +257,7 @@ public:
             }
         } else if (screen_ == Screen::Reader) {
             if (pressed & SCE_CTRL_CIRCLE) {
+                speech_.stop();
                 if (publication_.online) online_selected_ = chapter_;
                 save(); screen_ = publication_.online ? Screen::OnlineChapters : Screen::Library;
                 if(screen_==Screen::Library) {nav_active_=nav_selected_=1;sidebar_focus_=false;}
@@ -779,6 +784,7 @@ private:
         ++folder_revision_;
     }
     void clear_reading() {
+        speech_.stop();
         bookmarks_return_=Screen::Home;
         inline_images_.clear();book_={};publication_={};
         std::vector<reader::LayoutBlock>().swap(lines_);pages_.clear();active_filename_.clear();
@@ -1045,6 +1051,39 @@ private:
             {"Filter: Reading",0,Command::FilterReading},{"Filter: Finished",0,Command::FilterFinished}};
         menu_selected_ = static_cast<std::size_t>(sort_); ++folder_revision_;
     }
+    void show_speech() {
+        focus_memory_.erase(100);
+        menu_title_ = "Read aloud";
+        const auto state = speech_.status().state;
+        const bool playing = state == reader::speech::State::Speaking;
+        const bool paused = state == reader::speech::State::Paused;
+        menu_ = {{playing ? "Pause narration" : paused ? "Resume narration" : "Start here",0,Command::SpeechToggle,!lines_.empty()},
+            {"Stop narration",0,Command::SpeechStop,playing || paused},
+            {"Slower ("+std::to_string(settings_.speech_rate)+" wpm)",0,Command::SpeechSlower,settings_.speech_rate>100},
+            {"Faster ("+std::to_string(settings_.speech_rate)+" wpm)",0,Command::SpeechFaster,settings_.speech_rate<350}};
+        menu_selected_=0; ++folder_revision_;
+    }
+    void tick_speech() {
+        using reader::speech::State;
+        auto status = speech_.status();
+        if (screen_ != Screen::Reader) {
+            if (status.state != State::Idle) speech_.stop();
+            speech_seen_ = State::Idle; return;
+        }
+        if ((status.state == State::Speaking || status.state == State::Paused || status.state == State::Finished) && !lines_.empty()) {
+            // Follow the spoken sentence only when it advances, allowing manual page browsing.
+            if (status.offset != speech_offset_) {
+                speech_offset_ = status.offset;
+                top_ = reader::block_at_offset(lines_, status.offset);
+            }
+        }
+        if (status.state != speech_seen_) {
+            if (status.state == State::Error) notify(status.error);
+            if (status.state == State::Finished) { save(); notify("End of narration for this chapter."); }
+            speech_seen_ = status.state;
+            if (!menu_.empty() && menu_title_ == "Read aloud") show_speech();
+        }
+    }
     void show_more() {
         add_book_menu_=false;
         focus_memory_.erase(100);
@@ -1056,7 +1095,7 @@ private:
                 {"Book details",0,Command::Details,!order_.empty()},
                 {"Import books",0,Command::Import},{"Online novels",SCE_CTRL_SELECT},{"Sort books",0,Command::Sort},{"Search library",0,Command::Search}};
         } else if (screen_ == Screen::Reader) {
-            menu_={{"Contents",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reading settings",0,Command::Appearance},{"Save bookmark",SCE_CTRL_SQUARE},
+            menu_={{"Read aloud",0,Command::Speech},{"Contents",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reading settings",0,Command::Appearance},{"Save bookmark",SCE_CTRL_SQUARE},
                 {"Go to bookmark",SCE_CTRL_SELECT,Command::Button,progress_.has_bookmark},{"All bookmarks",0,Command::Bookmarks},{publication_.online?"Back to chapters":"Back to library",SCE_CTRL_CIRCLE},
                 {immersive_ ? "Show reading bar" : "Hide reading bar",0,Command::Immersive}};
         } else if (screen_ == Screen::Catalog) {
@@ -1099,6 +1138,24 @@ private:
         if (!action.enabled) return true;
         pressed_action_ = action.label; pressed_until_ = sceKernelGetProcessTimeWide()+160000;
         switch (action.command) {
+        case Command::Speech: show_speech(); break;
+        case Command::SpeechToggle: {
+            const auto state = speech_.status().state;
+            if (state == reader::speech::State::Speaking) speech_.pause(true);
+            else if (state == reader::speech::State::Paused) speech_.pause(false);
+            else if (!lines_.empty()) {
+                speech_offset_ = lines_[top_].offset;
+                speech_seen_ = reader::speech::State::Speaking;
+                speech_.start(book_, lines_[top_].offset, settings_.speech_rate);
+            }
+            show_speech(); break;
+        }
+        case Command::SpeechStop: speech_.stop(); save(); show_speech(); break;
+        case Command::SpeechSlower: case Command::SpeechFaster:
+            settings_.speech_rate = std::max(100, std::min(350, settings_.speech_rate + (action.command == Command::SpeechSlower ? -25 : 25)));
+            speech_.rate(settings_.speech_rate);
+            if (!reader::save_settings(settings_path, settings_)) notify("Could not save narration speed. Check storage.");
+            show_speech(); break;
         case Command::AddBook: show_add_book();break;
         case Command::Online: return input(SCE_CTRL_SELECT,false);
         case Command::ClearSearch:
@@ -1155,9 +1212,9 @@ private:
             nav_active_=nav_selected_=2; sidebar_focus_=false; break;
         case Command::DeleteBookmark: delete_bookmark(); break;
         case Command::Credits:
-            message_="Built with VitaSDK and vita2d. Interface: Source Sans 3. Reader: Literata and Atkinson. EPUB: TinyXML2 and Minizip. Online: Lua, curl and Mbed TLS."; break;
+            message_="Built with VitaSDK and vita2d. Fonts: Source Sans 3, Literata and Atkinson. EPUB: TinyXML2 and Minizip. Online: Lua, curl and Mbed TLS. Offline speech: eSpeak NG 1.52.0."; break;
         case Command::License:
-            message_="Bundled fonts are licensed under SIL OFL 1.1. Third-party notices are in the source distribution. Home artwork was generated for NovelReader. Books retain their original copyrights."; break;
+            message_="eSpeak NG: GPL-3.0-or-later; license included in app0:/licenses. Fonts: SIL OFL 1.1. Third-party notices and speech data sources are in the source distribution. Books retain their original copyrights."; break;
         case Command::More: show_more(); break;
         case Command::DownloadAll: download_online(true); break;
         case Command::Sort: show_sort(); break;
@@ -1960,6 +2017,7 @@ private:
     }
 
     void open() {
+        speech_.stop();
         if(order_.empty())return;
         const auto entry_index = order_[selected_];
         if (entries_[entry_index].directory) {
@@ -2019,6 +2077,7 @@ private:
     }
 
     bool change_chapter(std::size_t index, std::size_t offset, bool at_end = false) {
+        speech_.stop();
         if (publication_.online && index < online_novel_.chapters.size() && !reader::online::cached(online_manifest_,online_novel_.chapters[index].url)) {
             pending_offset_ = offset; pending_end_ = at_end; online_read_in_place_ = true;
             begin_online_read(index); return false;
@@ -2185,7 +2244,10 @@ private:
         vita2d_disable_clipping();
         const int bar_y=immersive_?510:432;
         reader::visual::progress(40,bar_y,880,std::max(0,percent)/100.f,3);
-        text(40,immersive_?536:464,palette().text,0.76f,"Chapter "+std::to_string(chapter_+1)+" / "+std::to_string(publication_.chapters.size()),620,reader::FontRole::Interface);
+        const auto speech_state = speech_.status().state;
+        const std::string narration = speech_state == reader::speech::State::Speaking ? " · Speaking" :
+            speech_state == reader::speech::State::Paused ? " · Paused" : "";
+        text(40,immersive_?536:464,palette().text,0.76f,"Chapter "+std::to_string(chapter_+1)+" / "+std::to_string(publication_.chapters.size())+narration,620,reader::FontRole::Interface);
         const auto page=std::to_string(std::upper_bound(pages_.begin(),pages_.end(),top_)-pages_.begin())+" / "+std::to_string(pages_.size());
         const auto width=fonts_.width(reader::FontRole::Interface,20,page);
         text(920-width,immersive_?536:464,palette().text,0.76f,page,250,reader::FontRole::Interface);
@@ -2326,6 +2388,9 @@ private:
     reader::online::Request retry_request_;
     std::vector<bool> offline_chapters_;
     std::size_t offline_count_ = 0, online_saved_chapter_ = 0, download_completed_ = 0, download_total_ = 0;
+    reader::speech::Player speech_{"app0:", reader::speech::platform_audio};
+    reader::speech::State speech_seen_ = reader::speech::State::Idle;
+    std::size_t speech_offset_ = 0;
     reader::online::Service online_{"app0:",books_directory+"/Online"};
     reader::online::Result online_catalog_;
     reader::online::Novel online_novel_;
