@@ -13,10 +13,10 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 include(cmake/OnlineDependencies.cmake)
-include(cmake/EspeakDependencies.cmake)
-add_library(reader_speech src/speech.cpp src/speech_audio.cpp src/speech_buffer.cpp)
+include(cmake/FliteDependencies.cmake)
+add_library(reader_speech src/speech.cpp src/speech_audio.cpp src/speech_buffer.cpp src/slt_engine.cpp)
 target_include_directories(reader_speech PUBLIC include)
-target_link_libraries(reader_speech PRIVATE espeak-ng)
+target_link_libraries(reader_speech PRIVATE flite_slt)
 target_compile_options(reader_speech PRIVATE -Wall -Wextra -Wpedantic)
 if(NOVELREADER_HOST_TESTS)
     find_package(Threads REQUIRED)
@@ -59,7 +59,6 @@ if(NOVELREADER_HOST_TESTS)
     enable_testing()
     add_executable(speech_tests tests/speech_tests.cpp)
     target_link_libraries(speech_tests PRIVATE reader_speech reader_core)
-    target_compile_definitions(speech_tests PRIVATE NOVELREADER_SPEECH_DATA="${CMAKE_CURRENT_SOURCE_DIR}/assets")
     add_test(NAME offline_speech COMMAND speech_tests)
     set_tests_properties(offline_speech PROPERTIES TIMEOUT 30)
     add_executable(speech_audio_tests tests/speech_audio_tests.cpp src/speech_audio.cpp)
@@ -142,20 +141,10 @@ else()
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckVitaThreads.cmake"
         COMMENT "Checking Vita pthread runtime support" VERBATIM)
     vita_create_self(eboot.bin novelreader UNSAFE)
-    file(GLOB_RECURSE SPEECH_DATA_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/assets" "assets/espeak-ng-data/*")
-    set(SPEECH_PACKAGE_FILES)
-    foreach(speech_file IN LISTS SPEECH_DATA_FILES)
-        list(APPEND SPEECH_PACKAGE_FILES FILE "assets/${speech_file}" "${speech_file}")
-    endforeach()
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
         VERSION "00.70" NAME "NovelReader"
-        ${SPEECH_PACKAGE_FILES}
-        FILE third_party/espeak-ng/COPYING licenses/espeak-ng-COPYING.txt
-        FILE third_party/espeak-ng/COPYING.UCD licenses/espeak-ng-COPYING-UCD.txt
-        FILE third_party/espeak-ng/COPYING.APACHE licenses/espeak-ng-COPYING-APACHE.txt
-        FILE third_party/espeak-ng/COPYING.BSD2 licenses/espeak-ng-COPYING-BSD2.txt
-        FILE third_party/espeak-ng/src/ucd-tools/COPYING licenses/ucd-tools-COPYING.txt
-        FILE third_party/espeak-ng/src/ucd-tools/COPYING.UCD licenses/ucd-tools-COPYING-UCD.txt
+        FILE third_party/flite/COPYING licenses/flite-COPYING.txt
+        FILE third_party/flite/ACKNOWLEDGEMENTS licenses/flite-ACKNOWLEDGEMENTS.txt
         FILE assets/welcome.txt welcome.txt
         FILE assets/ui/moonlit.png ui/moonlit.png
         FILE assets/icons/novelreader.png icons/novelreader.png

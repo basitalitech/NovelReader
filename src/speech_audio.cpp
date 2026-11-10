@@ -25,7 +25,7 @@ public:
         return port_ >= 0;
     }
     bool write(const short* samples, std::size_t count) override {
-        // Linear streaming resampler: retain phase across eSpeak callbacks.
+        // Linear streaming resampler: retain phase across synthesis callbacks.
         for (std::size_t i = 0; i < count; ++i) {
             while (phase_ < 48000) {
                 buffers_[buffer_index_][used_++] = static_cast<short>(previous_ +

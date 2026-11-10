@@ -6,8 +6,9 @@
 
 namespace reader { namespace speech {
 
-// eSpeak's nested phoneme/translation frames exceed Vita's 32 KiB default.
-constexpr std::size_t worker_stack_bytes = 256 * 1024;
+// Match the SLT stack budget verified by the standalone Vita probe.
+constexpr std::size_t worker_stack_bytes = 512 * 1024;
+constexpr std::size_t max_segment_bytes = 180;
 
 struct Segment { std::size_t begin, end; std::string text; };
 // UTF-8 byte offsets remain in the original Book, including skipped illustrations.
@@ -30,7 +31,7 @@ public:
 class Player {
 public:
     using AudioFactory = std::function<std::unique_ptr<Audio>()>;
-    Player(std::string data_path, AudioFactory audio);
+    explicit Player(AudioFactory audio);
     ~Player();
     Player(const Player&) = delete;
     Player& operator=(const Player&) = delete;

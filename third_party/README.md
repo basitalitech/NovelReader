@@ -39,27 +39,25 @@ Online novels additionally use:
 desktop tests and Vita builds. The bundled dependencies require no Python,
 network downloads, or extra SDK packages during configuration/build.
 
-Offline narration uses **eSpeak NG 1.52.0**, from the
-[upstream tag](https://github.com/espeak-ng/espeak-ng/tree/1.52.0).
-The source archive SHA-256 is
-`bb4338102ff3b49a81423da8a1a158b420124b055b60fa76cfb4b18677130a23`.
-The vendored subset retains the unmodified sources and headers used by the
-configured engine, Unicode library, native data compiler, English dictionary,
-English voice definitions, and applicable license files. Disabled MBROLA,
-upstream async, and speechPlayer implementations, upstream tests/tools/docs,
-other languages' dictionaries, and unreferenced phoneme samples are omitted.
-The app uses its own [build integration](../cmake/EspeakDependencies.cmake).
-The shared phoneme tables contain references beyond English; their referenced
-source samples are retained so the bundled binary data remains reproducible.
+Offline narration uses **Flite 2.2**, from
+[festvox/flite v2.2](https://github.com/festvox/flite/tree/v2.2).
+Its source archive SHA-256 is
+`ab1555fe5adc3f99f1d4a1a0eb1596d329fd6d74f1464a0097c81f53c0cf9e5c`.
+Only the sources/headers compiled by the core, US English language,
+CMU lexicon, and built-in SLT voice are retained. Other voices, platform audio
+drivers, upstream tools/tests, and unused source files are excluded.
+Shared core modules contain disabled socket stubs and a no-output audio backend;
+the app supplies playback through its own buffered Vita audio adapter.
+[Integration](../cmake/FliteDependencies.cmake) disables networking, mmap and
+desktop audio. The voice is linked into the reader and needs no separate
+download. Only the production reader and its normal tests are retained.
 
-eSpeak NG is [GPL-3.0-or-later](espeak-ng/COPYING); additional notices are in
-[COPYING.APACHE](espeak-ng/COPYING.APACHE), [COPYING.BSD2](espeak-ng/COPYING.BSD2),
-[COPYING.UCD](espeak-ng/COPYING.UCD), and the
-[Unicode library notices](espeak-ng/src/ucd-tools/COPYING). These are also bundled
-in the VPK. Preserve these notices and the corresponding source when publishing
-the app. Making the repository public alone does not replace choosing compatible
-licensing terms for the application.
+Upstream modification: [cst_track.c](flite/src/speech/cst_track.c) skips copying
+an empty track's NULL times pointer. Sanitizer checking found that upstream
+passed it to `memmove` even with a zero byte count, which is undefined behavior.
+The guard is marked in the source and does not change non-empty track copies.
 
-The checked-in [English speech data](../assets/espeak-ng-data/) is generated
-from these sources. Normal host/Vita builds require no native eSpeak installation
-or downloads. See [regeneration instructions](../docs/text-to-speech.md).
+See [Flite's license](flite/COPYING) and
+[acknowledgements](flite/ACKNOWLEDGEMENTS), both included in the reader VPK.
+The previous eSpeak dependency, compiled runtime data, endian shim, native
+data-generation tools and temporary SLT test app have been removed.

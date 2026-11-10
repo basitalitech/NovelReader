@@ -66,19 +66,19 @@ int main() {
         check(segments(book, image + 3).front().text.find("Caf") == 0, "Starting inside image did not skip it");
         Book long_book; for (int i = 0; i < 1600; ++i) long_book.text += "\xc3\xa9";
         chunks = segments(long_book, 1);
-        for (const auto& chunk : chunks) check(valid_utf8(chunk.text) && chunk.text.size() <= 600, "Unbounded/invalid UTF-8 chunk");
+        for (const auto& chunk : chunks) check(valid_utf8(chunk.text) && chunk.text.size() <= max_segment_bytes, "Unbounded/invalid UTF-8 chunk");
 
         Capture capture;
         auto factory = [&capture] { return std::unique_ptr<Audio>(new Sink(capture)); };
-        Player player(NOVELREADER_SPEECH_DATA, factory);
+        Player player(factory);
         Book short_book; short_book.text = "Hello from NovelReader. This speech works offline.";
         player.start(short_book, 0);
         until([&] { const auto s = player.status().state; return s == State::Finished || s == State::Error; });
         check(player.status().state == State::Finished, player.status().error.c_str());
-        check(capture.rate == 22050 && capture.samples > 1000 && capture.nonzero > 100, "Real eSpeak produced no audible PCM");
+        check(capture.rate == 16000 && capture.samples > 1000 && capture.nonzero > 100, "Real SLT produced no audible PCM");
         check(capture.opens == 1 && capture.closes == 1, "Audio not released on completion");
 #ifdef __linux__
-        check(capture.stack_bytes == worker_stack_bytes && capture.stack_bytes >= 256 * 1024,
+        check(capture.stack_bytes == worker_stack_bytes && capture.stack_bytes >= 512 * 1024,
               "Narration did not use its explicit stack allocation");
 #endif
 
@@ -105,10 +105,24 @@ int main() {
         player.start(short_book, 0); // Reinitialize after cancellation/error.
         until([&] { return player.status().state == State::Finished; });
         player.stop();
-        Player missing("/nonexistent/novelreader-speech-data", factory);
+        const auto speed_begin = capture.samples.load();
+        player.start(short_book, 0, 100);
+        until([&] { return player.status().state == State::Finished; });
+        const auto slow_samples = capture.samples.load() - speed_begin;
+        const auto fast_begin = capture.samples.load();
+        player.start(short_book, 0, 350);
+        until([&] { return player.status().state == State::Finished; });
+        const auto fast_samples = capture.samples.load() - fast_begin;
+        check(slow_samples > fast_samples * 1.4, "Saved speech speed did not change SLT duration");
+        for (int replay = 0; replay < 8; ++replay) {
+            player.start(short_book, 0);
+            until([&] { return player.status().state == State::Finished; });
+            check(capture.opens == capture.closes, "EOF replay leaked an audio output");
+        }
+        Player missing([] { return std::unique_ptr<Audio>(); });
         missing.start(short_book, 0);
         until([&] { return missing.status().state == State::Error; });
-        check(!missing.status().error.empty(), "Missing voice data needs a useful error");
+        check(!missing.status().error.empty(), "Unavailable audio needs a useful error");
         std::cout << "Offline speech tests passed\n";
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

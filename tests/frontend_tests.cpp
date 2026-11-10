@@ -5,6 +5,8 @@
 #include "../src/main.cpp"
 #include <fstream>
 #include <iostream>
+#include <chrono>
+#include <thread>
 
 namespace reader {
 struct FontDraw { FontRole role; unsigned pixels,color; int x,y; std::string text; };
@@ -270,6 +272,39 @@ struct FrontendTest {
               "Narration speed did not persist");
         app.perform({"Slower",0,Command::SpeechSlower});
         app.close_menu();
+        {
+            std::size_t narrated_samples = 0;
+            class NarrationSink final : public reader::speech::Audio {
+                std::size_t& count_;
+            public:
+                explicit NarrationSink(std::size_t& count) : count_(count) {}
+                bool open(int rate) override { return rate == 16000; }
+                bool write(const short*, std::size_t count) override { count_ += count; return true; }
+                void close() override {}
+            };
+            App narrated(&pgf, [&] { return std::unique_ptr<reader::speech::Audio>(new NarrationSink(narrated_samples)); });
+            narrated.screen_ = Screen::Reader; narrated.message_.clear();
+            narrated.book_.text = "A quiet adventure. The rain has stopped.";
+            narrated.publication_.title = "Narration completion";
+            narrated.publication_.chapters.push_back({"Chapter 1", ""});
+            narrated.reflow(0);
+            for (int run = 0; run < 6; ++run) {
+                narrated.show_speech(); narrated.input(SCE_CTRL_CROSS);
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+                while (narrated.speech_.status().state != reader::speech::State::Finished &&
+                       narrated.speech_.status().state != reader::speech::State::Error) {
+                    check(std::chrono::steady_clock::now() < deadline, "Reader narration completion timed out");
+                    narrated.draw(); std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                }
+                narrated.draw();
+                check(narrated.speech_.status().state == reader::speech::State::Finished,
+                      "Reader narration failed at completion");
+                check(narrated.screen_ == Screen::Reader && narrated.menu_title_ == "Read aloud" &&
+                      narrated.menu_[0].label == "Start here", "Narration EOF did not leave a usable reader/menu");
+                narrated.input(SCE_CTRL_CIRCLE);
+            }
+            check(narrated_samples > 1000, "Reader completion test did not generate real SLT audio");
+        }
         for(int i=0;i<10;++i)app.input(SCE_CTRL_DOWN);
         const auto offset=app.lines_[app.top_].offset;
         check(offset>0,"Reading-anchor fixture never left the first line");

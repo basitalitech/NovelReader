@@ -1,0 +1,27 @@
+# Flite 2.2: core, US English lexicon and SLT only. No socket or desktop audio.
+set(FLITE_SOURCE "${CMAKE_CURRENT_LIST_DIR}/../third_party/flite")
+set(FLITE_SOURCES)
+foreach(part cg hrg lexicon regex speech stats synth wavesynth)
+    file(GLOB part_sources "${FLITE_SOURCE}/src/${part}/*.c")
+    list(APPEND FLITE_SOURCES ${part_sources})
+endforeach()
+file(GLOB utility_sources "${FLITE_SOURCE}/src/utils/*.c")
+list(FILTER utility_sources EXCLUDE REGEX "cst_(file|mmap)_.*\\.c$")
+list(APPEND FLITE_SOURCES ${utility_sources}
+    "${FLITE_SOURCE}/src/utils/cst_file_stdio.c"
+    "${FLITE_SOURCE}/src/utils/cst_mmap_none.c")
+foreach(audio au_none au_streaming audio auclient auserver)
+    list(APPEND FLITE_SOURCES "${FLITE_SOURCE}/src/audio/${audio}.c")
+endforeach()
+file(GLOB english_sources "${FLITE_SOURCE}/lang/usenglish/*.c")
+file(GLOB slt_sources "${FLITE_SOURCE}/lang/cmu_us_slt/*.c")
+list(APPEND FLITE_SOURCES ${english_sources} ${slt_sources})
+foreach(lex cmu_lts_rules cmu_lts_model cmu_lex cmu_lex_entries cmu_lex_data cmu_postlex)
+    list(APPEND FLITE_SOURCES "${FLITE_SOURCE}/lang/cmulex/${lex}.c")
+endforeach()
+add_library(flite_slt STATIC ${FLITE_SOURCES})
+target_include_directories(flite_slt PUBLIC "${FLITE_SOURCE}/include"
+    PRIVATE "${FLITE_SOURCE}/lang/usenglish" "${FLITE_SOURCE}/lang/cmulex")
+target_compile_definitions(flite_slt PRIVATE CST_NO_SOCKETS CST_AUDIO_NONE)
+target_compile_options(flite_slt PRIVATE -ffunction-sections -fdata-sections)
+target_link_libraries(flite_slt PUBLIC m)

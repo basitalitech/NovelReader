@@ -8,7 +8,7 @@ Online novel sources are **Novgo, Asura Novels, and Beast Novels**, using packag
 Lua adapters for public catalogs and chapters.
 
 **Offline read aloud:** open a book, press Cross, choose **Read aloud**, then
-**Start here**. The bundled eSpeak NG English voice reads from the current text
+**Start here**. The bundled **Flite SLT English voice** reads from the current text
 position through the end of the chapter. The same panel offers pause/resume,
 stop, and a saved speed setting from 100 to 350 words per minute. No connection,
 account, or additional voice download is needed. See [speech details](docs/text-to-speech.md).
@@ -134,16 +134,13 @@ progress when saving or leaving the reader. Opening another chapter or leaving
 the reading screen stops narration. English is the initial supported voice;
 narration stops at chapter end, and speed changes take effect at the next sentence.
 
-If an earlier speech build closed the app after **Start here**, install the
-rebuilt VPK. The narration worker now explicitly reserves a 256 KiB stack:
-eSpeak's nested translation/phoneme routines exceed Vita's default 32 KiB
-worker stack. This does not change the stack allocation of online workers.
-
 Narration playback uses alternating device buffers and a short audio queue.
-Playback starts after about 0.2 seconds of audio is ready, allowing synthesis
+Playback starts after about 0.25 seconds of audio is ready, allowing synthesis
 to run ahead and cover short delays while the reader renders. Pause retains the
-queued speech; Stop discards it. This addresses buffer reuse and timing gaps in
-the initial speech implementation; the underlying eSpeak voice remains synthetic.
+queued speech; Stop discards it. SLT uses a dedicated 512 KiB synthesis stack
+and stays registered between sessions. At chapter end the reader drains playback,
+clears borrowed callback pointers, and keeps the book open for reading or replay.
+Speed settings are approximate words per minute; voice pace varies with text.
 
 **Table of Contents** shows the cover beside five chapter rows. Up/Down selects;
 Left/Right browses five entries; Up/Down also crosses page boundaries. Jump uses the numeric system keyboard. The

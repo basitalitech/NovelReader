@@ -97,7 +97,8 @@ class App {
     friend struct FrontendTest;
 #endif
 public:
-    explicit App(vita2d_pgf* font) : fonts_(font), settings_(reader::load_settings(settings_path)) {
+    explicit App(vita2d_pgf* font, reader::speech::Player::AudioFactory audio = reader::speech::platform_audio)
+        : fonts_(font), speech_(std::move(audio)), settings_(reader::load_settings(settings_path)) {
         sort_ = static_cast<reader::LibrarySort>(settings_.library_sort);
         filter_ = static_cast<reader::LibraryFilter>(settings_.library_filter);
         immersive_ = settings_.immersive != 0;
@@ -1212,9 +1213,9 @@ private:
             nav_active_=nav_selected_=2; sidebar_focus_=false; break;
         case Command::DeleteBookmark: delete_bookmark(); break;
         case Command::Credits:
-            message_="Built with VitaSDK and vita2d. Fonts: Source Sans 3, Literata and Atkinson. EPUB: TinyXML2 and Minizip. Online: Lua, curl and Mbed TLS. Offline speech: eSpeak NG 1.52.0."; break;
+            message_="Built with VitaSDK and vita2d. Fonts: Source Sans 3, Literata and Atkinson. EPUB: TinyXML2 and Minizip. Online: Lua, curl and Mbed TLS. Offline speech: Flite 2.2, English SLT voice."; break;
         case Command::License:
-            message_="eSpeak NG: GPL-3.0-or-later; license included in app0:/licenses. Fonts: SIL OFL 1.1. Third-party notices and speech data sources are in the source distribution. Books retain their original copyrights."; break;
+            message_="Flite / SLT: CMU permissive license; notices included in app0:/licenses. Fonts: SIL OFL 1.1. Third-party notices and sources are in the source distribution. Books retain their original copyrights."; break;
         case Command::More: show_more(); break;
         case Command::DownloadAll: download_online(true); break;
         case Command::Sort: show_sort(); break;
@@ -2388,7 +2389,7 @@ private:
     reader::online::Request retry_request_;
     std::vector<bool> offline_chapters_;
     std::size_t offline_count_ = 0, online_saved_chapter_ = 0, download_completed_ = 0, download_total_ = 0;
-    reader::speech::Player speech_{"app0:", reader::speech::platform_audio};
+    reader::speech::Player speech_{reader::speech::platform_audio};
     reader::speech::State speech_seen_ = reader::speech::State::Idle;
     std::size_t speech_offset_ = 0;
     reader::online::Service online_{"app0:",books_directory+"/Online"};

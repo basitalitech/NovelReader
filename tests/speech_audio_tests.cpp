@@ -12,10 +12,10 @@ std::vector<short> output;
 const short* in_flight = nullptr;
 std::vector<short> submitted;
 void check(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
-std::vector<short> render(const std::vector<short>& source, bool split) {
+std::vector<short> render(const std::vector<short>& source, bool split, int sample_rate = 22050) {
     output.clear();
     auto sink = reader::speech::platform_audio();
-    check(sink->open(22050), "Audio port failed to open");
+    check(sink->open(sample_rate), "Audio port failed to open");
     if (split) {
         for (std::size_t i = 0; i < source.size(); i += 37)
             check(sink->write(source.data() + i, std::min<std::size_t>(37, source.size() - i)), "Audio write failed");
@@ -58,6 +58,12 @@ int main() {
         check(single[3] == -32768 + static_cast<long long>(65535) * 18150 / 48000,
               "Full-scale interpolation overflowed");
         check(releases == 2 && drains == 2, "Audio close was not idempotent");
+        const std::vector<short> slt_source(source.begin(), source.begin() + 16000);
+        const auto slt_single = render(slt_source, false, 16000), slt_split = render(slt_source, true, 16000);
+        check(slt_single == slt_split && slt_single.size() == 48128, "SLT resampling lost PCM or changed duration");
+        check(slt_single[3] == -32768 && slt_single[4] == -10923,
+              "SLT full-scale interpolation was incorrect");
+        check(releases == 4 && drains == 4, "SLT completion did not release/drain the device");
         auto sink = reader::speech::platform_audio();
         port_result = -1;
         check(!sink->open(22050), "Failed audio port was accepted"); sink->close();

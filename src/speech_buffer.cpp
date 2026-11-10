@@ -8,7 +8,7 @@
 namespace reader { namespace speech {
 namespace {
 class BufferedAudio final : public Audio {
-    // At 22,050 Hz, start with ~186 ms queued and cap lookahead at ~372 ms.
+    // At SLT's 16 kHz, start with 256 ms queued and cap lookahead at 512 ms.
     static constexpr std::size_t frames = 1024, capacity = 8, prefill = 4;
     struct Block { std::array<short, frames> pcm{}; std::size_t count = 0; };
     std::unique_ptr<Audio> device_;
@@ -76,7 +76,7 @@ public:
         pthread_attr_t attributes;
         auto error = pthread_attr_init(&attributes);
         if (!error) {
-            // This worker only copies/resamples PCM; it never calls eSpeak.
+            // This worker only copies/resamples PCM; it never calls the synthesizer.
             error = pthread_attr_setstacksize(&attributes, 64 * 1024);
             if (!error) error = pthread_create(&worker_, &attributes, entry, this);
             pthread_attr_destroy(&attributes);
