@@ -151,16 +151,8 @@ else()
         FILE third_party/flite/ACKNOWLEDGEMENTS licenses/flite-ACKNOWLEDGEMENTS.txt
         FILE assets/welcome.txt welcome.txt
         FILE assets/ui/moonlit.png ui/moonlit.png
-        FILE assets/icons/novelreader.png icons/novelreader.png
-        FILE assets/icons/cross_button.png icons/cross_button.png
-        FILE assets/icons/circle_button.png icons/circle_button.png
-        FILE assets/icons/triangle_button.png icons/triangle_button.png
-        FILE assets/icons/square_button.png icons/square_button.png
-        FILE assets/icons/l_button.png icons/l_button.png
-        FILE assets/icons/r_button.png icons/r_button.png
-        FILE assets/icons/select_button.png icons/select_button.png
-        FILE assets/icons/start_button.png icons/start_button.png
-        FILE assets/icons/dpad.png icons/dpad.png
+        FILE assets/ui/logo.png ui/logo.png
+        FILE assets/ui/icon0.png sce_sys/icon0.png
         FILE assets/fonts/SourceSans3-Regular.ttf fonts/SourceSans3-Regular.ttf
         FILE assets/fonts/SourceSans3-Semibold.ttf fonts/SourceSans3-Semibold.ttf
         FILE assets/fonts/SourceSans3-LICENSE.md fonts/SourceSans3-LICENSE.md

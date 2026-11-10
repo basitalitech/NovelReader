@@ -52,8 +52,10 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 
 The native 960 × 544 interface follows the supplied screen designs: charcoal and
 violet surfaces, lavender focus outlines and progress bars, rounded cover cards,
-refined white line icons, a packaged NovelReader logo, and a slim controller
-legend using native Vita button artwork. The physical Vita housing
+refined white line icons, a text-only NovelReader header, and a slim controller
+legend using native Vita button geometry. The supplied [logo](assets/ui/logo.png)
+appears on the About page and as the app icon (using a resized 128 × 128 copy).
+The physical Vita housing
 in the reference images is not drawn inside the application.
 Wi-Fi is used only when an online request initializes the network module and
 NetCtl. Offline startup does not call uninitialized networking APIs.
@@ -74,8 +76,12 @@ Buttons use subtle purple vertical gradients, rounded highlights and borders,
 soft raised shadows, and brighter rounded focus outlines. Press feedback darkens
 the face and reduces its shadow; disabled controls use muted translucent purple.
 The bottom hint bar occupies the last 48 pixels (y=496–543), with a translucent
-purple-black gradient and a fine separator. Native geometry draws the circular
-Cross/Circle symbols and START capsule; labels use the loaded interface font.
+purple-black gradient and a fine separator. Native C++ geometry in
+[vita_ui.cpp](src/vita_ui.cpp) draws 30-pixel dark circular backgrounds,
+white symbols, rounded strokes, and optically balanced face buttons. START and
+SELECT use matching dark capsules; L and R use dark rounded shoulder-button
+badges. All four have white lettering; labels use the loaded interface font. Disabled and pressed
+hints retain their state tints. No generated image or Python runtime is needed.
 Open and Back stay on the left, with START / Options aligned to the right.
 Screen-specific actions and disabled hints are retained. Immersive reading
 continues to hide the footer.
@@ -88,7 +94,7 @@ hit regions around the visible icon and label; gaps remain inactive.
 The reusable [controller hint component](include/vita_hints.hpp) accepts the
 loaded `VitaFonts`, a `ControllerButton` (Cross, Circle, Square, Triangle, Start,
 Select, L, R, or None), label, left position, vertical center, and available width.
-It draws START/SELECT as ASCII text inside outlined capsules, without relying
+It draws START/SELECT/L/R as ASCII text inside the button backgrounds, without relying
 on symbol glyphs. The component clips long labels to the supplied width.
 In Settings, Left/Right adjusts the selected value; Up from Typeface stays on
 that row. Cross applies, Circle cancels, and Select resets the preview.

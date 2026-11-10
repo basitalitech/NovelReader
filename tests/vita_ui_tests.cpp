@@ -53,7 +53,8 @@ int main() {
         button_focus(100,100,180,56);
         check(captured.size()==216,"Focus ring must use a bounded mesh");
         for(const auto key:{ControllerButton::Cross,ControllerButton::Circle,ControllerButton::Square,
-                            ControllerButton::Triangle,ControllerButton::Start,ControllerButton::Select}) {
+                            ControllerButton::Triangle,ControllerButton::Start,ControllerButton::Select,
+                            ControllerButton::L,ControllerButton::R}) {
             draws=0;controller_icon(key,44,hint_bar_center);
             check(draws==1,"Controller icon must use one geometry submission");
             check(!captured.empty() && captured.size()<=768 && captured.size()%3==0,"Invalid icon mesh");
@@ -61,6 +62,25 @@ int main() {
                 check(std::isfinite(v.x) && std::isfinite(v.y),"Invalid controller icon vertex");
                 check(v.x>=43.99f && v.x<=44+controller_icon_width(key)+0.01f,"Icon escapes its horizontal bounds");
                 check(v.y>=hint_bar_top+1 && v.y<=543,"Icon escapes the footer safe area");
+            }
+            const bool lettered=key==ControllerButton::Start || key==ControllerButton::Select ||
+                key==ControllerButton::L || key==ControllerButton::R;
+            if(lettered) {
+                for(const auto& v:captured)
+                    check(v.color==color(64,70,96),"Lettered buttons must match the dark face-button backgrounds");
+                float top=hint_bar_center,bottom=hint_bar_center;
+                for(const auto& v:captured){top=std::min(top,v.y);bottom=std::max(bottom,v.y);}
+                check(bottom-top==30,"Lettered buttons must match the face-button height");
+            } else {
+                check(controller_icon_width(key)==30,"Face buttons must use reference dimensions");
+                bool white=false,dark=false;
+                for(const auto& v:captured) {
+                    white=white || v.color==color(255,255,255);
+                    dark=dark || v.color==color(64,70,96);
+                    check(v.color==color(255,255,255) || v.color==color(64,70,96),
+                          "Face button contains an unexpected color");
+                }
+                check(white && dark,"Face buttons need white symbols and dark discs");
             }
         }
         draws=0;controller_icon(ControllerButton::None,44,hint_bar_center);

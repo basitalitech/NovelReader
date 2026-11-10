@@ -11,7 +11,8 @@ void controller_hint(const VitaFonts& fonts,ControllerButton key,const std::stri
     if(key==ControllerButton::Start || key==ControllerButton::Select || key==ControllerButton::L || key==ControllerButton::R) {
         const std::string word=key==ControllerButton::Start?"START":key==ControllerButton::Select?"SELECT":key==ControllerButton::L?"L":"R";
         const auto width=fonts.width(FontRole::Heading,16,word);
-        fonts.draw(FontRole::Heading,16,x+(icon_width-width)/2,center_y+5,tint,word);
+        const auto foreground=tint==text?color(255,255,255):tint;
+        fonts.draw(FontRole::Heading,16,x+(icon_width-width)/2,center_y+5,foreground,word);
     }
     if(max_width>icon_width+gap)
         fonts.draw(FontRole::Interface,22,x+icon_width+gap,center_y+7,tint,label);

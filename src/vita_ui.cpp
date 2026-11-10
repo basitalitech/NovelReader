@@ -70,7 +70,8 @@ struct ButtonMesh {
         };
         for(int i=0;i<17;++i) {
             const auto a=edge(i),b=edge(i+1);
-            const unsigned ca=blend(top,bottom,a[0]/h),cb=blend(top,bottom,b[0]/h);
+            const unsigned ca=top==bottom?top:blend(top,bottom,a[0]/h);
+            const unsigned cb=top==bottom?bottom:blend(top,bottom,b[0]/h);
             const vita2d_color_vertex tl{x+a[1],y+a[0],0.5f,ca},tr{x+w-a[1],y+a[0],0.5f,ca};
             const vita2d_color_vertex bl{x+b[1],y+b[0],0.5f,cb},br{x+w-b[1],y+b[0],0.5f,cb};
             for(const auto& v:{tl,tr,bl,tr,br,bl})vertices[count++]=v;
@@ -146,7 +147,7 @@ void button_focus(int x,int y,int width,int height) {
     mesh.draw();
 }
 int controller_icon_width(ControllerButton key) {
-    return key==ControllerButton::None?0:key==ControllerButton::Start?58:key==ControllerButton::Select?64:28;
+    return key==ControllerButton::None?0:key==ControllerButton::Start?58:key==ControllerButton::Select?64:30;
 }
 void hint_bar() {
     const unsigned top=alpha(mix(surface,border,0.12f),235),bottom=alpha(background,248);
@@ -165,13 +166,20 @@ void controller_icon(ControllerButton key,int x,int center_y,unsigned tint) {
     const auto triangle=[&](vita2d_color_vertex a,vita2d_color_vertex b,vita2d_color_vertex c) {
         mesh.vertices[mesh.count++]=a;mesh.vertices[mesh.count++]=b;mesh.vertices[mesh.count++]=c;
     };
+    // Vita-style buttons: 30 px discs, rounded 2.9 px strokes,
+    // and optically balanced symbols. White replaces the colored foregrounds.
+    const auto foreground=tint==text?color(255,255,255):tint;
+    const auto disc=[&](float cx,float cy,float radius,unsigned fill) {
+        mesh.shape(cx-radius,cy-radius,2*radius,2*radius,radius,fill,fill);
+    };
     const auto stroke=[&](float ax,float ay,float bx,float by,float width) {
         const float dx=bx-ax,dy=by-ay,length=std::sqrt(dx*dx+dy*dy);
         if(length==0)return;
         const float ox=-dy*width/(2*length),oy=dx*width/(2*length);
-        const vita2d_color_vertex a{ax+ox,ay+oy,0.5f,tint},b{bx+ox,by+oy,0.5f,tint};
-        const vita2d_color_vertex c{ax-ox,ay-oy,0.5f,tint},d{bx-ox,by-oy,0.5f,tint};
+        const vita2d_color_vertex a{ax+ox,ay+oy,0.5f,foreground},b{bx+ox,by+oy,0.5f,foreground};
+        const vita2d_color_vertex c{ax-ox,ay-oy,0.5f,foreground},d{bx-ox,by-oy,0.5f,foreground};
         triangle(a,b,c);triangle(b,d,c);
+        disc(ax,ay,width/2,foreground);disc(bx,by,width/2,foreground);
     };
     // Cached unit circle: no per-frame trigonometry, images, or heap storage.
     static const auto circle=[] {
@@ -180,34 +188,36 @@ void controller_icon(ControllerButton key,int x,int center_y,unsigned tint) {
         return points;
     }();
     const float cx=x+controller_icon_width(key)/2.f,cy=center_y;
-    const auto ring=[&](float radius,float width,bool fill) {
+    const auto ring=[&](float radius,float width) {
         for(int i=0;i<48;++i) {
             const auto point=[&](int j,float r,unsigned color) {
                 return vita2d_color_vertex{cx+circle[j][0]*r,cy+circle[j][1]*r,0.5f,color};
             };
-            if(fill)triangle({cx,cy,0.5f,background},point(i,radius,background),point(i+1,radius,background));
-            else {
-                const auto a=point(i,radius,tint),b=point(i+1,radius,tint);
-                const auto c=point(i,radius-width,tint),d=point(i+1,radius-width,tint);
+            {
+                const auto a=point(i,radius,foreground),b=point(i+1,radius,foreground);
+                const auto c=point(i,radius-width,foreground),d=point(i+1,radius-width,foreground);
                 triangle(a,b,c);triangle(b,d,c);
             }
         }
     };
     if(key==ControllerButton::Start || key==ControllerButton::Select || key==ControllerButton::L || key==ControllerButton::R) {
         const float w=controller_icon_width(key);
-        mesh.shape(x,cy-11,w,22,11,tint,tint);
-        mesh.shape(x+1.25f,cy-9.75f,w-2.5f,19.5f,9.75f,background,background);
+        const float radius=key==ControllerButton::L || key==ControllerButton::R?6.f:15.f;
+        mesh.shape(x,cy-15,w,30,radius,color(64,70,96),color(64,70,96));
     } else {
-        ring(14,0,true);ring(14,1.25f,false);
+        disc(cx,cy,15,color(64,70,96));
         if(key==ControllerButton::Cross) {
-            stroke(cx-6,cy-6,cx+6,cy+6,1.8f);stroke(cx-6,cy+6,cx+6,cy-6,1.8f);
-        } else if(key==ControllerButton::Circle)ring(8,1.6f,false);
+            stroke(cx-5.7f,cy-5.7f,cx+5.7f,cy+5.7f,2.9f);
+            stroke(cx-5.7f,cy+5.7f,cx+5.7f,cy-5.7f,2.9f);
+        } else if(key==ControllerButton::Circle)ring(7.6f,2.9f);
         else if(key==ControllerButton::Square) {
-            stroke(cx-6,cy-6,cx+6,cy-6,1.6f);stroke(cx+6,cy-6,cx+6,cy+6,1.6f);
-            stroke(cx+6,cy+6,cx-6,cy+6,1.6f);stroke(cx-6,cy+6,cx-6,cy-6,1.6f);
+            mesh.shape(cx-7,cy-7,14,14,1.6f,foreground,foreground);
+            mesh.shape(cx-4.1f,cy-4.1f,8.2f,8.2f,0,color(64,70,96),color(64,70,96));
         } else if(key==ControllerButton::Triangle) {
-            stroke(cx,cy-8,cx+8,cy+6,1.6f);stroke(cx+8,cy+6,cx-8,cy+6,1.6f);
-            stroke(cx-8,cy+6,cx,cy-8,1.6f);
+            const float top=cy+0.5f-13.2f*0.58f,bottom=cy+0.5f+13.2f*0.42f;
+            stroke(cx,top,cx+7.5f,bottom,2.9f);
+            stroke(cx+7.5f,bottom,cx-7.5f,bottom,2.9f);
+            stroke(cx-7.5f,bottom,cx,top,2.9f);
         }
     }
     mesh.draw();

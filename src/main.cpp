@@ -71,7 +71,6 @@ const Palette menu_palette = {reader::visual::background, reader::visual::surfac
 constexpr std::size_t list_page = reader::ui::page_size;
 
 enum class Screen { Home, Library, Book, Reader, Settings, Contents, Illustrations, Image, Sources, Catalog, Novel, OnlineChapters, Bookmarks, About };
-enum class ControllerIcon { Cross, Circle, Triangle, Square, L, R, Select, Start, Dpad, Count };
 enum class Command { Button, More, Sort, Jump, Immersive, Resume, Retry, Appearance, Details, DownloadAll, SortTitle, SortRecent, SortProgress,
     FilterAll, FilterReading, FilterFinished, Exit, Home, Library, Bookmarks, Import, DeleteBookmark, Credits, License, Search,
     BookBookmark, RemoveBook, ConfirmRemoveBook, Online, ClearSearch, PreviousPage, NextPage,
@@ -115,11 +114,7 @@ public:
         scan();
         const reader::perf::Scope timing(reader::perf::Event::Resources);
         backdrop_.reset(vita2d_load_PNG_file("app0:/ui/moonlit.png"));
-        logo_.reset(vita2d_load_PNG_file("app0:/icons/novelreader.png"));
-        const char* controller_files[]={"cross_button.png","circle_button.png","triangle_button.png","square_button.png",
-            "l_button.png","r_button.png","select_button.png","start_button.png","dpad.png"};
-        for (std::size_t i=0;i<controller_icons_.size();++i)
-            controller_icons_[i].reset(vita2d_load_PNG_file((std::string("app0:/icons/")+controller_files[i]).c_str()));
+        logo_.reset(vita2d_load_PNG_file("app0:/ui/logo.png"));
         if (!fonts_.complete()) message_ = "Some bundled fonts are unavailable. Using the system font as fallback.";
     }
     ~App() {
@@ -1061,8 +1056,7 @@ private:
     void draw_chrome() const {
         using namespace reader::visual;
         gradient(0,0,960,44,rgb(40,35,51),rgb(29,26,38));
-        draw_logo(30,22,28,palette().text);
-        this->text(52,31,palette().text,0.92f,"NovelReader",202,reader::FontRole::Heading);
+        this->text(16,31,palette().text,0.92f,"NovelReader",202,reader::FontRole::Heading);
         if (screen_==Screen::Reader) {
             const auto title=fit(publication_.title,0.96f,520,reader::FontRole::Interface);
             const int width=fonts_.width(reader::FontRole::Interface,25,title);
@@ -1133,7 +1127,7 @@ private:
     void draw_about() const {
         using namespace reader::visual;
         this->text(232,108,palette().text,1.15f,"About",600,reader::FontRole::Heading);
-        panel(350,173,86,86,true); draw_logo(393,216,58,palette().text);
+        draw_logo(393,216,86,0xffffffffu);
         this->text(302,302,palette().text,1.15f,"NovelReader",282,reader::FontRole::Heading);
         this->text(369,329,palette().muted,0.72f,"v0.7.0",140);
         this->text(272,368,palette().text,0.73f,"A simple and comfortable novel reading",330);
@@ -1718,21 +1712,8 @@ private:
                 focused || selected?ButtonState::Focused:ButtonState::Normal);
         } else reader::visual::panel(x,y,width,height,false);
     }
-    const vita2d_texture* controller_icon(unsigned button) const {
-        auto index=ControllerIcon::Count;
-        if(button==SCE_CTRL_CROSS) index=ControllerIcon::Cross;
-        else if(button==SCE_CTRL_CIRCLE) index=ControllerIcon::Circle;
-        else if(button==SCE_CTRL_TRIANGLE) index=ControllerIcon::Triangle;
-        else if(button==SCE_CTRL_SQUARE) index=ControllerIcon::Square;
-        else if(button==SCE_CTRL_LTRIGGER) index=ControllerIcon::L;
-        else if(button==SCE_CTRL_RTRIGGER) index=ControllerIcon::R;
-        else if(button==SCE_CTRL_SELECT) index=ControllerIcon::Select;
-        else if(button==SCE_CTRL_START) index=ControllerIcon::Start;
-        return index==ControllerIcon::Count?nullptr:controller_icons_[static_cast<std::size_t>(index)].get();
-    }
     int button_hint_width(unsigned button) const {
-        const auto* texture=controller_icon(button);
-        return texture?static_cast<int>(vita2d_texture_get_width(texture)):button==SCE_CTRL_START || button==SCE_CTRL_SELECT?48:26;
+        return reader::visual::controller_icon_width(controller_key(button));
     }
     void draw_logo(int x,int y,int size,unsigned tint) const {
         if (logo_) {
@@ -1742,12 +1723,6 @@ private:
     }
     void button_hint(int x,int y,const Action& action) const {
         const auto c=action.enabled?palette().text:rgb(118,108,131);
-        if (const auto* texture=controller_icon(action.button)) {
-            const auto width=static_cast<float>(vita2d_texture_get_width(texture));
-            const auto height=static_cast<float>(vita2d_texture_get_height(texture));
-            vita2d_draw_texture_tint(texture,x-width/2,y-height/2,c);
-            return;
-        }
         if(action.button==SCE_CTRL_CROSS || action.button==SCE_CTRL_CIRCLE || action.button==SCE_CTRL_TRIANGLE || action.button==SCE_CTRL_SQUARE) {
             for(int i=0;i<32;++i){const float a=i*6.2831853f/32,b=(i+1)*6.2831853f/32;
                 vita2d_draw_line(x+13*std::cos(a),y+13*std::sin(a),x+13*std::cos(b),y+13*std::sin(b),c);}
@@ -2654,7 +2629,6 @@ private:
     mutable std::map<std::tuple<int,unsigned,reader::FontRole,bool,std::string>,std::vector<reader::Line>> wrap_cache_;
     std::unique_ptr<vita2d_texture,TextureDeleter> backdrop_;
     std::unique_ptr<vita2d_texture,TextureDeleter> logo_;
-    std::array<std::unique_ptr<vita2d_texture,TextureDeleter>,static_cast<std::size_t>(ControllerIcon::Count)> controller_icons_;
     std::vector<CoverTexture> covers_;
     std::vector<BookmarkPreview> bookmark_previews_;
     mutable std::vector<std::size_t> bookmark_indices_;
