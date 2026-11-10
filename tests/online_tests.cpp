@@ -62,6 +62,9 @@ void persistence() {
     check(save_novel(path,n),"Save manifest");
     Novel loaded; std::string error;
     check(load_novel(path,loaded,error) && loaded.title==n.title && loaded.chapters.size()==2,"Manifest round trip");
+    check(loaded.cover.empty(),"Legacy manifests must work without cover metadata");
+    n.cover="https://cdn.example.org/cover.png";
+    check(save_novel(path,n) && load_novel(path,loaded,error) && loaded.cover==n.cover,"Cover metadata round trip");
     Publication p; check(open_publication(path,p,error) && p.online,"Offline publication");
     Progress progress; progress.chapter=1; progress.offset=12; progress.has_bookmark=true; progress.bookmark_chapter=0; progress.bookmark=3;
     progress.chapter_id=p.chapters[1].path; progress.bookmark_id=p.chapters[0].path;
@@ -72,6 +75,31 @@ void persistence() {
     p.chapters.pop_back(); restore_progress(p,progress); check(!progress.has_bookmark,"Removed bookmarks disabled");
     check(atomic_write(path,"NRONLINE1\n\"novgo\" \"https://evil.test/\"\n\"Title\" \"\" \"\" 1\n\"Chapter\" \"file:///etc/passwd\" 0\n"),"Write malformed manifest");
     check(!load_novel(path,loaded,error),"Untrusted manifest URLs rejected");
+}
+void artwork() {
+    const auto png=read_file(assets+"/ui/icon0.png",max_response_bytes);
+    const auto dir=scratch();const std::string image_url="https://cdn.example.org/cover.png";
+    const std::string html="<h1>Artwork fixture</h1><meta property='og:image' content='"+image_url+"'><div id='list-chapter'><a href='/art/1.html'>One</a></div>";
+    check(parse("novgo","chapters",html,"https://novgo.net/art.html").cover==image_url,"Novgo artwork extraction");
+    check(parse("asura","chapters","<h1>A</h1><meta property='og:image' content='/cover.jpg'><astro-island component-url='NovelChapterList'><a href='/novels/a/chapter/1'>One</a></astro-island>","https://asurascans.com/novels/a").cover=="https://asurascans.com/cover.jpg","Asura relative artwork");
+    check(parse("beast","chapters","<h1>B</h1><meta name='twitter:image' content='//cdn.example.org/b.png'><div id='chapterList'><a href='/series/b/1'>One</a></div>","https://beastnovels.com/series/b").cover=="https://cdn.example.org/b.png","Beast artwork extraction");
+    for(const auto* url:{"file:///cover.png","http://cdn.example.org/a.png","https://127.0.0.1/a","https://user@cdn.example.org/a","https://cdn.example.org/\nheader"})
+        check(!allowed_cover_url(url),"Unsafe image URL accepted");
+    bool fail_art=false;unsigned images=0;
+    Service service(assets,dir,[&](const std::string& url) {
+        if(url==image_url){++images;if(fail_art)throw std::runtime_error("Image unavailable");return png;}
+        return html;
+    });
+    Request request;request.source="novgo";request.url="https://novgo.net/art.html";request.action=Action::Chapters;
+    check(service.start(request),"Start artwork metadata load");auto result=finish(service);
+    check(result.error.empty() && images==1 && result.novel.cover==image_url,"Artwork download failed");
+    Publication publication;std::string error,bytes;
+    check(open_publication(result.manifest,publication,error) && publication.cover_path==cover_path(result.manifest),"Library metadata lost the cached cover");
+    check(load_cover(result.manifest,bytes,error) && bytes==png,"Offline artwork cache bytes changed");
+    fail_art=true;check(service.start(request),"Retry optional artwork");result=finish(service);
+    check(result.error.empty() && load_cover(result.manifest,bytes,error) && bytes==png,"Failed artwork refresh broke the novel or its saved cover");
+    request.url="https://novgo.net/no-cover.html";check(service.start(request),"Start novel with unavailable artwork");result=finish(service);
+    check(result.error.empty() && open_publication(result.manifest,publication,error) && publication.cover_path.empty(),"Unavailable artwork must preserve readable novel metadata");
 }
 void adapter_limits() {
     const auto dir=scratch(); mkdir((dir+"/sources").c_str(),0777);
@@ -127,6 +155,6 @@ int main(int argc,char** argv) {
             if(!result.error.empty()) throw std::runtime_error(result.error);
             std::cout<<"Verified HTTPS download and cache: "<<read_file(chapter_path(result.manifest,argv[4]),max_chapter_bytes).size()<<" text bytes\n"; return 0;
         }
-        parsers(); persistence(); adapter_limits(); worker(); std::cout<<"Online tests passed\n";
+        parsers(); persistence(); artwork(); adapter_limits(); worker(); std::cout<<"Online tests passed\n";
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

@@ -283,7 +283,17 @@ struct FrontendTest {
         reader::Progress progress;progress.has_bookmark=true;
         check(reader::save_progress(reader::progress_path(progress_directory,identity),progress),"Online progress fixture");
         check(reader::save_library(library_path,{identity}),"Online library fixture");
-        App online(&font);online.message_.clear();online.navigate(1);online.refresh_library(identity);online.open();
+        App online(&font);online.message_.clear();online.navigate(1);online.refresh_library(identity);online.sync_covers();
+        std::string png("\x89PNG\r\n\x1a\n",8);png.resize(33);png[11]=13;png.replace(12,4,"IHDR");png[19]=1;png[23]=1;
+        check(reader::online::atomic_write(reader::online::cover_path(manifest),png),"Online artwork fixture");
+        online.refresh_online_library_item(manifest);
+        const auto& artwork_item=online.entries_[online.order_[online.selected_]];
+        std::string artwork_bytes,artwork_error;
+        check(artwork_item.cover_path==reader::online::cover_path(manifest) &&
+              App::load_cover_bytes(artwork_item,artwork_bytes,artwork_error) && artwork_bytes==png,
+              "Library artwork was sent to the EPUB loader or lost from metadata");
+        for(const auto& cached:online.covers_)check(cached.key!=manifest,"Cover refresh retained a missing-artwork cache entry");
+        online.open();
         check(online.screen_==Screen::Novel && online.offline_count_==1,"Online summary fixture");
         online.open_online_reader(0);check(online.screen_==Screen::Reader,"Offline reader fixture");
 #ifdef NOVELREADER_PROFILE
@@ -649,7 +659,17 @@ struct FrontendTest {
             (app.top_+1==app.lines_.size() || app.lines_[app.top_+1].offset>offset),"Reader font change lost reading anchor");
         app.message_="An operation failed";app.retry_available_=true;verify_graph(app);
         const auto controls=app.widgets();check(controls.size()==2,"Error modal exposes background controls");
+        const auto dialog=app.feedback_box();
+        check(dialog.width*16==dialog.height*9 && dialog.x+dialog.width/2==480 && dialog.y+dialog.height/2==272,"Feedback popup is not 9:16 and centered");
+        for(const auto& control:controls)
+            check(control.target.box.y==dialog.y+dialog.height-(control.target.id==4000?136:72),"Dialog actions are not stacked at the bottom");
         app.set_focus(4001);app.input(SCE_CTRL_CROSS);check(app.message_.empty(),"Dismiss cannot be selected with D-pad");
+        app.online_busy_=true;app.message_="Loading artwork...";
+        check(app.widgets().size()==1 && app.widgets()[0].action.label=="Cancel","Loading popup has no cancel CTA");
+        const auto cancel=app.feedback_action(false);
+        app.gesture({reader::controls::GestureKind::Tap,float(cancel.x+cancel.width/2),float(cancel.y+28)});
+        check(app.message_=="Canceling...","Loading Cancel touch does not cancel the worker");
+        app.online_busy_=false;app.message_.clear();
 
         app.screen_=Screen::Contents;verify_graph(app);
         app.screen_=Screen::Illustrations;verify_graph(app);

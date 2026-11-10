@@ -16,7 +16,7 @@ return function(op,url,query)
     assert(list,'Chapter list unavailable; source layout may have changed.')
     local author=H.text(html,'span','class','text-red-500')
     local description=H.text(html,'p','style','white-space: pre-line;')
-    return {title=H.text(html,'h1'),author=author,description=description,items=H.sort_chapters(H.links(list.html,home,'^https://beastnovels%.com/series/[^/]+/[%d%.]+$',true))}
+    return {title=H.text(html,'h1'),cover=H.cover(html,home),author=author,description=description,items=H.sort_chapters(H.links(list.html,home,'^https://beastnovels%.com/series/[^/]+/[%d%.]+$',true))}
   end
   local body=H.first(html,'div','class','chapter-content')
   assert(body and #body.text>0,'Chapter unavailable: locked, login required, or source layout changed.')

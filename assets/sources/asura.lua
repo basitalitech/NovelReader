@@ -25,7 +25,7 @@ return function(op,url,query)
     assert(list,'Chapter list unavailable; source layout may have changed.')
     local items=H.links(list,home,'^https://asurascans%.com/novels/[^/]+/chapter/[%d%.]+$',true)
     local description=H.first(html,'meta','property','og:description')
-    return {title=title,description=description and description.attrs.content or '',items=H.sort_chapters(items)}
+    return {title=title,cover=H.cover(html,home),description=description and description.attrs.content or '',items=H.sort_chapters(items)}
   end
   local paragraphs={}
   for _,p in ipairs(select_html(html,'p','data-para','')) do paragraphs[#paragraphs+1]=p.text end

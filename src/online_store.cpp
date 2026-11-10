@@ -26,6 +26,24 @@ std::string stable_id(const std::string& value) {
     for (auto byte : digest) out << std::setw(2) << static_cast<unsigned>(byte);
     return out.str();
 }
+bool allowed_cover_url(const std::string& url) {
+    if(url.size()>2048 || url.compare(0,8,"https://")!=0)return false;
+    for(unsigned char c:url)if(c<=32 || c==127 || c=='\\')return false;
+    const auto host=url.substr(8,url.find_first_of("/?#",8)-8);
+    if(host.empty() || host.find_first_of("@:[]")!=std::string::npos || host.find('.')==std::string::npos)return false;
+    // Image CDNs differ from chapter hosts; require a DNS name over HTTPS.
+    if(host.find_first_not_of("0123456789.")==std::string::npos || host=="localhost" ||
+       (host.size()>=6 && host.compare(host.size()-6,6,".local")==0))return false;
+    return true;
+}
+std::string cover_path(const std::string& manifest) { return manifest+".cover"; }
+bool load_cover(const std::string& manifest,std::string& bytes,std::string& error) {
+    try {
+        auto data=read_file(cover_path(manifest),max_response_bytes);
+        ImageInfo info;if(!inspect_image(data,info,error))return false;
+        bytes=std::move(data);error.clear();return true;
+    } catch(const std::exception& e) {error=e.what();return false;}
+}
 std::string read_file(const std::string& path, std::size_t limit) {
     std::ifstream in(path, std::ios::binary | std::ios::ate);
     if (!in) throw std::runtime_error("File unavailable. Download this chapter first.");
@@ -64,6 +82,7 @@ bool save_novel(const std::string& path, const Novel& novel) {
         if (!allowed_url(novel.source, c.url)) return false;
         out << std::quoted(c.title) << ' ' << std::quoted(c.url) << ' ' << c.locked << '\n';
     }
+    if(!novel.cover.empty() && allowed_cover_url(novel.cover))out<<"COVER "<<std::quoted(novel.cover)<<'\n';
     if (out.str().size() > max_response_bytes) return false;
     return atomic_write(path, out.str());
 }
@@ -77,12 +96,19 @@ bool load_novel(const std::string& path, Novel& novel, std::string& error) {
             if (!(in >> std::quoted(c.title) >> std::quoted(c.url) >> c.locked) || !allowed_url(n.source,c.url)) throw std::runtime_error("Invalid downloaded chapter index.");
             n.chapters.push_back(std::move(c));
         }
+        // Optional trailing metadata keeps existing NRONLINE1 libraries valid.
+        std::string tag;
+        if(in>>tag) {
+            if(tag!="COVER" || !(in>>std::quoted(n.cover)) || !allowed_cover_url(n.cover))throw std::runtime_error("Invalid cover metadata.");
+        }
         novel = std::move(n); error.clear(); return true;
     } catch (const std::exception& e) { error = e.what(); return false; }
 }
 bool open_cached(const std::string& path, Publication& publication, std::string& error) {
     Novel n; if (!load_novel(path,n,error)) return false;
     Publication p; p.path = path; p.title = n.title; p.author = n.author; p.online = true;
+    std::ifstream cover(cover_path(path),std::ios::binary|std::ios::ate);
+    if(cover && cover.tellg()>0 && cover.tellg()<=static_cast<std::streamoff>(max_response_bytes))p.cover_path=cover_path(path);
     for (const auto& c : n.chapters) p.chapters.push_back({c.title,chapter_path(path,c.url)});
     publication = std::move(p); return true;
 }

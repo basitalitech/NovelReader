@@ -218,6 +218,12 @@ Requests show an activity indicator; downloads show a progress bar and completed
 count. Failed requests expose a direct **Retry** button and **Options → Retry request**,
 preserving the original operation and completed downloads.
 
+Loading and error dialogs use a centered 9:16 portrait popup, with Cancel, Retry, or
+Dismiss actions along its bottom edge. Online cover artwork is fetched on the
+background worker and cached for offline Library thumbnails. For favorites saved
+before artwork support, open the novel and use **Refresh chapters** once while
+connected. Missing or unsupported artwork keeps the existing title-card fallback.
+
 On novel details, press **Square**, tap **Save**, or choose **Options → Add to library** to save a favorite. Browsing
 a novel or downloading chapters does not automatically add it to Library. Added
 novels appear alongside imported local books without source folders. Open one

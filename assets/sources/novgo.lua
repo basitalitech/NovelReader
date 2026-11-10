@@ -13,7 +13,7 @@ return function(op,url,query)
     local author=H.first(html,'meta','property','og:novel:author')
     local list=H.first(html,'div','id','list-chapter')
     assert(list,'Chapter list unavailable; source layout may have changed.')
-    return {title=title,author=author and author.attrs.content or '',description=summary,items=H.links(list.html,home,'^https://novgo%.net/[^/]+/[^/]+%.html$',true),next=H.next(list.html,home)}
+    return {title=title,cover=H.cover(html,home),author=author and author.attrs.content or '',description=summary,items=H.links(list.html,home,'^https://novgo%.net/[^/]+/[^/]+%.html$',true),next=H.next(list.html,home)}
   end
   local body=H.first(html,'div','id','chapter-content')
   assert(body and #body.text>0,'Chapter text unavailable; source layout may have changed.')

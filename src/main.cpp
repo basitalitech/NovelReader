@@ -239,7 +239,7 @@ public:
         }
         // Active layers own all input, including START and contextual shortcuts.
         if(online_busy_) {
-            if(pressed&SCE_CTRL_CIRCLE){pending_bookmark_=false;online_.cancel();message_="Canceling...";}
+            if(pressed&(SCE_CTRL_CIRCLE|SCE_CTRL_CROSS)){pending_bookmark_=false;online_.cancel();message_="Canceling...";}
             return true;
         }
         if(physical && (!menu_.empty() || feedback_active())) {
@@ -703,11 +703,13 @@ private:
                 add(2000+i,popup.row(i),menu_[i],WidgetKind::Menu,i);
             return result;
         }
-        if(online_busy_)return result;
+        if(online_busy_) {
+            add(4002,feedback_action(false),{"Cancel",SCE_CTRL_CIRCLE});
+            return result;
+        }
         if(feedback_active()) {
-            const auto top=feedback_top(),bottom=feedback_bottom();
-            if(retry_available_)add(4000,{728,top+8,192,56},{"Retry",0,Command::Retry});
-            add(4001,{728,bottom-64,192,56},{"Dismiss"},WidgetKind::Dismiss);
+            if(retry_available_)add(4000,feedback_action(true),{"Retry",0,Command::Retry});
+            add(4001,feedback_action(false),{"Dismiss"},WidgetKind::Dismiss);
             return result;
         }
         if(screen_==Screen::Reader || screen_==Screen::Image)return result;
@@ -1059,7 +1061,7 @@ private:
                 const reader::perf::Scope timing(reader::perf::Event::CoverDecode);
                 try {
                     std::string bytes,error;
-                    if (reader::load_epub_image(entry->path,entry->cover_path,bytes,error))
+                    if (load_cover_bytes(*entry,bytes,error))
                         cover.texture.reset(decode_thumbnail(bytes,144,200,error));
                 } catch (const std::exception&) { /* A title card remains available. */ }
             }
@@ -1396,8 +1398,8 @@ private:
             break;
         case Command::RemoveBook:
             if(!order_.empty() && !entries_[order_[selected_]].guide) {
-                menu_title_="Remove this book from Library?";
-                menu_={{"Remove reference",0,Command::ConfirmRemoveBook},{"Keep book",0}};menu_selected_=1;focus_memory_.erase(100);++folder_revision_;
+                menu_title_="Are you sure?";
+                menu_={{"Yes, remove reference",0,Command::ConfirmRemoveBook},{"No, keep it",0}};menu_selected_=1;focus_memory_.erase(100);++folder_revision_;
             }
             break;
         case Command::ConfirmRemoveBook:
@@ -1967,11 +1969,13 @@ private:
             (command==Command::FilterFinished && filter_==reader::LibraryFilter::Finished);
     }
     std::vector<reader::Line> feedback_rows() const {
-        return ui_wrap(message_,660,24,reader::FontRole::Interface);
+        return ui_wrap(message_,feedback_box().width-48,24,reader::FontRole::Interface);
     }
-    int feedback_bottom() const {return 464;}
-    int feedback_top() const {
-        return feedback_bottom()-std::max(160,reader::ui::feedback_height(feedback_rows().size(),online_busy_,retry_available_));
+    reader::ui::Rect feedback_box() const { return {363,64,234,416}; }
+    reader::ui::Rect feedback_action(bool retry) const {
+        const auto box=feedback_box();
+        if(retry_available_ && !online_busy_ && retry)return {box.x+16,box.y+box.height-136,box.width-32,56};
+        return {box.x+16,box.y+box.height-72,box.width-32,56};
     }
     void draw_feedback() const {
         if(message_.empty())return;
@@ -1979,17 +1983,18 @@ private:
             panel(24,44,912,36);
             text(40,70,palette().text,0.80f,message_,880);return;
         }
-        const auto rows=feedback_rows();const auto count=std::min<std::size_t>(rows.size(),5);
-        const auto top=feedback_top(),bottom=feedback_bottom();
+        const auto rows=feedback_rows();const auto count=std::min<std::size_t>(rows.size(),online_busy_?6:8);
+        const auto box=feedback_box();const auto bottom=box.y+box.height;
         if(feedback_active() || online_busy_)vita2d_draw_rectangle(0,44,960,436,0xb0000000);
-        panel(24,top,912,bottom-top);
-        for(std::size_t i=0;i<count;++i)text(44,top+32+i*28,palette().text,0.92f,rows[i].text,660);
-        if(retry_available_ && !online_busy_)button({728,top+8,192,56},{"Retry",0,Command::Retry});
-        if(feedback_active())button({728,bottom-64,192,56},{"Dismiss"});
+        reader::visual::popup(box);
+        for(std::size_t i=0;i<count;++i)text(box.x+24,box.y+36+i*28,palette().text,0.92f,rows[i].text,box.width-48);
+        if(retry_available_ && !online_busy_)button(feedback_action(true),{"Retry",0,Command::Retry});
+        if(feedback_active())button(feedback_action(false),{"Dismiss"});
         if(online_busy_) {
-            reader::visual::progress(44,bottom-40,872,download_total_?float(download_completed_)/download_total_:0,6);
-            text(44,bottom-12,palette().muted,0.8f,download_total_?std::to_string(download_completed_)+" / "+
-                std::to_string(download_total_)+" completed":"Connecting / Circle to cancel",856);
+            reader::visual::progress(box.x+24,bottom-120,box.width-48,download_total_?float(download_completed_)/download_total_:0,6);
+            text(box.x+24,bottom-92,palette().muted,0.8f,download_total_?std::to_string(download_completed_)+" / "+
+                std::to_string(download_total_)+" completed":"Connecting...",box.width-48);
+            button(feedback_action(false),{"Cancel",SCE_CTRL_CIRCLE});
         }
     }
 
@@ -2114,9 +2119,13 @@ private:
         const reader::perf::Scope timing(reader::perf::Event::CoverDecode);
         try {
             std::string bytes;
-            if (reader::load_epub_image(entry.path, entry.cover_path, bytes, cover_message_))
+            if (load_cover_bytes(entry,bytes,cover_message_))
                 image_ = decode_texture(bytes, cover_message_);
         } catch (const std::exception&) { cover_message_ = "Cover could not be loaded."; }
+    }
+    static bool load_cover_bytes(const reader::LibraryItem& item,std::string& bytes,std::string& error) {
+        return reader::is_online_book(item.path)?reader::online::load_cover(item.path,bytes,error):
+            reader::load_epub_image(item.path,item.cover_path,bytes,error);
     }
 
     float fit_scale(float width, float height) const {

@@ -13,6 +13,17 @@ end
 function M.text(html, tag, attr, val)
   local n=M.first(html,tag,attr,val); return n and n.text or ''
 end
+function M.cover(html, home)
+  local meta=M.first(html,'meta','property','og:image') or M.first(html,'meta','name','twitter:image')
+  local url=meta and meta.attrs.content or ''
+  if url=='' then
+    local img=M.first(html,'img','class','wp-post-image') or M.first(html,'img','itemprop','image')
+    url=img and (img.attrs['data-src'] or img.attrs.src) or ''
+  end
+  if url=='' then return '' end
+  url=url:gsub('^http://','https://')
+  return M.absolute(home,url)
+end
 function M.links(html, home, pattern, chapters)
   local result, seen={},{}
   for _,n in ipairs(select_html(html,'a','','')) do

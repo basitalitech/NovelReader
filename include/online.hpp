@@ -12,9 +12,11 @@ struct Entry { std::string title, url; bool locked = false; };
 struct Result {
     std::string title, author, description, next, text;
     std::vector<Entry> items;
+    std::string cover = {};
 };
 const std::vector<Source>& sources();
 bool allowed_url(const std::string& source, const std::string& url);
+bool allowed_cover_url(const std::string& url);
 std::string stable_id(const std::string& value);
 std::string read_file(const std::string& path, std::size_t limit);
 bool atomic_write(const std::string& path, const std::string& bytes);
@@ -26,10 +28,13 @@ Result run_adapter(const std::string& assets, const std::string& source,
 struct Novel {
     std::string source, title, author, url, description;
     std::vector<Entry> chapters;
+    std::string cover = {};
 };
 std::string novel_path(const std::string& directory, const Novel& novel);
 bool save_novel(const std::string& path, const Novel& novel);
 bool load_novel(const std::string& path, Novel& novel, std::string& error);
+std::string cover_path(const std::string& manifest);
+bool load_cover(const std::string& manifest, std::string& bytes, std::string& error);
 std::string chapter_path(const std::string& manifest, const std::string& url);
 bool cached(const std::string& manifest, const std::string& url);
 bool open_cached(const std::string& path, Publication& publication, std::string& error);

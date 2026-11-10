@@ -101,6 +101,8 @@ Result run_adapter(const std::string& assets,const std::string& source,const std
     if(lua_pcall(L,3,1,0)) { const auto* e=lua_tostring(L,-1); throw std::runtime_error(e?e:"Source adapter failed."); }
     if(!lua_istable(L,-1)) throw std::runtime_error("Source returned no result.");
     Result r; r.title=field(L,"title"); r.author=field(L,"author"); r.description=field(L,"description",16384); r.next=field(L,"next",2048); r.text=field(L,"text",max_chapter_bytes);
+    r.cover=field(L,"cover",2048);
+    if(!r.cover.empty() && !allowed_cover_url(r.cover))r.cover.clear();
     if(!r.next.empty() && !allowed_url(source,r.next)) throw std::runtime_error("Invalid next-page URL.");
     lua_getfield(L,-1,"items");
     if(lua_istable(L,-1)) {

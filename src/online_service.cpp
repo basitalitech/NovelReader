@@ -72,7 +72,7 @@ size_t write(char* data,size_t size,size_t count,void* ptr) {
     return size*count;
 }
 int progress(void* ptr,curl_off_t,curl_off_t,curl_off_t,curl_off_t) { return static_cast<Transfer*>(ptr)->cancel?1:0; }
-std::string http(Network& network,const std::string& assets,const std::string& source,std::string url,const std::atomic<bool>& cancel) {
+std::string http(Network& network,const std::string& assets,const std::string& source,std::string url,const std::atomic<bool>& cancel,bool artwork=false) {
     network.init();
 #ifdef __vita__
     int state=0;
@@ -80,7 +80,7 @@ std::string http(Network& network,const std::string& assets,const std::string& s
 #endif
     for(int redirect=0;redirect<6;++redirect) {
         if(cancel) throw std::runtime_error("Canceled.");
-        if(!allowed_url(source,url)) throw std::runtime_error("Redirect left the source's allowed HTTPS hosts.");
+        if(!(artwork?allowed_cover_url(url):allowed_url(source,url))) throw std::runtime_error("Redirect left the allowed HTTPS hosts.");
         std::unique_ptr<CURL,decltype(&curl_easy_cleanup)> curl(curl_easy_init(),curl_easy_cleanup);
         if(!curl) throw std::runtime_error("Not enough memory for HTTPS.");
         auto* c=curl.get(); Transfer transfer{{},cancel};
@@ -93,8 +93,8 @@ std::string http(Network& network,const std::string& assets,const std::string& s
         curl_easy_setopt(c,CURLOPT_SSL_VERIFYPEER,1L);
         curl_easy_setopt(c,CURLOPT_SSL_VERIFYHOST,2L);
         curl_easy_setopt(c,CURLOPT_SSLVERSION,CURL_SSLVERSION_TLSv1_2);
-        curl_easy_setopt(c,CURLOPT_CONNECTTIMEOUT,15L);
-        curl_easy_setopt(c,CURLOPT_TIMEOUT,40L);
+        curl_easy_setopt(c,CURLOPT_CONNECTTIMEOUT,artwork?5L:15L);
+        curl_easy_setopt(c,CURLOPT_TIMEOUT,artwork?10L:40L);
         curl_easy_setopt(c,CURLOPT_NOSIGNAL,1L);
         curl_easy_setopt(c,CURLOPT_WRITEFUNCTION,write); curl_easy_setopt(c,CURLOPT_WRITEDATA,&transfer);
         curl_easy_setopt(c,CURLOPT_NOPROGRESS,0L); curl_easy_setopt(c,CURLOPT_XFERINFOFUNCTION,progress); curl_easy_setopt(c,CURLOPT_XFERINFODATA,&transfer);
@@ -146,6 +146,7 @@ struct Service::Impl {
                     status(pages.size(),0,"Loading chapter list, page "+std::to_string(pages.size())+"...");
                     auto page=run("chapters",url);
                     if(novel.title.empty()) { novel.title=page.title; novel.author=page.author; novel.description=page.description; }
+                    if(novel.cover.empty())novel.cover=page.cover;
                     for(auto& c:page.items) if(chapters.insert(c.url).second) novel.chapters.push_back(std::move(c));
                     if(novel.chapters.size()>20000) throw std::runtime_error("Novel exceeds 20,000 chapters.");
                     url=page.next;
@@ -153,6 +154,18 @@ struct Service::Impl {
                 if(novel.title.empty() || novel.chapters.empty()) throw std::runtime_error("Novel details or chapters unavailable. Source layout may have changed.");
                 auto path=novel_path(directory,novel); directories(directory+'/'+novel.source);
                 if(!save_novel(path,novel)) throw std::runtime_error("Could not save novel index. Check free space.");
+                if(!novel.cover.empty()) {
+                    status(0,0,"Loading cover artwork...");
+                    // Optional artwork is downloaded on this worker only. A
+                    // failed image must never prevent opening a novel.
+                    try {
+                        auto bytes=transport?transport(novel.cover):http(network,assets,request.source,novel.cover,canceled,true);
+                        ImageInfo info;std::string error;
+                        if(!canceled && bytes.size()<=max_response_bytes && inspect_image(bytes,info,error))
+                            atomic_write(cover_path(path),bytes);
+                    } catch(const std::exception&) {}
+                    if(canceled)throw std::runtime_error("Canceled.");
+                }
                 result.novel=std::move(novel); result.manifest=path;
             } else {
                 auto novel=request.novel;
