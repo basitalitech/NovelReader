@@ -45,7 +45,7 @@ inline Rect settings_row(int index) { return {232,80+index*60,376,56}; }
 inline Rect bookmark_row(int index) { return {232,100+index*104,704,96}; }
 inline Rect about_action(int index) { return {638,154+index*72,286,56}; }
 inline Rect contents_row(int index) { return {288,136+index*64,648,56}; }
-inline Rect details_cover() { return {24,72,240,360}; }
+inline Rect details_cover() { return {24,72,240,380}; }
 inline Rect details_primary(bool online) { return {288,online?352:396,248,56}; }
 inline Rect details_secondary(bool online) { return {552,online?352:396,148,56}; }
 inline Rect details_utility(int index) { return {288+index*212,416,200,56}; }

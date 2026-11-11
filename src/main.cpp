@@ -1238,8 +1238,8 @@ private:
     void show_add_book() {
         focus_memory_.erase(100);
         add_book_menu_=true;
-        menu_title_="Add Book";
-        menu_={{"Import from Device",0,Command::Import},{"Browse Online",0,Command::Online}};
+        menu_title_="Add a new book";
+        menu_={{"Import books",0,Command::Import},{"Online novels",0,Command::Online}};
         menu_selected_=0;++folder_revision_;
     }
     void show_sort() {
@@ -1287,15 +1287,16 @@ private:
         }
     }
     void show_more() {
+        if(screen_==Screen::Home)return;
         add_book_menu_=false;
         focus_memory_.erase(100);
         menu_title_ = screen_ == Screen::Reader ? "Reading controls" : "Options";
         if (screen_ == Screen::Library && importing_) {
-            menu_={{"Back",SCE_CTRL_CIRCLE},{"Refresh folder",SCE_CTRL_TRIANGLE},{"Sort files",0,Command::Sort},{"Save and exit",SCE_CTRL_START}};
+            menu_={{"Back",SCE_CTRL_CIRCLE},{"Refresh folder",SCE_CTRL_TRIANGLE},{"Sort files",0,Command::Sort}};
         } else if (screen_ == Screen::Library) {
-            menu_={{"Continue reading",0,Command::Resume,reader::ui::recent_book(entries_)<entries_.size()},
-                {"Book details",0,Command::Details,!order_.empty()},
-                {"Import books",0,Command::Import},{"Online novels",0,Command::Online},{"Sort books",0,Command::Sort},{"Search library",0,Command::Search}};
+            menu_={{"Book details",0,Command::Details,!order_.empty()},
+                {"Search Library",0,Command::Search},{"Sort and Filter",0,Command::Sort},
+                {"Add a new book",0,Command::AddBook},{"Save and exit app",0,Command::Exit}};
         } else if (screen_ == Screen::Reader) {
             menu_={{"Read aloud",0,Command::Speech},{"Contents",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reading settings",0,Command::Appearance},{"Save bookmark",0,Command::SaveBookmark},
                 {"Go to bookmark",SCE_CTRL_SELECT,Command::Button,progress_.has_bookmark},{"All bookmarks",0,Command::Bookmarks},{publication_.online?"Back to chapters":"Back to library",SCE_CTRL_CIRCLE},
@@ -1303,7 +1304,7 @@ private:
         } else if (screen_ == Screen::Catalog) {
             menu_={{"Search",SCE_CTRL_SQUARE},{online_catalog_.next.empty()?"Reload catalog":"Next catalog page",SCE_CTRL_TRIANGLE},{"Initial catalog",SCE_CTRL_SELECT}};
         } else if (screen_ == Screen::Novel) {
-            menu_={{online_started_?"Resume reading":"Start reading",SCE_CTRL_SELECT},{"Chapters",SCE_CTRL_CROSS},
+            menu_={{"Chapters",SCE_CTRL_CROSS},
                 {in_library()?"In your library":"Add to library",SCE_CTRL_SQUARE,Command::Button,!in_library()},
                 {"Download all",0,Command::DownloadAll},{"Refresh chapters",SCE_CTRL_TRIANGLE}};
             if(in_library())menu_.push_back({"Remove from library",0,Command::RemoveBook});
@@ -1317,23 +1318,20 @@ private:
             menu_={{"Zoom in",SCE_CTRL_CROSS,Command::Button,zoom_<4},{"Zoom out",SCE_CTRL_SQUARE,Command::Button,zoom_>1},{"Fit image",SCE_CTRL_TRIANGLE},
                 {"Previous image",SCE_CTRL_LTRIGGER,Command::Button,illustration_selected_>0},{"Next image",SCE_CTRL_RTRIGGER,Command::Button,illustration_selected_+1<book_.illustrations.size()},{"Back",SCE_CTRL_CIRCLE}};
         } else if(screen_==Screen::Book) {
-            const bool available=!order_.empty() && entries_[order_[selected_]].error.empty();
-            menu_={{"Read book",SCE_CTRL_CROSS,Command::Button,available},{"Full title",0,Command::FullTitle},
-                {"Save bookmark",0,Command::BookBookmark,available},
+            menu_={{"Full title",0,Command::FullTitle},
                 {"Remove from library",0,Command::RemoveBook,!order_.empty() && !entries_[order_[selected_]].guide},
                 {"Back to library",SCE_CTRL_CIRCLE}};
         } else if(screen_==Screen::Settings) {
             menu_={{"Apply changes",0,Command::ApplySettings},{"Cancel changes",0,Command::CancelSettings},
                 {"Reset reading settings",0,Command::ResetSettings}};
-        } else if (screen_==Screen::Home || screen_==Screen::About) {
+        } else if (screen_==Screen::About) {
             menu_={{"Library",0,Command::Library},
                 {"Reading settings",0,Command::Appearance},{"Bookmarks",0,Command::Bookmarks}};
         } else if (screen_==Screen::Bookmarks) {
             menu_={{"Open",SCE_CTRL_CROSS,Command::Button,!bookmarks().empty()},
                 {"Remove",0,Command::DeleteBookmark,!bookmarks().empty()}};
         } else { menu_={{"Back",SCE_CTRL_CIRCLE},{"Home",0,Command::Home}}; }
-        for (auto& action:menu_) if (action.button==SCE_CTRL_START) {action.button=0;action.command=Command::Exit;}
-        if (screen_!=Screen::Bookmarks && std::none_of(menu_.begin(),menu_.end(),[](const Action& action){return action.command==Command::Exit;}))
+        if (screen_==Screen::Reader)
             menu_.push_back({"Save and exit",0,Command::Exit});
         if (retry_available_ && (is_online_screen() || screen_ == Screen::Reader)) menu_.insert(menu_.begin(),{"Retry request",0,Command::Retry});
         menu_selected_=0; ++folder_revision_;
@@ -1568,7 +1566,7 @@ private:
             return {select,{"Back",SCE_CTRL_CIRCLE},
                 {"Add to Library",SCE_CTRL_SQUARE,Command::Button,!in_library()},options};
         }
-        if(screen_==Screen::Home)return {{reader::ui::recent_book(entries_)<entries_.size()?"Continue":"Library",SCE_CTRL_CROSS},options};
+        if(screen_==Screen::Home)return {{reader::ui::recent_book(entries_)<entries_.size()?"Continue":"Library",SCE_CTRL_CROSS}};
         return {{screen_==Screen::About?"Select":"Open",SCE_CTRL_CROSS},{"Back",SCE_CTRL_CIRCLE},options};
     }
 
@@ -1924,14 +1922,14 @@ private:
     }
     reader::ui::Rect toolbar_rect(const std::vector<Action>& actions,int index) const {
         const int count=static_cast<int>(actions.size());
-        if(screen_==Screen::Home && menu_.empty() && !feedback_active() && !online_busy_ && count==2)
-            return index==0?reader::ui::Rect{28,484,240,56}:reader::ui::Rect{776,484,156,56};
+        if(screen_==Screen::Home && menu_.empty() && !feedback_active() && !online_busy_ && count==1)
+            return {28,484,240,56};
         if((screen_==Screen::Reader || screen_==Screen::Image) && !feedback_active() && !online_busy_ && count==3) {
             const reader::ui::Rect boxes[]={{28,484,170,56},{228,484,150,56},{776,484,156,56}};
             return boxes[index];
         }
         if(screen_==Screen::Library && !importing_ && menu_.empty() && !online_busy_ && count==5) {
-            const reader::ui::Rect boxes[]={{28,484,132,56},{168,484,232,56},{408,484,152,56},{568,484,152,56},{776,484,156,56}};
+            const reader::ui::Rect boxes[]={{28,484,132,56},{188,484,212,56},{408,484,152,56},{568,484,152,56},{776,484,156,56}};
             return boxes[index];
         }
         if(screen_==Screen::Novel && menu_.empty() && !feedback_active() && !online_busy_ && count==4) {
@@ -2009,7 +2007,7 @@ private:
         }
     }
     static bool menu_opens_submenu(Command command) {
-        return command==Command::Sort || command==Command::Speech || command==Command::RemoveBook || command==Command::DeleteBookmark;
+        return command==Command::Sort || command==Command::AddBook || command==Command::Speech || command==Command::RemoveBook || command==Command::DeleteBookmark;
     }
     bool menu_option_active(Command command) const {
         return (command==Command::SortTitle && sort_==reader::LibrarySort::Title) ||
@@ -2753,7 +2751,7 @@ private:
             reader::LibraryItem fallback;fallback.title=publication_.title;
             draw_cover(fallback,cover.x,cover.y,cover.width,cover.height);
         }
-        text(288,96,palette().text,1.15f,online?"Chapters":"Table of Contents",440,reader::FontRole::Heading);
+        text(288,96,palette().text,1.15f,"Chapters",440,reader::FontRole::Heading);
         text(288,122,palette().muted,0.8f,online?online_novel_.title:publication_.title,648);
         const auto first=selected/reader::ui::contents_page_size*reader::ui::contents_page_size;
         for(auto i=first;i<count && i<first+reader::ui::contents_page_size;++i) {

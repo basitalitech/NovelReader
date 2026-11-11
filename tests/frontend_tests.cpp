@@ -91,6 +91,11 @@ struct FrontendTest {
         tap(300,300);check(app.screen_==Screen::Book && app.selected_==4,"Touch opened wrong scrolled card");
         app.normalize_focus();check(app.widgets().size()==2 && app.toolbar()[0].label=="Select" && app.toolbar()[0].enabled,
             "Book details retained Bookmark or lost the Select hint");
+        app.show_more();
+        check(app.menu_.size()==3 && app.menu_[0].command==Command::FullTitle &&
+              app.menu_[1].command==Command::RemoveBook && app.menu_[2].button==SCE_CTRL_CIRCLE,
+              "Book details Options retained reading, bookmark or exit actions");
+        app.input(SCE_CTRL_CIRCLE);
         reader::font_draws.clear();reader::capture_font_draws=true;app.draw_frame();reader::capture_font_draws=false;
         int formats=0;
         for(const auto& draw:reader::font_draws)if(draw.text=="TXT") {++formats;check(draw.x==730,"Duplicate format badge remains below the author");}
@@ -322,7 +327,13 @@ struct FrontendTest {
         check(online.toolbar()[0].label=="Select" && online.toolbar()[0].enabled &&
               online.toolbar()[2].label=="Add to Library" && !online.toolbar()[2].enabled,"Details footer labels or saved-book dimming changed");
         const auto enlarged=reader::ui::details_cover();
-        check(enlarged.width>198 && enlarged.height>280 && enlarged.y<106,"Shared details artwork was not enlarged or moved up");
+        check(enlarged.width>198 && enlarged.y==72 && enlarged.y+enlarged.height==452,
+              "Shared details artwork does not align with the progress card");
+        online.show_more();
+        for(const auto& action:online.menu_)
+            check(action.button!=SCE_CTRL_SELECT && action.command!=Command::Exit,
+                  "Online details Options retained reading or exit actions");
+        online.input(SCE_CTRL_CIRCLE);
         check(online.widgets().size()==5,"Unified online details lost description or actions");
         const auto chapters=reader::ui::details_secondary(true);
         online.gesture({reader::controls::GestureKind::Tap,float(chapters.x+50),float(chapters.y+28)});
@@ -479,6 +490,8 @@ struct FrontendTest {
         check(startup_titles==4 && startup_subtitles==4,"Startup stages must show the title and author");
         check(app.screen_==Screen::Home && app.needs_redraw(),"Startup did not hand off to Home");
         app.message_.clear();app.sidebar_focus_=false;app.focus_memory_.clear();
+        check(app.toolbar().size()==1 && app.toolbar()[0].button==SCE_CTRL_CROSS,"Home retains the Options hint");
+        app.input(SCE_CTRL_START);check(app.menu_.empty(),"Home START still opens Options");
         verify_graph(app);
         for(const auto key:{SCE_CTRL_LEFT,SCE_CTRL_RIGHT,SCE_CTRL_UP,SCE_CTRL_DOWN})for(int i=0;i<8;++i)app.input(key);
         check(app.screen_==Screen::Home && app.nav_active_==0 && focus(app)==1000,"D-pad left Home content");
@@ -648,13 +661,22 @@ struct FrontendTest {
         app.show_more();app.input(SCE_CTRL_DOWN);app.input(SCE_CTRL_DOWN);
         check(app.menu_selected_==2,"Popup Down is not vertical");
         app.input(SCE_CTRL_UP);check(app.menu_selected_==1,"Popup Up skipped an enabled action");
-        app.set_focus(2004);app.input(SCE_CTRL_CROSS);
+        app.set_focus(2002);app.input(SCE_CTRL_CROSS);
         check(app.menu_title_=="Sort and filter books" && app.menu_parents_.size()==1,"Sort submenu lost its parent");
         check(app.menu_option_active(Command::SortTitle)==(app.sort_==reader::LibrarySort::Title) &&
               app.menu_option_active(Command::FilterAll)==(app.filter_==reader::LibraryFilter::All),"Active choices are not marked");
         const auto back=app.menu_layout().back();
         tap.x=back.x+16;tap.y=back.y+16;app.gesture(tap);
-        check(app.menu_title_=="Options" && app.menu_selected_==4,"Submenu arrow did not restore parent selection");
+        check(app.menu_title_=="Options" && app.menu_selected_==2,"Submenu arrow did not restore parent selection");
+        check(app.menu_.size()==5 && app.menu_[0].command==Command::Details && app.menu_[1].command==Command::Search &&
+              app.menu_[2].command==Command::Sort && app.menu_[3].command==Command::AddBook && app.menu_[4].command==Command::Exit,
+              "Library Options order changed");
+        app.set_focus(2003);app.input(SCE_CTRL_CROSS);
+        check(app.menu_title_=="Add a new book" && app.menu_parents_.size()==1 && app.menu_.size()==2 &&
+              app.menu_[0].command==Command::Import && app.menu_[1].command==Command::Online,
+              "Library Add a new book did not open the import/online submenu");
+        app.input(SCE_CTRL_CIRCLE);
+        check(app.menu_title_=="Options" && app.menu_selected_==3,"Add book Back did not restore Library Options");
         tap.x=300;tap.y=200;app.gesture(tap);
         check(app.menu_.empty() && app.screen_==Screen::Library && app.selected_==popup_selected && app.library_scroll_==popup_scroll,
               "Outside dismissal activated a book or lost Library state");
