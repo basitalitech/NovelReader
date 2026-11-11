@@ -9,7 +9,7 @@
 #include <thread>
 
 namespace reader {
-struct FontDraw { FontRole role; unsigned pixels,color; int x,y; std::string text; };
+struct FontDraw { FontRole role; unsigned pixels,color; int x,y; std::string text; bool offscreen; };
 bool capture_font_draws=false;
 std::vector<FontDraw> font_draws;
 struct VitaFonts::Impl {};
@@ -17,7 +17,7 @@ VitaFonts::VitaFonts(vita2d_pgf*):impl_(new Impl){}
 VitaFonts::~VitaFonts()=default;
 int VitaFonts::width(FontRole role,unsigned pixels,const std::string& text)const{return text.size()*pixels/(role==FontRole::Sans?3:2);}
 void VitaFonts::draw(FontRole role,unsigned pixels,int x,int y,unsigned color,const std::string& text)const {
-    if(capture_font_draws)font_draws.push_back({role,pixels,color,x,y,text});
+    if(capture_font_draws)font_draws.push_back({role,pixels,color,x,y,text,test_offscreen_drawing()});
 }
 bool VitaFonts::complete()const{return true;}
 int VitaFonts::title_width(unsigned pixels,const std::string& text)const{return width(FontRole::Heading,pixels,text);}
@@ -425,8 +425,20 @@ struct FrontendTest {
         check(reader::save_library(library_path,names),"Cache library fixture");
         check(reader::save_settings(settings_path,{}),"Cache settings fixture");
         vita2d_pgf font;App app(&font);app.message_.clear();
+        check(app.bookmark_previews_.size()==3,"Startup did not prepare the initial bookmark passages");
+        check(app.covers_.size()>=4 && app.covers_.size()<=12,"Startup did not prepare bounded Library covers");
+        check(app.focus_memory_.empty() && app.library_views_.empty(),"Startup changed navigation history");
+#ifdef NOVELREADER_PROFILE
+        reader::perf::reset();
+#endif
         app.navigate(1);app.draw();app.navigate(2);app.draw();
         check(app.bookmark_previews_.size()==3,"Visible bookmark previews were not cached");
+#ifdef NOVELREADER_PROFILE
+        for(const auto event:{reader::perf::Event::Metadata,reader::perf::Event::Chapter,
+                             reader::perf::Event::CoverDecode,reader::perf::Event::BookmarkPreview,
+                             reader::perf::Event::LibraryOrder})
+            check(reader::perf::samples()[static_cast<unsigned>(event)].calls==0,"First navigation repeated startup preparation");
+#endif
         const auto first_preview=app.bookmark_previews_.front().quote;
 #ifdef NOVELREADER_PROFILE
         reader::perf::reset();
@@ -683,14 +695,22 @@ struct FrontendTest {
         reader::font_draws.clear();reader::capture_font_draws=true;
         vita2d_pgf pgf;App app(&pgf);
         reader::capture_font_draws=false;
-        int startup_titles=0,startup_subtitles=0;
+        int startup_titles=0,startup_subtitles=0,startup_statuses=0,prepared_views=0;
         for(const auto& draw:reader::font_draws) {
+            if(draw.offscreen){++prepared_views;continue;}
             if(draw.text=="NovelReader" && draw.y==283)++startup_titles;
             if(draw.text=="by basitalitech" && draw.y==321)++startup_subtitles;
+            if(draw.y==407 && !draw.text.empty())++startup_statuses;
             check(draw.text!="Options","Startup must not show the Home footer");
         }
-        check(startup_titles==4 && startup_subtitles==4,"Startup stages must show the title and author");
+        check(startup_titles==9 && startup_subtitles==9 && startup_statuses==9,
+              "Startup stages must show branding and a task below the progress bar");
+        check(prepared_views>0 && !test_offscreen_presents(),"Startup did not keep prepared views offscreen");
         check(app.screen_==Screen::Home && app.needs_redraw(),"Startup did not hand off to Home");
+        test_render_target_failure()=true;
+        {App fallback(&pgf);check(fallback.screen_==Screen::Home && fallback.needs_redraw(),
+            "Startup target failure prevented Home from opening");}
+        test_render_target_failure()=false;
         app.message_.clear();app.sidebar_focus_=false;app.focus_memory_.clear();
         check(app.toolbar().size()==1 && app.toolbar()[0].button==SCE_CTRL_CROSS,"Home retains the Options hint");
         app.input(SCE_CTRL_START);check(app.menu_.empty(),"Home START still opens Options");

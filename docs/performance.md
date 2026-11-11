@@ -194,7 +194,18 @@ notice/press animation deadlines, and narration-follow/cancellation behavior.
 Compare cold and warm visits separately and inspect the diagnostic CSV after
 identical runs. No hardware CPU improvement or sub-frame transition time is claimed.
 
-Cold collection startup, first uncached bookmark previews, EPUB image decoding,
+Startup now prepares the first All books grid's thumbnails, the first three
+bookmark excerpts, and text resources for the five sidebar screens while the
+loading screen remains visible. One temporary 960 × 544 render target warms the
+actual screen drawing paths without presenting those frames or changing focus
+history, saved reading progress, or settings. Each hidden frame completes before
+the target is reused, and the target is released before Home appears. If target
+allocation fails, thumbnail and excerpt preparation still runs; text resources
+then initialize on demand. Task labels below the startup bar describe each stage;
+metadata progress also reports the completed/total book count for large libraries.
+The existing 12-thumbnail and 24-excerpt cache bounds remain in effect.
+
+Cold collection startup, later uncached bookmark previews, EPUB image decoding,
 book/chapter loading, and font-setting reflow still run synchronously. Active
 narration cancellation still joins its existing worker; its worst-case hardware
 latency has not been measured. Those paths have timings for further targeted

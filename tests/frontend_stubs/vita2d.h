@@ -31,7 +31,9 @@ inline void vita2d_draw_array_textured(const vita2d_texture*,SceGxmPrimitiveType
 inline vita2d_texture* vita2d_create_empty_texture_rendertarget(unsigned,unsigned,int){
     static vita2d_texture texture;return test_render_target_failure()?nullptr:&texture;
 }
-template<class... T> void vita2d_start_drawing_advanced(T...){}
+inline bool& test_offscreen_drawing(){static bool value=false;return value;}
+inline unsigned& test_offscreen_presents(){static unsigned value=0;return value;}
+template<class... T> void vita2d_start_drawing_advanced(T...){test_offscreen_drawing()=true;}
 template<class... T> void vita2d_draw_texture_part(T...){++test_texture_parts();}
 template<class... T> void vita2d_draw_texture_tint_part_scale(T...){++test_texture_parts();}
 inline vita2d_texture* vita2d_load_PNG_file(const char*){return nullptr;}
@@ -39,11 +41,11 @@ inline void vita2d_free_texture(vita2d_texture*){}
 inline int vita2d_texture_get_width(const vita2d_texture*){return 100;}
 inline int vita2d_texture_get_height(const vita2d_texture*){return 160;}
 template<class... T> void vita2d_set_clear_color(T...){}
-template<class... T> void vita2d_start_drawing(T...){}
+template<class... T> void vita2d_start_drawing(T...){test_offscreen_drawing()=false;}
 template<class... T> void vita2d_clear_screen(T...){}
 template<class... T> void vita2d_end_drawing(T...){}
 template<class... T> void vita2d_common_dialog_update(T...){}
-template<class... T> void vita2d_swap_buffers(T...){}
+template<class... T> void vita2d_swap_buffers(T...){if(test_offscreen_drawing())++test_offscreen_presents();}
 template<class... T> void vita2d_wait_rendering_done(T...){}
 template<class... T> void vita2d_draw_rectangle(T...){}
 template<class... T> void vita2d_draw_line(T...){}

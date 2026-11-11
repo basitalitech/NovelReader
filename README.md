@@ -68,9 +68,13 @@ top of the sidebar and use the full content height. Other screens retain the
 top application bar; immersive reading continues to hide it.
 
 Startup shows the full-screen moonlit background, the app logo, **NovelReader**,
-and **by basitalitech**, with a purple progress bar beneath. Progress follows
-library loading, book metadata, and cover preparation before Home appears.
-Large libraries update the bar during metadata loading; startup adds no timed delay.
+and **by basitalitech**, with a purple progress bar beneath and the current task
+below it. Startup loads library metadata, prepares the first Library grid's cover
+thumbnails and the first three bookmark passages, and renders Home, Library,
+Bookmarks, Settings, and About offscreen to prepare their fonts and text layouts
+before Home appears. These hidden frames are never displayed. Large libraries
+update the bar and a completed/total book count during metadata loading; startup
+adds no timed delay. Later list pages and book/chapter contents load as needed.
 
 
 Collection, header, and modal buttons share a focus registry with touch hit

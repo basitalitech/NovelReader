@@ -115,16 +115,15 @@ public:
             backdrop_.reset(vita2d_load_PNG_file("app0:/ui/moonlit.png"));
             logo_.reset(vita2d_load_PNG_file("app0:/ui/logo.png"));
         }
-        draw_startup(0.15f);
+        draw_startup(0.15f,"Loading library");
         if (!reader::load_library(library_path, library_books_)) {
             SceIoStat state{};
             library_writable_ = sceIoGetstat(library_path.c_str(), &state) < 0;
         }
-        draw_startup(0.35f);
+        draw_startup(0.25f,"Reading book metadata");
         scan({},false,true);
-        draw_startup(0.9f);
-        sync_covers();
-        draw_startup(1.f);
+        prepare_startup_views();
+        draw_startup(1.f,"Ready");
         if (!fonts_.complete()) message_ = "Some bundled fonts are unavailable. Using the system font as fallback.";
     }
     ~App() {
@@ -152,7 +151,7 @@ public:
         // The operation will still change screen/content or report an error.
         redraw_=true;
     }
-    void draw_startup(float fraction) const {
+    void draw_startup(float fraction,const std::string& status) const {
         using namespace reader::visual;
         vita2d_set_clear_color(background);
         vita2d_start_drawing();
@@ -170,9 +169,55 @@ public:
         centered("NovelReader",40,283,0xffffffffu);
         centered("by basitalitech",22,321,reader::visual::text);
         progress(320,365,320,fraction,8);
+        centered(status,20,407,reader::visual::text);
         vita2d_end_drawing();
         vita2d_swap_buffers();
         vita2d_wait_rendering_done();
+    }
+    void prepare_startup_views() {
+        // Render once into a temporary target so glyph atlases, text layouts,
+        // thumbnails and bookmark excerpts are ready before first navigation.
+        // Never present these frames: the loading screen stays on the display.
+        draw_startup(0.65f,"Preparing screen resources");
+        std::unique_ptr<vita2d_texture,TextureDeleter> target(
+            vita2d_create_empty_texture_rendertarget(960,544,SCE_GXM_TEXTURE_FORMAT_A8B8G8R8));
+        const auto saved_filter=filter_;
+        const auto keep=selected_filename();
+        const auto saved_sidebar=sidebar_focus_;
+        const Screen screens[]={Screen::Library,Screen::Bookmarks,Screen::Settings,Screen::About,Screen::Home};
+        const char* stages[]={"Preparing library covers","Preparing bookmark passages",
+            "Preparing reading settings","Preparing About","Preparing Home"};
+        // The first Library visit opens All books at the top of the grid.
+        filter_=reader::LibraryFilter::All;
+        ensure_library_order("");
+        selected_=0;library_scroll_=0;
+        sidebar_focus_=false;
+        for(std::size_t i=0;i<5;++i) {
+            draw_startup(0.65f+0.065f*i,stages[i]);
+            screen_=screens[i];
+            nav_active_=nav_selected_=i==4?0:static_cast<int>(i)+1;
+            sync_covers();
+            sync_bookmark_previews();
+            if(!target)continue; // Cache I/O even if GPU warm-up is unavailable.
+            vita2d_start_drawing_advanced(target.get(),0);
+            vita2d_clear_screen();
+            draw_background();draw_sidebar();
+            if(screen_==Screen::Library)draw_library();
+            else if(screen_==Screen::Bookmarks)draw_bookmarks();
+            else if(screen_==Screen::Settings)draw_settings();
+            else if(screen_==Screen::About)draw_about();
+            else draw_home();
+            interface_layer_=true;
+            draw_chrome();draw_toolbar();
+            interface_layer_=false;
+            vita2d_end_drawing();
+            // Complete GPU use before reusing/freeing the target or its assets.
+            vita2d_wait_rendering_done();
+        }
+        screen_=Screen::Home;nav_active_=nav_selected_=0;
+        sidebar_focus_=saved_sidebar;
+        filter_=saved_filter;
+        restore_library_selection(keep);
     }
     bool needs_redraw() {
         const auto now=sceKernelGetProcessTimeWide();
@@ -2591,7 +2636,8 @@ private:
                     const auto now=sceKernelGetProcessTimeWide();
                     // Keep large libraries responsive without adding a frame per book.
                     if(now-last_progress>=100000) {
-                        draw_startup(0.35f+0.5f*loaded/library_books_.size());
+                        draw_startup(0.25f+0.4f*loaded/library_books_.size(),
+                            "Reading book metadata ("+std::to_string(loaded)+"/"+std::to_string(library_books_.size())+")");
                         last_progress=now;
                     }
                 }
