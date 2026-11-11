@@ -43,7 +43,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Image viewer | Cross: zoom in; Square: zoom out; D-pad: pan; Triangle: fit image |
 | Image viewer | Left stick: smooth pan; right stick up/down: smooth zoom |
 | Image viewer | L/R: previous/next image in chapter; Circle: illustration list |
-| Reader | START → Save bookmark (or hold page); Select: jump to bookmark |
+| Reader | START → Bookmarks → Save bookmark (or hold page); Select: jump to bookmark |
 | Reader | Cross: Contents; Triangle: Bookmarks; Square: font settings; Circle: library/online chapters |
 | Settings | D-pad: select rows; Left/Right: adjust; Cross: apply; Circle: cancel; Select: reset |
 | All screens | Start: options; Options → Save and exit |
@@ -111,13 +111,14 @@ It draws START/SELECT/L/R as ASCII text inside the button backgrounds, without r
 on symbol glyphs. The component clips long labels to the supplied width.
 In Settings, Left/Right adjusts the selected value; Up from Typeface stays on
 that row. Cross applies, Circle cancels, and Select resets the preview.
-Reading Settings groups its five rows in one charcoal panel with subtle dividers
+Reader Settings groups its five rows in one charcoal panel with subtle dividers
 and a lavender outline around the focused row. Font size and line spacing use
 three-step sliders. Page theme uses a text selector for Night, Paper, and Sepia,
 without colored boxes. Touch a slider position or the selector arrows to adjust.
 Typeface, Page theme, and Page effect use left/right selectors. Page effect offers **Page Curl**,
 **Slide and Fade**, and **None**; Apply saves the choice, Cancel discards changes,
-and Reset restores Slide and Fade. Existing saves also default to Slide and Fade.
+and Reset restores Slide and Fade. Successful Apply shows a confirmation popup.
+Existing saves also default to Slide and Fade.
 The adjacent live page preview reflects
 the typeface, size, spacing, and theme, without reading bars. Reading view is
 controlled from the reader's Show/Hide reading bar action. Contextual help below
@@ -135,6 +136,7 @@ contributors. **License** summarizes dependency licenses and the locations of
 the full notices packaged under `app0:/licenses/` and `app0:/fonts/`.
 Long messages have Previous/Next buttons and a page count; use Left/Right or touch
 to read every page, and Circle or Dismiss to close.
+About has no Options menu; START leaves its actions visible.
 
 **Home** opens on a moonlit reading scene, with one large Continue Reading card.
 The narrower, dark translucent card leaves more of the artwork visible, with a
@@ -180,7 +182,7 @@ progress are deleted. Download cleanup runs on the existing background worker.
 bar, and bottom shortcut legend. Existing saved reading-view preferences are kept.
 Tap the center of the reading area to hide or show all reading bars; this keeps
 the current text/image anchor and saves the view preference. Center taps do not
-open Reading controls. Page turns use the effect chosen in Reading Settings for
+open Reading controls. Page turns use the effect chosen in Reader Settings for
 buttons, edge taps, and horizontal swipes, including chapter boundaries. Page Curl
 rolls a shaded, curved fold across the **entire 960 × 544 screen**, including the
 margins and visible reading bars. Forward turns lift the bottom-right corner;
@@ -202,9 +204,10 @@ The curl reuses one outgoing-page render texture. Its fixed-size geometry uses
 loading in the fold renderer. Texture allocation failure falls back to Slide and
 Fade; frame-pool exhaustion uses a bounded whole-page fade. See the
 [curl performance notes](docs/performance.md#full-screen-corner-curl).
-START opens Reading controls, Cross opens Contents, Triangle opens Bookmarks, Square opens Reading
-Settings, and Circle returns to Library (or online chapters). The control panel contains Contents, Illustrations, Reading Settings, Save bookmark,
-Go to bookmark, All bookmarks, and Show/Hide reading bar. Select still jumps directly to the saved bookmark. Hold and release on the
+START opens Reading controls, Cross opens Chapters, Triangle opens Bookmarks, Square opens Reading
+Settings, and Circle returns to Library (or online chapters). The control panel contains Chapters, Illustrations, Reader Settings,
+a Bookmarks submenu (Save bookmark, Go to bookmark, All bookmarks), and Show/Hide reading bar.
+Select still jumps directly to the saved bookmark. Hold and release on the
 reading area to save one. Inline illustrations expand into inspection within the reader. Control
 panels overlay the page without reflowing; changing the reading view or font
 reflows around the same text/image anchor.
@@ -214,6 +217,8 @@ sentence on screen, skips illustration markers, and uses the existing reading
 progress when saving or leaving the reader. Opening another chapter or leaving
 the reading screen stops narration. English is the initial supported voice;
 narration stops at chapter end, and speed changes take effect at the next sentence.
+Slower and Faster show the resulting speed after their 25 WPM adjustment, bounded
+between 100 and 350 WPM; an action at its limit is disabled.
 
 Narration playback uses alternating device buffers and a short audio queue.
 Playback starts after about 0.25 seconds of audio is ready, allowing synthesis
@@ -239,7 +244,7 @@ START Options contains only Open and Remove; Remove opens a confirmation submenu
 that defaults to Keep. Square has no delete action. There is still one bookmark per book.
 Online bookmark jumps use the existing chapter download/retry flow.
 
-**Reading Settings** is available from Home or Reader, with font, size and spacing
+**Reader Settings** is available from Home or Reader, with font, size and spacing
 controls, Night/Paper/Sepia choices, reading view, and a live sample. Left/Right
 adjusts the selected row; touch controls adjust the corresponding value. Apply saves changes and returns to the previous screen; Cancel or Circle discards
 them. Select or Reset restores reading defaults in the preview until Apply.

@@ -183,7 +183,7 @@ The reading/viewing surface shows shortcut hints rather than touch-only button
 rows that controller focus cannot reach. Interactive buttons appear in the
 control panel, where D-pad means focus movement. Circle closes the panel and
 returns to the same text/image position. Reading controls include Contents,
-Illustrations, Bookmarks, Save bookmark, Reading Settings, reading-view toggle,
+Illustrations, Bookmarks, Save bookmark, Reader Settings, reading-view toggle,
 and return to the originating collection. The illustration list supports
 controller selection of every image.
 
@@ -200,7 +200,7 @@ keyboard shortcuts. Multi-page menus retain a connected navigation path.
 | Bookmarks | Readable book/chapter/passage rows; Open and Remove available through focused actions. Empty state provides a route to Library. |
 | Online sources/catalog | Large rows plus labeled Search and page/reload actions; preserve catalog/query position on return from details. |
 | Online novel/chapters | Labeled Read/Resume, Save, Chapters, Download, and Refresh actions, grouped without squeezing six buttons into one footer. Description scrolling is separate from action focus. |
-| Reading Settings | Focusable typeface, size, spacing, theme, and reading-view rows; Left/Right adjusts values. Explicit Apply, Cancel, and Reset actions. Circle cancels uncommitted changes. |
+| Reader Settings | Focusable typeface, size, spacing, theme, and reading-view rows; Left/Right adjusts values. Explicit Apply, Cancel, and Reset actions. Circle cancels uncommitted changes. |
 | About | Readable app information and labeled Credits/Licenses controls, both reachable by D-pad. |
 | Loading/error/confirmation panels | Focus moves into the panel; background actions stop responding. Cancel, Retry, Dismiss, and confirmation choices have explicit focus paths. Closing restores focus. |
 

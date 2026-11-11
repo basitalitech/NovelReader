@@ -80,7 +80,7 @@ enum class Command { Button, More, Sort, Jump, Immersive, Resume, Retry, Appeara
     ApplySettings, CancelSettings, ResetSettings, Illustrations, FullTitle, AddBook,
     Speech, SpeechToggle, SpeechStop, SpeechSlower, SpeechFaster, SaveBookmark, Dismiss,
     CloseMenu, ReadOnline, OnlineContents, LocalContents, ConfirmDeleteBookmark,
-    CheckUpdates, FeedbackPrevious, FeedbackNext };
+    CheckUpdates, FeedbackPrevious, FeedbackNext, BookmarkActions };
 struct Action {
     std::string label;
     unsigned button;
@@ -190,7 +190,7 @@ public:
         const auto saved_sidebar=sidebar_focus_;
         const Screen screens[]={Screen::Library,Screen::Bookmarks,Screen::Settings,Screen::About,Screen::Home};
         const char* stages[]={"Preparing library covers","Preparing bookmark passages",
-            "Preparing reading settings","Preparing About","Preparing Home"};
+            "Preparing reader settings","Preparing About","Preparing Home"};
         // The first Library visit opens All books at the top of the grid.
         filter_=reader::LibraryFilter::All;
         ensure_library_order("");
@@ -469,7 +469,7 @@ public:
                         if (progress_.bookmark_chapter == chapter_) {
                             top_ = reader::block_at_offset(lines_, progress_.bookmark); changed = true;
                         } else changed = change_chapter(progress_.bookmark_chapter, progress_.bookmark) || changed;
-                    } else message_ = "Open Reading controls to save a bookmark.";
+                    } else message_ = "Open Reading controls → Bookmarks to save a bookmark.";
                 }
                 if (changed) save();
             }
@@ -951,9 +951,13 @@ private:
     }
     void cancel_settings() { settings_=previous_settings_; immersive_=settings_.immersive!=0; }
     void finish_settings(bool apply) {
-        if(apply)apply_settings();else cancel_settings();
+        const bool applied=apply && apply_settings();
+        if(!apply)cancel_settings();
         screen_=settings_return_;nav_active_=nav_selected_=settings_nav_return_;
         sidebar_focus_=settings_sidebar_return_;
+        if(applied && (message_.empty() || message_==notice_)) {
+            retry_available_=false;message_="Reader Settings applied.";
+        }
     }
     bool activate(const Widget& control) {
         switch(control.kind) {
@@ -1080,7 +1084,8 @@ private:
         save(); clear_reading(); release_image();
         screen_=Screen::Library; importing_=true; sidebar_focus_=false; browse_folder("");
     }
-    void apply_settings() {
+    bool apply_settings() {
+        bool applied=true;
         immersive_=settings_.immersive!=0;
         if (!lines_.empty()) {
             const auto offset=lines_[top_].offset;
@@ -1088,13 +1093,17 @@ private:
             catch (const std::exception&) {
                 settings_=previous_settings_; immersive_=settings_.immersive!=0;
                 message_="Layout too large. Previous settings restored.";
+                applied=false;
             }
             save();
         }
         if(settings_.page_effect!=static_cast<int>(reader::PageEffect::PageCurl)) {
             vita2d_wait_rendering_done();turn_page_.reset();
         }
-        if (!reader::save_settings(settings_path,settings_)) message_="Could not save settings. Check storage.";
+        if (!reader::save_settings(settings_path,settings_)) {
+            message_="Could not save settings. Check storage.";applied=false;
+        }
+        return applied;
     }
     void navigate(int destination) {
         const reader::perf::Scope timing(reader::perf::Event::Navigation);
@@ -1361,7 +1370,7 @@ private:
         if (marks.empty()) {
             icon(Icon::Bookmark,576,255,palette().accent,2);
             this->text(395,325,palette().text,1.f,"Keep a favorite passage.",450,reader::FontRole::Heading);
-            this->text(296,363,palette().muted,0.8f,"Reading controls → Save bookmark keeps your place.",616);
+            this->text(296,363,palette().muted,0.8f,"Reading controls → Bookmarks → Save bookmark keeps your place.",616);
         }
     }
     void draw_about() const {
@@ -1432,8 +1441,8 @@ private:
         const bool paused = state == reader::speech::State::Paused;
         menu_ = {{playing ? "Pause narration" : paused ? "Resume narration" : "Start here",0,Command::SpeechToggle,!lines_.empty()},
             {"Stop narration",0,Command::SpeechStop,playing || paused},
-            {"Slower ("+std::to_string(settings_.speech_rate)+" wpm)",0,Command::SpeechSlower,settings_.speech_rate>100},
-            {"Faster ("+std::to_string(settings_.speech_rate)+" wpm)",0,Command::SpeechFaster,settings_.speech_rate<350}};
+            {"Slower ("+std::to_string(std::max(100,settings_.speech_rate-25))+" wpm)",0,Command::SpeechSlower,settings_.speech_rate>100},
+            {"Faster ("+std::to_string(std::min(350,settings_.speech_rate+25))+" wpm)",0,Command::SpeechFaster,settings_.speech_rate<350}};
         menu_selected_=0; ++folder_revision_;
     }
     void tick_speech() {
@@ -1461,7 +1470,7 @@ private:
         }
     }
     void show_more() {
-        if(screen_==Screen::Home)return;
+        if(screen_==Screen::Home || screen_==Screen::About)return;
         add_book_menu_=false;
         focus_memory_.erase(100);
         menu_title_ = screen_ == Screen::Reader ? "Reading controls" : "Options";
@@ -1472,8 +1481,8 @@ private:
                 {"Search Library",0,Command::Search},{"Sort and Filter",0,Command::Sort},
                 {"Add a new book",0,Command::AddBook},{"Save and exit app",0,Command::Exit}};
         } else if (screen_ == Screen::Reader) {
-            menu_={{"Read aloud (TTS)",0,Command::Speech},{"Contents",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reading settings",0,Command::Appearance},{"Save bookmark",0,Command::SaveBookmark},
-                {"Go to bookmark",SCE_CTRL_SELECT,Command::Button,progress_.has_bookmark},{"All bookmarks",0,Command::Bookmarks},{publication_.online?"Back to chapters":"Back to library",SCE_CTRL_CIRCLE},
+            menu_={{"Read aloud (TTS)",0,Command::Speech},{"Chapters",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reader Settings",0,Command::Appearance},{"Bookmarks",0,Command::BookmarkActions},
+                {publication_.online?"Back to chapters":"Back to library",SCE_CTRL_CIRCLE},
                 {immersive_ ? "Show reading bar" : "Hide reading bar",0,Command::Immersive}};
         } else if (screen_ == Screen::Catalog) {
             menu_={{"Search",SCE_CTRL_SQUARE},{online_catalog_.next.empty()?"Reload catalog":"Next catalog page",SCE_CTRL_TRIANGLE},{"Initial catalog",SCE_CTRL_SELECT}};
@@ -1497,10 +1506,7 @@ private:
                 {"Back to library",SCE_CTRL_CIRCLE}};
         } else if(screen_==Screen::Settings) {
             menu_={{"Apply changes",0,Command::ApplySettings},{"Cancel changes",0,Command::CancelSettings},
-                {"Reset reading settings",0,Command::ResetSettings}};
-        } else if (screen_==Screen::About) {
-            menu_={{"Library",0,Command::Library},
-                {"Reading settings",0,Command::Appearance},{"Bookmarks",0,Command::Bookmarks}};
+                {"Reset reader settings",0,Command::ResetSettings}};
         } else if (screen_==Screen::Bookmarks) {
             menu_={{"Open",SCE_CTRL_CROSS,Command::Button,!bookmarks().empty()},
                 {"Remove",0,Command::DeleteBookmark,!bookmarks().empty()}};
@@ -1538,6 +1544,12 @@ private:
             }
             break;
         case Command::Speech: show_speech(); break;
+        case Command::BookmarkActions:
+            focus_memory_.erase(100);menu_title_="Bookmarks";
+            menu_={{"Save bookmark",0,Command::SaveBookmark},
+                {"Go to bookmark",SCE_CTRL_SELECT,Command::Button,progress_.has_bookmark},
+                {"All bookmarks",0,Command::Bookmarks}};
+            menu_selected_=0;++folder_revision_;break;
         case Command::SpeechToggle: {
             const auto state = speech_.status().state;
             if (state == reader::speech::State::Speaking) speech_.pause(true);
@@ -1751,7 +1763,8 @@ private:
                 return Action{control.action.label,SCE_CTRL_CROSS,Command::Button,control.action.enabled};
             return Action{fallback,SCE_CTRL_CROSS};
         };
-        if(screen_==Screen::Reader || screen_==Screen::Image)return {{screen_==Screen::Reader?"Contents":"Zoom in",SCE_CTRL_CROSS},
+        if(screen_==Screen::About)return {{"Select",SCE_CTRL_CROSS},{"Back",SCE_CTRL_CIRCLE}};
+        if(screen_==Screen::Reader || screen_==Screen::Image)return {{screen_==Screen::Reader?"Chapters":"Zoom in",SCE_CTRL_CROSS},
             {"Back",SCE_CTRL_CIRCLE},{screen_==Screen::Reader?"Controls":"Options",SCE_CTRL_START,Command::More}};
         if(screen_==Screen::Library && !importing_)return {confirm("Open"),
             {library_search_active_?"Clear search":"Back",SCE_CTRL_CIRCLE},{"Search",SCE_CTRL_SQUARE,Command::Search},
@@ -2134,6 +2147,15 @@ private:
     }
     reader::ui::Rect toolbar_rect(const std::vector<Action>& actions,int index) const {
         const int count=static_cast<int>(actions.size());
+        if(index==count-1 && actions[index].command==Command::More) {
+            const int width=std::max(200,reader::visual::controller_icon_width(controller_key(actions[index].button))+
+                10+fonts_.width(reader::FontRole::Interface,22,actions[index].label)+32);
+            return {932-width,484,width,56};
+        }
+        if(screen_==Screen::Settings && menu_.empty() && !feedback_active() && !online_busy_ && count==4) {
+            const reader::ui::Rect boxes[]={{28,484,170,56},{228,484,170,56},{428,484,230,56},{732,484,200,56}};
+            return boxes[index];
+        }
         if(screen_==Screen::Home && menu_.empty() && !feedback_active() && !online_busy_ && count==1)
             return {28,484,240,56};
         if((screen_==Screen::Reader || screen_==Screen::Image) && !feedback_active() && !online_busy_ && count==3) {
@@ -2219,7 +2241,7 @@ private:
         }
     }
     static bool menu_opens_submenu(Command command) {
-        return command==Command::Sort || command==Command::AddBook || command==Command::Speech || command==Command::RemoveBook || command==Command::DeleteBookmark;
+        return command==Command::Sort || command==Command::AddBook || command==Command::Speech || command==Command::BookmarkActions || command==Command::RemoveBook || command==Command::DeleteBookmark;
     }
     bool menu_option_active(Command command) const {
         return (command==Command::SortTitle && sort_==reader::LibrarySort::Title) ||
@@ -2271,7 +2293,8 @@ private:
             reader::visual::progress(box.x+24,bottom-120,box.width-48,download_total_?float(download_completed_)/download_total_:0,6);
             text(box.x+24,bottom-92,palette().muted,0.8f,download_total_?std::to_string(download_completed_)+" / "+
                 std::to_string(download_total_)+" completed":removal_busy_?"Deleting saved data...":"Connecting...",box.width-48);
-            if(!removal_busy_)button(feedback_action(false),{"Cancel",SCE_CTRL_CIRCLE});
+            if(!removal_busy_)button(feedback_action(false),{"Cancel",
+                retry_request_.action==reader::online::Action::CheckUpdates?0u:static_cast<unsigned>(SCE_CTRL_CIRCLE)});
         }
     }
 
@@ -3239,7 +3262,7 @@ private:
     }
     void draw_settings() const {
         using namespace reader::visual;
-        text(232,54,palette().text,1.23f,"Reading Settings",704,reader::FontRole::Heading);
+        text(232,54,palette().text,1.23f,"Reader Settings",704,reader::FontRole::Heading);
         const char* names[]={"Literata","Atkinson","Vita system"};
         const char* sizes[]={"22 px","26 px","30 px"};
         const char* spacing[]={"1.2","1.5","1.8"};
@@ -3304,7 +3327,6 @@ private:
         for(const auto& row:rows){if(y>bottom)break;fonts_.draw(reading_font(),reading_pixels(),676,y,paper.text,row.text);y+=line_height();}
         vita2d_disable_clipping();
         text(232,456,palette().text,0.78f,help[setting_row_],704);
-        text(232,482,palette().muted,0.68f,"Left / Right adjusts  ·  Touch sliders or arrows to select",704);
     }
 
     struct LibraryView { std::string filename,query; reader::LibraryFilter filter; bool search_active; };

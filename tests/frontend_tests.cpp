@@ -29,6 +29,19 @@ vita2d_texture* decode_thumbnail(const std::string&,unsigned,unsigned,std::strin
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 struct FrontendTest {
+    static void verify_footer_fit(App& app) {
+        const auto actions=app.toolbar();
+        int previous_right=0;
+        for(std::size_t i=0;i<actions.size();++i) {
+            const auto box=app.toolbar_rect(actions,i);
+            const auto hit=app.footer_hint_rect(box,actions[i]);
+            const auto icon=reader::visual::controller_icon_width(app.controller_key(actions[i].button));
+            const auto needed=icon+(icon?10:0)+app.fonts_.width(reader::FontRole::Interface,22,actions[i].label);
+            check(hit.width>=needed && hit.x>=previous_right && hit.x+needed<=960,
+                  "Footer clips an action or overlaps its neighbor");
+            previous_right=hit.x+needed;
+        }
+    }
     static void illustration_controls() {
         vita2d_pgf font;App app(&font);
         app.navigate(1);app.filter_=reader::LibraryFilter::All;
@@ -265,7 +278,10 @@ struct FrontendTest {
         const auto page_top=app.top_;app.input(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Contents,"Reader Cross is not Contents");
         app.input(SCE_CTRL_CIRCLE);check(app.top_==page_top,"Contents Back lost reading position");
+        verify_footer_fit(app);
         footer(SCE_CTRL_START);check(app.menu_title_=="Reading controls","Touch-only Reading controls failed");
+        check(app.menu_[1].label=="Chapters" && app.menu_[4].command==Command::BookmarkActions,
+              "Reading controls did not group bookmarks or rename Chapters");
         reader::font_draws.clear();reader::capture_font_draws=true;app.draw_frame();reader::capture_font_draws=false;
         bool select_hint=false,close_hint=false;
         for(const auto& draw:reader::font_draws) {
@@ -277,9 +293,16 @@ struct FrontendTest {
         footer(SCE_CTRL_CIRCLE);check(app.menu_title_=="Reading controls","Bottom-bar Close did not return from submenu");
         check(app.widgets().size()==app.menu_.size(),"Reader popup hides actions behind pages");
         // Save bookmark through the menu, then through a long press. Neither
-        // action should accidentally open Reading Settings.
+        // action should accidentally open Reader Settings.
         const auto bookmark_row=app.menu_layout().row(4);
-        tap(bookmark_row.x+60,bookmark_row.y+17);check(app.menu_.empty() && app.screen_==Screen::Reader && app.progress_.has_bookmark,
+        tap(bookmark_row.x+60,bookmark_row.y+17);
+        check(app.menu_title_=="Bookmarks" && app.menu_parents_.size()==1 && app.menu_.size()==3,
+              "Bookmarks did not open one submenu");
+        footer(SCE_CTRL_CIRCLE);check(app.menu_title_=="Reading controls" && app.menu_selected_==4,
+              "Bookmarks Back did not restore its parent selection");
+        footer(SCE_CTRL_CROSS);
+        const auto save_row=app.menu_layout().row(0);
+        tap(save_row.x+60,save_row.y+17);check(app.menu_.empty() && app.screen_==Screen::Reader && app.progress_.has_bookmark,
                           "Menu bookmark action did not share the bookmark operation");
         app.gesture({reader::controls::GestureKind::Hold,500,220,0,0,1,500,220});
         check(app.screen_==Screen::Reader && app.progress_.bookmark==app.lines_[app.top_].offset,"Hold saved wrong bookmark");
@@ -293,8 +316,11 @@ struct FrontendTest {
         check(app.screen_==Screen::Reader && app.settings_.reading_font==0,"Simultaneous cancel/confirm applied Settings");
         app.input(SCE_CTRL_SQUARE);tap(590,101);footer(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Reader && app.settings_.reading_font==1,"Touch-only Settings Apply failed");
+        check(app.feedback_active() && app.message_=="Reader Settings applied.","Settings Apply did not show a popup");
+        app.input(SCE_CTRL_CIRCLE);
         app.input(SCE_CTRL_SQUARE);app.input(SCE_CTRL_SQUARE);
         check(app.screen_==Screen::Settings,"Settings still has duplicate Apply buttons");
+        verify_footer_fit(app);
         // Direct controls choose their displayed value, including repeated taps.
         const auto size_track=reader::ui::settings_slider(1);
         tap(size_track.x+size_track.width-1,size_track.y+16);
@@ -319,6 +345,8 @@ struct FrontendTest {
             bool preview_controls=false;
             for(const auto& draw:reader::font_draws)preview_controls=preview_controls || draw.text=="Chapter 1";
             check(!preview_controls,"Reading preview still shows reading-view controls");
+            for(const auto& draw:reader::font_draws)
+                check(draw.text.find("Touch sliders or arrows")==std::string::npos,"Settings retains the removed instruction");
         }
         check(app.widgets().size()==5,"Settings missing Page effect");
         app.set_focus(1003);app.input(SCE_CTRL_DOWN);
@@ -334,6 +362,7 @@ struct FrontendTest {
         app.input(SCE_CTRL_SQUARE);app.set_focus(1004);app.input(SCE_CTRL_LEFT);footer(SCE_CTRL_CROSS);
         check(app.settings_.page_effect==0 && reader::load_settings(settings_path).page_effect==0,
               "Apply did not persist Page Curl");
+        app.input(SCE_CTRL_CIRCLE);
         app.input(SCE_CTRL_SQUARE);app.set_focus(1004);app.input(SCE_CTRL_RIGHT);footer(SCE_CTRL_CROSS);
 
         // Modal isolation also covers START, sidebars, gestures and shortcuts.
@@ -741,6 +770,8 @@ struct FrontendTest {
                 "L sidebar cycle contains a removed or incorrect destination");
         }
         app.navigate(4);app.normalize_focus();verify_graph(app);
+        check(app.toolbar().size()==2,"About retains the Options footer hint");
+        app.input(SCE_CTRL_START);check(app.menu_.empty(),"About START still opens Options");
         const auto about_controls=app.widgets();
         check(about_controls.size()==3 && about_controls[0].target.enabled &&
               about_controls[0].action.command==Command::CheckUpdates,"About update button is unavailable");
@@ -913,6 +944,8 @@ struct FrontendTest {
         tap.x=60;tap.y=520;app.gesture(tap);
         check(app.screen_==Screen::Library,"Touch could not apply Settings through the footer");
         check(app.settings_.reading_font==1 && reader::load_settings(settings_path).reading_font==1,"Apply did not persist the reader font");
+        check(app.feedback_active(),"Controller Apply did not show a popup");
+        app.input(SCE_CTRL_CIRCLE);
         app.show_more();verify_graph(app);app.input(SCE_CTRL_CIRCLE);
         check(app.menu_.empty() && focus(app)==1008,"Closing Options lost invoking focus");
         const auto popup_selected=app.selected_;const auto popup_scroll=app.library_scroll_;
@@ -982,10 +1015,17 @@ struct FrontendTest {
         check(app.menu_title_=="Read aloud (TTS)" && app.menu_[0].label=="Start here","Narration controls unavailable");
         verify_graph(app);
         const auto old_rate=app.settings_.speech_rate;
+        check(app.menu_[2].label=="Slower ("+std::to_string(old_rate-25)+" wpm)" &&
+              app.menu_[3].label=="Faster ("+std::to_string(old_rate+25)+" wpm)","Speech controls do not show their target speeds");
         app.perform({"Faster",0,Command::SpeechFaster});
         check(app.settings_.speech_rate==old_rate+25 && reader::load_settings(settings_path).speech_rate==old_rate+25,
               "Narration speed did not persist");
         app.perform({"Slower",0,Command::SpeechSlower});
+        app.settings_.speech_rate=100;app.show_speech();
+        check(!app.menu_[2].enabled && app.menu_[3].label=="Faster (125 wpm)","Minimum speech speed actions are wrong");
+        app.settings_.speech_rate=350;app.show_speech();
+        check(!app.menu_[3].enabled && app.menu_[2].label=="Slower (325 wpm)","Maximum speech speed actions are wrong");
+        app.settings_.speech_rate=old_rate;
         app.close_menu();
         {
             std::size_t narrated_samples = 0;

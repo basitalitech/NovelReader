@@ -11,7 +11,7 @@ Unmodified static TrueType fonts, distributed under the SIL Open Font License
 
 Source Sans 3 Regular is used for interface text and Semibold for headings and
 emphasized controls. Reader typefaces are Literata, Atkinson Hyperlegible Next,
-and the Vita system font. Reading Settings previews the selected family, size,
+and the Vita system font. Reader Settings previews the selected family, size,
 spacing, and theme; Apply saves and Cancel discards. Existing saved identifiers
 remain 0 = Literata, 1 = Atkinson, 2 = system. Bold publication text uses a second
 pass in the selected reading family; emphasis is underlined. The app does not
