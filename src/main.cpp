@@ -8,6 +8,7 @@
 #include "vita_hints.hpp"
 #include "speech.hpp"
 #include "performance.hpp"
+#include "page_curl.hpp"
 
 #ifdef NOVELREADER_FRONTEND_TESTS
 #include "vita_frontend_stubs.hpp"
@@ -216,6 +217,11 @@ public:
         interface_layer_ = true;
         if (screen_ != Screen::Reader || !immersive_) draw_chrome();
         draw_toolbar();
+        // Curl the captured sheet after composing the incoming page and its
+        // reading bars. Modal feedback remains above the turning sheet.
+        if(screen_==Screen::Reader && settings_.page_effect==static_cast<int>(reader::PageEffect::PageCurl) &&
+           turn_page_ && menu_.empty() && !feedback_active() && page_turn_remaining()>0)
+            draw_page_curl(page_turn_remaining());
         draw_feedback();
         if (!menu_.empty()) draw_menu();
         draw_focus();
@@ -2839,6 +2845,7 @@ private:
     void capture_reader_frame() {
         if(!turn_page_)turn_page_.reset(vita2d_create_empty_texture_rendertarget(960,544,SCE_GXM_TEXTURE_FORMAT_A8B8G8R8));
         if(!turn_page_)return;
+        vita2d_texture_set_filters(turn_page_.get(),SCE_GXM_TEXTURE_FILTER_LINEAR,SCE_GXM_TEXTURE_FILTER_LINEAR);
         draw_frame(turn_page_.get());
         vita2d_wait_rendering_done();
     }
@@ -2847,20 +2854,12 @@ private:
            (!dragging && settings_.page_effect!=static_cast<int>(reader::PageEffect::PageCurl)))return;
         // Reuse one outgoing-page snapshot. Capture before changing the chapter
         // so styled text and illustrations curl together, including at boundaries.
-        if(!turn_page_)turn_page_.reset(vita2d_create_empty_texture_rendertarget(960,544,SCE_GXM_TEXTURE_FORMAT_A8B8G8R8));
-        if(!turn_page_)return; // Memory pressure falls back to Slide and Fade.
-        sync_inline_images();
-        vita2d_set_clear_color(palette().background);
-        vita2d_start_drawing_advanced(turn_page_.get(),0);
-        vita2d_clear_screen();
-        draw_reader();
-        vita2d_end_drawing();
-        vita2d_wait_rendering_done();
+        capture_reader_frame(); // Include the margins, title, progress, and footer.
     }
     void start_page_turn(bool forward) {
         if(settings_.page_effect==static_cast<int>(reader::PageEffect::None))return;
         page_turn_forward_=forward;
-        page_turn_from_=1;page_turn_to_=0;curl_touch_y_=0.5f;
+        page_turn_from_=1;page_turn_to_=0;curl_touch_y_=0.85f;
         page_turn_span_=turn_duration();
         page_turn_until_=sceKernelGetProcessTimeWide()+page_turn_span_;
         redraw_=true;
@@ -2874,53 +2873,56 @@ private:
         return page_turn_to_+(page_turn_from_-page_turn_to_)*animation_remaining(page_turn_until_,page_turn_span_);
     }
     void draw_page_curl(float remaining) const {
-        const auto area=reading_area();
-        const float progress=1-remaining;
-        const float bend=std::sin(progress*3.14159265f);
-        const auto capacity=static_cast<unsigned>((area.height+3)/4*28*6);
-        auto* shading=static_cast<vita2d_color_vertex*>(vita2d_pool_memalign(capacity*sizeof(vita2d_color_vertex),8));
-        std::size_t shaded=0;
-        const auto shade_rect=[&](float x,float y,float width,float height,unsigned color) {
-            if(!shading){vita2d_draw_rectangle(x,y,width,height,color);return;}
-            const vita2d_color_vertex a{x,y,0.5f,color},b{x+width,y,0.5f,color};
-            const vita2d_color_vertex c{x,y+height,0.5f,color},d{x+width,y+height,0.5f,color};
-            shading[shaded++]=a;shading[shaded++]=b;shading[shaded++]=c;
-            shading[shaded++]=b;shading[shaded++]=d;shading[shaded++]=c;
-        };
-        // Thin horizontal strips describe a bowed fold. The flat outgoing side
-        // retains its text; a mirrored, shaded back rolls over the incoming page.
-        for(int row=0;row<area.height;row+=4) {
-            const int height=std::min(4,area.height-row);
-            const float row_fraction=float(row)/area.height;
-            const float bow=std::max(0.f,1.f-std::abs(row_fraction-curl_touch_y_));
-            const float width=bend*(92+28*bow);
-            const float edge=864*remaining-width;
-            const float flat=std::max(0.f,edge);
-            const int y=area.top+row;
-            if(flat>0) {
-                const float x=page_turn_forward_?48:912-flat;
-                vita2d_draw_texture_part(turn_page_.get(),x,y,x,y,flat,height);
-            }
-            const float fold_left=std::max(0.f,edge),fold_right=std::max(0.f,edge+width);
-            const float fold_width=fold_right-fold_left;
-            if(fold_width>0) {
-                const float x=page_turn_forward_?48+fold_left:912-fold_right;
-                vita2d_draw_rectangle(x,y,fold_width,height,palette().panel);
-                const float source=page_turn_forward_?48+fold_left:912-fold_right;
-                vita2d_draw_texture_tint_part_scale(turn_page_.get(),x+fold_width,y,source,y,
-                    fold_width,height,-1,1,0x38ffffffu);
-                for(int band=0;band<12;++band) {
-                    const float fraction=band/12.f;
-                    const unsigned alpha=static_cast<unsigned>(90*std::abs(2*fraction-1)*bend);
-                    shade_rect(x+fold_width*fraction,y,fold_width/12+1,height,alpha<<24);
-                }
-                const float shadow=page_turn_forward_?48+fold_right:912-fold_right;
-                for(int band=0;band<16;++band)
-                    shade_rect(page_turn_forward_?shadow+band:shadow-band-1,y,1,height,
-                        static_cast<unsigned>((16-band)*5*bend)<<24);
+        reader::curl::Mesh mesh;
+        reader::curl::build(mesh,1-remaining,page_turn_forward_,curl_touch_y_);
+        const auto f=mesh.front_count,b=mesh.back_count;
+        constexpr std::size_t shadow_layers=6;
+        const auto bytes=(f+b)*sizeof(vita2d_texture_vertex)+(f+(1+shadow_layers)*b)*sizeof(vita2d_color_vertex);
+        auto* memory=mesh.complete?static_cast<unsigned char*>(vita2d_pool_memalign(bytes,8)):nullptr;
+        if(!memory) {
+            // A bounded fade is preferable to retrying allocations or submitting
+            // thousands of tiny draws if the shared frame pool is exhausted.
+            const auto alpha=static_cast<unsigned>(255*remaining);
+            vita2d_draw_texture_tint(turn_page_.get(),0,0,(alpha<<24)|0x00ffffffu);return;
+        }
+        auto* front=reinterpret_cast<vita2d_texture_vertex*>(memory);
+        auto* back=front+f;
+        auto* front_shade=reinterpret_cast<vita2d_color_vertex*>(back+b);
+        auto* back_paper=front_shade+f;
+        auto* shadows=back_paper+b;
+        const auto& paper=palettes[settings_.theme];
+        for(std::size_t i=0;i<f;++i) {
+            const auto& v=mesh.front[i];
+            front[i]={v.x,v.y,0.5f,v.u,v.v};
+            front_shade[i]={v.x,v.y,0.5f,static_cast<unsigned>((1-v.normal)*34)<<24};
+        }
+        for(std::size_t i=0;i<b;++i) {
+            const auto& v=mesh.back[i];
+            back[i]={v.x,v.y,0.5f,v.u,v.v};
+            // Preserve the theme-colored reverse side and faint mirrored print
+            // of the original curl, with an opaque sheet underneath the print.
+            const auto base=reader::visual::mix(paper.background,paper.panel,0.15f);
+            const auto shade=reader::visual::mix(base,rgb(0,0,0),0.30f*(1+v.normal));
+            back_paper[i]={v.x,v.y,0.5f,shade};
+            for(std::size_t layer=0;layer<shadow_layers;++layer) {
+                const float spread=float(layer+1)/shadow_layers;
+                const float offset=(4+v.height*0.30f)*spread;
+                const auto alpha=static_cast<unsigned>(8*std::min(1.f,v.height/16));
+                shadows[layer*b+i]={v.x+(page_turn_forward_?offset:-offset),v.y+offset*0.5f,0.5f,alpha<<24};
             }
         }
-        if(shaded)vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES,shading,shaded);
+        vita2d_enable_clipping();vita2d_set_clip_rectangle(0,0,960,544);
+        // Five submissions, independent of page length, font size, or images.
+        if(f) {
+            vita2d_draw_array_textured(turn_page_.get(),SCE_GXM_PRIMITIVE_TRIANGLES,front,f,0xffffffffu);
+            vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES,front_shade,f);
+        }
+        if(b) {
+            vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES,shadows,shadow_layers*b);
+            vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES,back_paper,b);
+            vita2d_draw_array_textured(turn_page_.get(),SCE_GXM_PRIMITIVE_TRIANGLES,back,b,0x38ffffffu);
+        }
+        vita2d_disable_clipping();
     }
     void draw_reader() const {
         const auto end=visible_end();
@@ -2943,8 +2945,7 @@ private:
             const float offset=(page_turn_forward_?-1:1)*864*(1-remaining);
             vita2d_draw_texture_tint(turn_page_.get(),offset,0,0xffffffffu);
         }
-        else if(remaining>0 && curl)draw_page_curl(remaining);
-        else if(remaining>0) {
+        else if(remaining>0 && !curl) {
             const auto paper=(palette().background&0x00ffffffu) | (static_cast<unsigned>(112*eased)<<24);
             vita2d_draw_rectangle(48,area.top,864,area.height,paper);
             for(int i=0;i<24;++i) {

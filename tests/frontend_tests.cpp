@@ -131,8 +131,14 @@ struct FrontendTest {
         check(app.turn_page_ && app.page_turn_forward_ && app.turn_duration()==650000,
               "Page Curl did not capture the outgoing page");
         test_process_time()+=app.turn_duration()/2;
-        test_texture_parts()=0;app.draw();
+        test_texture_parts()=0;test_textured_batches()=0;test_fullscreen_clips()=0;app.draw();
         check(test_texture_parts()>0 && app.needs_redraw(),"Page Curl did not draw the folded outgoing page");
+        check(test_fullscreen_clips()>0 && test_textured_batches()==2,
+              "Curl is clipped to the text area or submits unbounded texture draws");
+        app.draw_page_curl(0.5f);
+        check(test_pool_bytes()<32768,"Curl exceeds its bounded frame-pool budget");
+        test_pool_failure()=true;test_textured_batches()=0;app.draw_page_curl(0.5f);test_pool_failure()=false;
+        check(!test_textured_batches(),"Curl retries mesh draws after frame-pool exhaustion");
         app.input(SCE_CTRL_LEFT);
         check(!app.page_turn_forward_ && app.top_==original_top,"Reverse curl lost the previous page");
         test_process_time()+=app.turn_duration()/2;

@@ -74,6 +74,34 @@ VSync configuration. There is no added sleep or reduced input sampling rate.
 
 ## Host comparison
 
+### Full-screen corner curl
+
+The existing snapshot, paper tint, faint reverse-side print, and eased timing
+remain in use. [page_curl.cpp](../src/page_curl.cpp) extends the old rounded strip
+into a complete sheet folded around a diagonal cylinder originating at the
+bottom-right or bottom-left corner. Full-frame composition happens before the
+curl overlay, so margins and reading bars turn with the text and images.
+
+Geometry clips the screen rectangle against 24 cylinder bands and two flat
+regions. It uses fixed stack arrays, at most 192 vertices per face, and five GPU
+submissions (two textured and three colored). Six translucent shadow projections
+share one submission. One frame-pool allocation is bounded below 32 KiB; the old
+4-pixel strips could request about 320 KiB for shading and submit hundreds of
+individual texture and rectangle draws. There are no per-frame render-target
+allocations, image decodes, publication reads, or waits inside the fold renderer.
+The single reusable target is captured and synchronized once before a turn.
+Pool exhaustion uses a single fade draw instead of a large fallback loop.
+
+[page_curl_tests.cpp](../tests/page_curl_tests.cpp) checks screen corners, bottom
+corner origin, direction symmetry, complete sheet coverage in texture space,
+finite UVs, storage bounds, broad reverse-side geometry, and clean endpoints over
+progress/finger-height sweeps. It prints host geometry timing for context; this
+does not measure Vita GPU time or guarantee hardware frame pacing. Test sustained
+turns and reversing drags in Night/Paper/Sepia, with bars shown/hidden and with
+inline illustrations, on Vita hardware before drawing performance conclusions.
+
+### Navigation cache comparison
+
 Instrumented Debug host build, same generated fixture and scenario before and
 after changes. The fixture has 512 TXT collection members plus the guide; three
 books contain approximately 2 MiB each and have bookmarks. Twelve cycles each run

@@ -167,8 +167,13 @@ Tap the center of the reading area to hide or show all reading bars; this keeps
 the current text/image anchor and saves the view preference. Center taps do not
 open Reading controls. Page turns use the effect chosen in Reading Settings for
 buttons, edge taps, and horizontal swipes, including chapter boundaries. Page Curl
-rolls a shaded, curved fold across the outgoing text and illustrations in either
-direction over about 0.65 seconds; Slide and Fade uses a brief eased transition;
+rolls a shaded, curved fold across the **entire 960 × 544 screen**, including the
+margins and visible reading bars. Forward turns lift the bottom-right corner;
+backward turns lift the bottom-left. The sheet bends around a diagonal rounded
+crease, with a full folded reverse side, faint mirrored print, and soft cast
+shadows that progressively reveal the incoming page. The existing page colors,
+reverse-side translucency, and eased 0.65-second timing are retained.
+Slide and Fade uses a brief eased transition;
 None turns immediately. Horizontal drags follow the finger, including its height
 for the curl's bend. Release after dragging about a quarter of the available width
 to turn; shorter drags settle back without changing progress. The next page is
@@ -177,8 +182,11 @@ Vertical drags move text with the finger and settle onto a line on release.
 Up/Down line movement also eases between positions, including when reversing
 direction. Toggling reading bars crossfades the old and new views over 0.24 seconds
 while keeping the reading anchor. These transitions return to idle once complete.
-The curl reuses one outgoing-page render texture and falls back to Slide and Fade
-if that texture cannot be allocated.
+The curl reuses one outgoing-page render texture. Its fixed-size geometry uses
+24 curved bands and five GPU batches, with no per-frame heap allocation or book
+loading in the fold renderer. Texture allocation failure falls back to Slide and
+Fade; frame-pool exhaustion uses a bounded whole-page fade. See the
+[curl performance notes](docs/performance.md#full-screen-corner-curl).
 START opens Reading controls, Cross opens Contents, Triangle opens Bookmarks, Square opens Reading
 Settings, and Circle returns to Library (or online chapters). The control panel contains Contents, Illustrations, Reading Settings, Save bookmark,
 Go to bookmark, All bookmarks, and Show/Hide reading bar. Select still jumps directly to the saved bookmark. Hold and release on the
