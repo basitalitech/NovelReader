@@ -44,7 +44,6 @@ inline Rect grid_book(int index, int scroll=0) {
 constexpr int settings_count = 5;
 inline Rect settings_row(int index) { return {236,82+index*70,392,68}; }
 inline Rect settings_slider(int index) { return {278,settings_row(index).y+40,242,32}; }
-inline Rect settings_swatch(int index) { return {278+index*60,settings_row(3).y+42,48,28}; }
 inline Rect bookmark_row(int index) { return {232,100+index*104,704,96}; }
 inline Rect about_action(int index) {
     return index==0 ? Rect{424,340,320,56} : Rect{424+(index-1)*168,412,152,56};

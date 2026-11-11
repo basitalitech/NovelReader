@@ -128,7 +128,7 @@ struct FrontendTest {
         check(!app.page_turn_until_,"Blocked first-page turn animated");
         app.settings_.page_effect=static_cast<int>(reader::PageEffect::PageCurl);
         app.input(SCE_CTRL_RIGHT);
-        check(app.turn_page_ && app.page_turn_forward_ && app.turn_duration()==320000,
+        check(app.turn_page_ && app.page_turn_forward_ && app.turn_duration()==650000,
               "Page Curl did not capture the outgoing page");
         test_process_time()+=app.turn_duration()/2;
         test_texture_parts()=0;app.draw();
@@ -151,6 +151,55 @@ struct FrontendTest {
         test_render_target_failure()=false;app.input(SCE_CTRL_LEFT);
         app.settings_.page_effect=static_cast<int>(reader::PageEffect::SlideAndFade);
         app.input(SCE_CTRL_LEFT);
+        // The same live touch samples used on Vita preview a page without
+        // changing progress, then either settle back or commit on release.
+        for(int effect=0;effect<3;++effect) {
+            app.settings_.page_effect=effect;
+            reader::controls::Touch drag;
+            drag.sample({{1,750,220}},1000,false,true);
+            app.gesture(drag.sample({{1,690,220}},101000,false,true));
+            check(app.drag_axis_==1 && app.top_==original_top && app.drag_progress_>0,
+                  "Live horizontal drag moved reading progress before release");
+            const auto first_progress=app.drag_progress_;
+            app.gesture(drag.sample({{1,710,260}},151000,false,true));
+            check(app.drag_progress_<first_progress && app.curl_touch_y_>0,
+                  "Page effect does not follow finger reversal or height");
+            app.gesture(drag.sample({},201000,false,true));
+            check(!app.drag_axis_ && app.top_==original_top,"Short drag turned a page");
+            test_process_time()+=700000;app.needs_redraw();app.draw();
+            check(!app.needs_redraw(),"Canceled drag does not settle to idle");
+            drag.sample({{1,750,220}},301000,false,true);
+            app.gesture(drag.sample({{1,450,220}},401000,false,true));
+            app.gesture(drag.sample({},2001000,false,true));
+            check(app.top_==next_page && app.progress_.offset==app.lines_[app.top_].offset,
+                  "A slow live page drag did not commit once on release");
+            app.input(SCE_CTRL_LEFT);
+        }
+        app.settings_.page_effect=1;app.input(SCE_CTRL_LEFT);
+        reader::controls::Touch vertical;
+        vertical.sample({{1,500,300}},1000,false,true);
+        app.gesture(vertical.sample({{1,500,230}},101000,false,true));
+        check(app.drag_axis_==2 && app.top_>original_top && app.drag_scroll_<=0,
+              "Vertical text does not follow the finger");
+        app.gesture(vertical.sample({},201000,false,true));
+        check(!app.drag_axis_ && app.scroll_until_ && app.progress_.offset==app.lines_[app.top_].offset,
+              "Vertical drag did not settle and save its anchor");
+        test_process_time()+=App::scroll_duration;app.needs_redraw();app.draw();
+        check(!app.needs_redraw(),"Settled text scroll does not return to idle");
+        check(app.reading_window().first==app.top_ && app.reading_window().end==app.visible_end(),
+              "Settled scrolling clips a block that belongs to the next page");
+        app.input(SCE_CTRL_LEFT);app.input(SCE_CTRL_DOWN);
+        const float scroll_start=app.scroll_displacement();
+        check(scroll_start>0,"D-pad line scroll has no vertical transition");
+        test_process_time()+=App::scroll_duration/2;
+        check(app.scroll_displacement()>0 && app.scroll_displacement()<scroll_start,"Text scroll does not ease between lines");
+        app.input(SCE_CTRL_UP);
+        check(app.top_==original_top && app.scroll_displacement()<0,"Reversed text scroll jumps instead of easing");
+        test_process_time()+=App::scroll_duration;app.needs_redraw();
+        vertical.sample({{1,500,300}},301000,false,true);
+        app.gesture(vertical.sample({{1,500,230}},401000,false,true));
+        app.gesture(vertical.sample({{1,500,230},{2,600,250}},501000,false,true));
+        check(!app.drag_axis_ && app.top_==original_top,"Multitouch did not cancel a live reader drag");
         app.gesture({reader::controls::GestureKind::Swipe,700,200,-80,70,1,780,130});
         check(app.top_==original_top,"Diagonal reading gesture accidentally turned a page");
         app.gesture({reader::controls::GestureKind::Swipe,500,220,-250,0,1,750,220});
@@ -197,11 +246,11 @@ struct FrontendTest {
         const auto spacing_track=reader::ui::settings_slider(2);
         tap(spacing_track.x+spacing_track.width/2,spacing_track.y+16);
         check(app.settings_.spacing==1,"Spacing slider did not select its middle step");
-        for(int theme=0;theme<3;++theme) {
-            const auto swatch=reader::ui::settings_swatch(theme);
-            tap(swatch.x+24,swatch.y+14);tap(swatch.x+24,swatch.y+14);
-            check(app.settings_.theme==theme && app.setting_row_==3,"Theme swatch cycled instead of selecting");
-        }
+        const auto theme_row=reader::ui::settings_row(3);
+        tap(424,theme_row.y+50);tap(424,theme_row.y+50);
+        check(app.settings_.theme==0 && app.setting_row_==3,"Theme arrows cannot select Night");
+        tap(608,theme_row.y+50);check(app.settings_.theme==1,"Theme arrows cannot select Paper");
+        tap(608,theme_row.y+50);check(app.settings_.theme==2,"Theme arrows cannot select Sepia");
         const auto size_row=reader::ui::settings_row(1);
         tap(300,size_row.y+14);
         check(app.settings_.font==0 && app.setting_row_==1,"Tapping a setting label changed its value");
@@ -240,6 +289,10 @@ struct FrontendTest {
         tap(480,490);
         check(!app.immersive_ && app.menu_.empty() && app.lines_[app.top_].offset==hidden_anchor,
               "Center tap did not show reading bars at the same anchor");
+        check(app.bars_until_ && app.turn_page_,"Reading bars have no visibility transition");
+        app.draw();check(app.needs_redraw(),"Bar crossfade stops after one frame");
+        test_process_time()+=App::bars_duration;app.needs_redraw();app.draw();
+        check(!app.bars_until_,"Bar crossfade did not finish");
         const auto visible_anchor=app.lines_[app.top_].offset;
         tap(480,220);
         check(app.immersive_ && app.menu_.empty() && app.lines_[app.top_].offset==visible_anchor &&

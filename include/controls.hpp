@@ -26,7 +26,7 @@ private:
 };
 
 struct Point { int id, x, y; }; // Display coordinates, 960 x 544.
-enum class GestureKind { None, Tap, Hold, Swipe, Transform };
+enum class GestureKind { None, Tap, Hold, Swipe, Transform, Drag, Release, Cancel };
 struct Gesture {
     GestureKind kind = GestureKind::None;
     float x = 0, y = 0, dx = 0, dy = 0, scale = 1;
@@ -34,7 +34,7 @@ struct Gesture {
 };
 class Touch {
 public:
-    Gesture sample(const std::vector<Point>& points, std::uint64_t now, bool live_transform);
+    Gesture sample(const std::vector<Point>& points, std::uint64_t now, bool live_transform, bool live_reader=false);
     void cancel_until_release();
 private:
     bool active_ = false, blocked_ = false, multi_ = false, moved_ = false;

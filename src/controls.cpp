@@ -58,7 +58,7 @@ void Touch::cancel_until_release() {
     second_id_ = -1; distance_ = 0;
 }
 
-Gesture Touch::sample(const std::vector<Point>& points, std::uint64_t now, bool live_transform) {
+Gesture Touch::sample(const std::vector<Point>& points, std::uint64_t now, bool live_transform, bool live_reader) {
     if (blocked_) {
         if (points.empty()) blocked_ = false;
         return {};
@@ -70,6 +70,7 @@ Gesture Touch::sample(const std::vector<Point>& points, std::uint64_t now, bool 
             const float dx = last_.x - start_.x, dy = last_.y - start_.y;
             if (!moved_ && duration <= 500000) result = {GestureKind::Tap, float(last_.x), float(last_.y), 0, 0, 1};
             else if (!moved_ && duration >= 600000) result = {GestureKind::Hold, float(last_.x), float(last_.y), 0, 0, 1};
+            else if (live_reader && moved_) result = {GestureKind::Release, float(last_.x), float(last_.y), dx, dy, 1};
             else if (!live_transform && duration <= 1500000 && std::max(std::abs(dx), std::abs(dy)) >= 48)
                 result = {GestureKind::Swipe, float(last_.x), float(last_.y), dx, dy, 1};
         }
@@ -82,6 +83,10 @@ Gesture Touch::sample(const std::vector<Point>& points, std::uint64_t now, bool 
         active_ = true; multi_ = false; moved_ = false; second_id_ = -1; distance_ = 0;
     }
     const auto primary = std::find_if(points.begin(), points.end(), [&](const Point& point) { return point.id == last_.id; });
+    if(live_reader && (primary==points.end() || points.size()>1)) {
+        const Gesture canceled{GestureKind::Cancel,float(last_.x),float(last_.y),0,0,1,float(start_.x),float(start_.y)};
+        cancel_until_release();return canceled;
+    }
     if (primary == points.end()) { cancel_until_release(); return {}; }
     if (points.size() > 2) { cancel_until_release(); return {}; }
     if (points.size() == 2) {
@@ -103,6 +108,8 @@ Gesture Touch::sample(const std::vector<Point>& points, std::uint64_t now, bool 
     const auto dx = primary->x - last_.x, dy = primary->y - last_.y;
     if (std::max(std::abs(primary->x - start_.x), std::abs(primary->y - start_.y)) > 12) moved_ = true;
     last_ = *primary;
+    if(live_reader && moved_ && (dx || dy))
+        return {GestureKind::Drag,float(last_.x),float(last_.y),float(last_.x-start_.x),float(last_.y-start_.y),1,float(start_.x),float(start_.y)};
     if (live_transform && moved_ && (dx || dy))
         return {GestureKind::Transform, float(last_.x), float(last_.y), float(dx), float(dy), 1, float(start_.x), float(start_.y)};
     return {};

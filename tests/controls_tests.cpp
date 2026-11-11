@@ -56,6 +56,21 @@ int main() {
               display_coordinate(960, 0, 1919, 960) == 480, "Touch display scaling");
         check(display_coordinate(50, 100, 2019, 960) == 0 && display_coordinate(3000, 100, 2019, 960) == 959,
               "Touch coordinate clamping");
+        {
+            Touch live;
+            check(live.sample({{1,750,240}},1000,false,true).kind==GestureKind::None,"Reader touch starts as a drag");
+            auto drag=live.sample({{1,650,260}},101000,false,true);
+            check(drag.kind==GestureKind::Drag && drag.dx==-100 && drag.dy==20 && drag.start_x==750,
+                  "Reader drag does not preserve total displacement");
+            check(live.sample({{1,650,260}},201000,false,true).kind==GestureKind::None,"Stationary finger emits new motion");
+            check(live.sample({},3001000,false,true).kind==GestureKind::Release,"Slow reader drag is lost on release");
+            check(live.sample({},3101000,false,true).kind==GestureKind::None,"Reader release repeats");
+            live.sample({{1,750,240}},3201000,false,true);
+            live.sample({{1,650,240}},3301000,false,true);
+            check(live.sample({{1,650,240},{2,700,240}},3401000,false,true).kind==GestureKind::Cancel,
+                  "Multitouch does not cancel reader tracking");
+            check(live.sample({},3501000,false,true).kind==GestureKind::None,"Canceled reader gesture leaks a release");
+        }
         check(toolbar_hit(28,500,4)==0 && toolbar_hit(931,539,4)==3,"Native toolbar boundary hit");
         check(toolbar_hit(180,500,6)==1 && toolbar_hit(176,500,6)==-1,"Toolbar gap activated an action");
         check(toolbar_hit(936,500,4)==-1 && toolbar_hit(100,483,4)==-1 && toolbar_hit(100,544,4)==-1,

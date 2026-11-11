@@ -107,9 +107,9 @@ In Settings, Left/Right adjusts the selected value; Up from Typeface stays on
 that row. Cross applies, Circle cancels, and Select resets the preview.
 Reading Settings groups its five rows in one charcoal panel with subtle dividers
 and a lavender outline around the focused row. Font size and line spacing use
-three-step sliders; page themes use labeled color swatches with a checkmark on
-the selected theme. Touch a slider position or swatch to select its value directly.
-Typeface and Page effect use left/right selectors. Page effect offers **Page Curl**,
+three-step sliders. Page theme uses a text selector for Night, Paper, and Sepia,
+without colored boxes. Touch a slider position or the selector arrows to adjust.
+Typeface, Page theme, and Page effect use left/right selectors. Page effect offers **Page Curl**,
 **Slide and Fade**, and **None**; Apply saves the choice, Cancel discards changes,
 and Reset restores Slide and Fade. Existing saves also default to Slide and Fade.
 The adjacent live page preview reflects
@@ -168,7 +168,15 @@ the current text/image anchor and saves the view preference. Center taps do not
 open Reading controls. Page turns use the effect chosen in Reading Settings for
 buttons, edge taps, and horizontal swipes, including chapter boundaries. Page Curl
 rolls a shaded, curved fold across the outgoing text and illustrations in either
-direction; Slide and Fade uses a brief eased transition; None turns immediately.
+direction over about 0.65 seconds; Slide and Fade uses a brief eased transition;
+None turns immediately. Horizontal drags follow the finger, including its height
+for the curl's bend. Release after dragging about a quarter of the available width
+to turn; shorter drags settle back without changing progress. The next page is
+previewed within a chapter; an adjacent chapter loads when the drag is released.
+Vertical drags move text with the finger and settle onto a line on release.
+Up/Down line movement also eases between positions, including when reversing
+direction. Toggling reading bars crossfades the old and new views over 0.24 seconds
+while keeping the reading anchor. These transitions return to idle once complete.
 The curl reuses one outgoing-page render texture and falls back to Slide and Fade
 if that texture cannot be allocated.
 START opens Reading controls, Cross opens Contents, Triangle opens Bookmarks, Square opens Reading
@@ -308,7 +316,7 @@ The **front touchscreen** supports:
 | Screen | Touch controls |
 | --- | --- |
 | Home / Library | Tap Continue Reading to resume, a cover for details, or Library's Add Book to import; swipe Library vertically to scroll |
-| Reader | Swipe left/right for next/previous page; swipe up/down to move through text and images |
+| Reader | Drag left/right to preview a page turn, then release to complete or cancel; drag up/down to scroll text and images |
 | Reader | Tap an illustration to zoom; left/right body taps turn pages, center taps hide/show reading bars |
 | Reader | Hold and release on the reading area to save a bookmark |
 | Contents / illustration list | Tap an entry to open; swipe to browse five chapters or four illustrations |
@@ -323,8 +331,9 @@ choices show checkmarks. Tap a row to select it, or tap outside to dismiss
 without activating the underlying screen. Circle returns from a submenu.
 The Reader strip is hidden in immersive mode. Viewer **Back** returns directly to reading when opened
 by tapping an inline image, or to the illustration list when opened from there.
-Touch gestures act on release outside the image viewer, where drag and pinch
-updates are live. Swiping a list never opens the row under the finger. Physical
+Reader page turns and vertical scrolling track the finger live; image viewer drag
+and pinch updates are live too. Other touch actions occur on release. Swiping a
+list never opens the row under the finger. Physical
 button/directional holds take priority over an active touch gesture; changing
 screens or dialog layers suppresses held buttons and gestures until released.
 Directions repeat after 350 ms, then every 140 ms; confirm/cancel and sidebar

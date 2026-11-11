@@ -175,17 +175,19 @@ public:
     }
     bool needs_redraw() {
         const auto now=sceKernelGetProcessTimeWide();
+        if(scroll_until_ && (now>=scroll_until_ || screen_!=Screen::Reader)){scroll_until_=0;redraw_=true;}
+        if(bars_until_ && (now>=bars_until_ || screen_!=Screen::Reader)){bars_until_=0;redraw_=true;}
         if(page_turn_until_ && (now>=page_turn_until_ || screen_!=Screen::Reader || !menu_.empty() || feedback_active())) {
-            page_turn_until_=0;redraw_=true;
+            page_turn_until_=0;page_drag_settle_=false;redraw_=true;
         }
         if(pressed_until_ && now>=pressed_until_){pressed_until_=0;redraw_=true;}
         if(notice_until_ && message_==notice_ && now>=notice_until_) {
             message_.clear();notice_until_=0;redraw_=true;
         }
         // System dialogs require regular common-dialog updates even without input.
-        return redraw_ || ime_active_ || page_turn_until_;
+        return redraw_ || ime_active_ || page_turn_until_ || scroll_until_ || bars_until_;
     }
-    void draw_frame() {
+    void draw_frame(vita2d_texture* target=nullptr) {
         const reader::perf::Scope frame(reader::perf::Event::FrameWork);
         tick_speech();
         if (message_ == notice_ && sceKernelGetProcessTimeWide() >= notice_until_) message_.clear();
@@ -196,7 +198,7 @@ public:
         sync_bookmark_previews();
         const auto& color = palette();
         vita2d_set_clear_color(color.background);
-        vita2d_start_drawing();
+        if(target)vita2d_start_drawing_advanced(target,0);else vita2d_start_drawing();
         vita2d_clear_screen();
         if (screen_ != Screen::Reader && screen_ != Screen::Image) draw_background();
         if (has_sidebar()) draw_sidebar();
@@ -218,6 +220,10 @@ public:
         if (!menu_.empty()) draw_menu();
         draw_focus();
         interface_layer_ = false;
+        if(screen_==Screen::Reader && bars_until_ && turn_page_) {
+            const auto alpha=static_cast<unsigned>(255*animation_remaining(bars_until_,bars_duration));
+            vita2d_draw_texture_tint(turn_page_.get(),0,0,(alpha<<24)|0x00ffffffu);
+        }
         vita2d_end_drawing();
         if (ime_active_) vita2d_common_dialog_update();
     }
@@ -229,7 +235,8 @@ public:
     }
 
     bool input(unsigned pressed, bool physical = true) {
-        if(pressed){redraw_=true;page_turn_until_=0;}
+        if(pressed){cancel_reader_drag();redraw_=true;page_turn_until_=0;page_drag_settle_=false;bars_until_=0;
+            if(!(pressed&(SCE_CTRL_UP|SCE_CTRL_DOWN)))scroll_until_=0;}
         const auto context=input_context();
         tick_speech();
         const bool keyboard_was_active=ime_active_;
@@ -488,7 +495,15 @@ public:
     bool gesture(const reader::controls::Gesture& gesture) {
         using reader::controls::GestureKind;
         if (gesture.kind == GestureKind::None || ime_active_) return true;
+        if(gesture.kind==GestureKind::Cancel){cancel_reader_drag();return true;}
+        if(gesture.kind==GestureKind::Drag || gesture.kind==GestureKind::Release) {
+            if(screen_==Screen::Reader && menu_.empty() && !feedback_active() && !online_busy_)reader_drag(gesture);
+            else cancel_reader_drag();
+            return true;
+        }
         page_turn_until_=0;
+        page_drag_settle_=false;
+        bars_until_=0;
         redraw_=true;
         const int x = static_cast<int>(gesture.x), y = static_cast<int>(gesture.y);
         const int start_x=gesture.start_x<0?x:static_cast<int>(gesture.start_x);
@@ -532,12 +547,6 @@ public:
                         if(track.contains(x,y)) {
                             const int step=std::max(0,std::min(2,static_cast<int>(std::lround(2.f*(x-track.x)/track.width))));
                             if(row==1)settings_.font=step;else settings_.spacing=step;
-                        }
-                    } else if(row==3) {
-                        for(int i=0;i<3;++i) {
-                            const auto swatch=reader::ui::settings_swatch(i);
-                            const reader::ui::Rect hit{swatch.x-6,swatch.y-4,60,36};
-                            if(hit.contains(x,y))settings_.theme=i;
                         }
                     } else if(x>=412)adjust_setting(row,x<520?-1:1);
                     return true;
@@ -1001,6 +1010,7 @@ private:
         const reader::perf::Scope timing(reader::perf::Event::Cleanup);
         speech_.stop();
         page_turn_until_=0;
+        drag_axis_=0;scroll_until_=0;bars_until_=0;
         vita2d_wait_rendering_done();turn_page_.reset();
         bookmarks_return_=Screen::Home;
         inline_images_.clear();book_={};publication_={};
@@ -1519,6 +1529,8 @@ private:
     }
     void toggle_immersive() {
         page_turn_until_=0;
+        scroll_until_=0;bars_until_=0;
+        capture_reader_frame();
         const auto offset=lines_[top_].offset;
         immersive_=!immersive_;
         try { reflow(offset); }
@@ -1526,6 +1538,7 @@ private:
         settings_.immersive=immersive_?1:0;
         if (!reader::save_settings(settings_path,settings_)) message_="Could not save reading view. Check storage.";
         ++folder_revision_; save();
+        if(turn_page_ && !feedback_active())bars_until_=sceKernelGetProcessTimeWide()+bars_duration;
     }
 
 
@@ -2105,20 +2118,123 @@ private:
     }
 
     std::size_t visible_end() const { return reader::layout_page_end(lines_, top_, reading_area().height); }
+    float animation_remaining(std::uint64_t until,std::uint64_t duration) const {
+        const auto now=sceKernelGetProcessTimeWide();
+        if(!until || now>=until)return 0;
+        const float t=std::min(1.f,float(until-now)/duration);
+        return t*t*(3-2*t);
+    }
+    float scroll_displacement() const {
+        return drag_axis_==2?drag_scroll_:scroll_from_*animation_remaining(scroll_until_,scroll_duration);
+    }
+    struct ReadingWindow { std::size_t first,end; int y; };
+    ReadingWindow reading_window() const {
+        const auto area=reading_area();
+        auto first=top_;
+        if((drag_axis_==1 || (page_drag_settle_ && page_turn_to_==1)) &&
+           settings_.page_effect!=static_cast<int>(reader::PageEffect::None)) {
+            if(page_turn_forward_ && visible_end()<lines_.size())first=visible_end();
+            else if(!page_turn_forward_ && top_)first=reader::previous_page_start(pages_,top_);
+            else return {first,first,area.top}; // Adjacent chapter opens on release.
+        }
+        const int displacement=static_cast<int>(scroll_displacement());
+        if(!displacement)return {first,reader::layout_page_end(lines_,first,area.height),area.top};
+        int y=area.top+displacement;
+        while(y>area.top && first){--first;y-=lines_[first].height;}
+        auto end=first;int bottom=y;
+        while(end<lines_.size() && bottom<area.top+area.height){bottom+=lines_[end].height;++end;}
+        return {first,end,y};
+    }
     void step_reading(bool forward,std::size_t amount=1) {
         if(lines_.empty())return;
+        const auto previous=top_;
+        const auto displacement=scroll_displacement();
         top_=forward?std::min(top_+amount,lines_.size()-1):top_>amount?top_-amount:0;
+        if(top_==previous)return;
+        float distance=0;
+        for(auto at=std::min(previous,top_);at<std::max(previous,top_);++at)distance+=lines_[at].height;
+        scroll_from_=displacement+(forward?distance:-distance);
+        scroll_until_=sceKernelGetProcessTimeWide()+scroll_duration;
+        redraw_=true;
+    }
+
+    void cancel_reader_drag() {
+        if(!drag_axis_)return;
+        if(drag_axis_==2)top_=drag_origin_top_;
+        drag_axis_=0;drag_scroll_=0;page_turn_until_=0;page_drag_settle_=false;scroll_until_=0;redraw_=true;
+    }
+    void reader_drag(const reader::controls::Gesture& gesture) {
+        using reader::controls::GestureKind;
+        if(gesture.kind==GestureKind::Release) {
+            if(drag_axis_==1) {
+                const float remaining=1-drag_progress_;
+                const float touch_y=curl_touch_y_;
+                const bool commit=drag_progress_>=0.22f;
+                const auto previous=top_,previous_chapter=chapter_;
+                drag_axis_=0;
+                if(commit) {
+                    reuse_turn_capture_=true;
+                    input(page_turn_forward_?SCE_CTRL_RIGHT:SCE_CTRL_LEFT);
+                    reuse_turn_capture_=false;
+                }
+                if(settings_.page_effect!=static_cast<int>(reader::PageEffect::None) &&
+                   ((!commit) || previous!=top_ || previous_chapter!=chapter_)) {
+                    page_turn_from_=remaining;page_turn_to_=commit?0.f:1.f;
+                    page_turn_span_=std::max<std::uint64_t>(120000,turn_duration()*std::abs(page_turn_from_-page_turn_to_));
+                    page_turn_until_=sceKernelGetProcessTimeWide()+page_turn_span_;
+                    curl_touch_y_=touch_y;page_drag_settle_=true;
+                }
+            } else if(drag_axis_==2) {
+                float displacement=drag_scroll_;
+                if(displacement < -lines_[top_].height/2.f && top_+1<lines_.size()) {
+                    displacement+=lines_[top_].height;++top_;
+                }
+                drag_axis_=0;drag_scroll_=0;
+                scroll_from_=displacement;scroll_until_=sceKernelGetProcessTimeWide()+scroll_duration;
+                save();
+            }
+            redraw_=true;return;
+        }
+        if(!drag_axis_) {
+            const auto area=reading_area();
+            if(!reader::ui::Rect{48,area.top,864,area.height}.contains(gesture.start_x,gesture.start_y))return;
+            const float ax=std::abs(gesture.dx),ay=std::abs(gesture.dy);
+            if(std::max(ax,ay)<16 || std::max(ax,ay)<1.5f*std::min(ax,ay))return;
+            page_turn_until_=0;page_drag_settle_=false;bars_until_=0;scroll_until_=0;
+            drag_origin_top_=top_;
+            if(ax>ay) {
+                const bool forward=gesture.dx<0;
+                if((forward && visible_end()>=lines_.size() && chapter_+1>=publication_.chapters.size()) ||
+                   (!forward && !top_ && !chapter_))return;
+                capture_turn_page(true);
+                page_turn_forward_=forward;drag_axis_=1;
+            } else drag_axis_=2;
+        }
+        if(drag_axis_==1) {
+            const float span=std::max(240.f,page_turn_forward_?gesture.start_x-48:912-gesture.start_x);
+            drag_progress_=std::max(0.f,std::min(1.f,(page_turn_forward_?-gesture.dx:gesture.dx)/span));
+            curl_touch_y_=std::max(0.f,std::min(1.f,(gesture.y-reading_area().top)/reading_area().height));
+        } else {
+            top_=drag_origin_top_;drag_scroll_=gesture.dy;
+            while(drag_scroll_<=-lines_[top_].height && top_+1<lines_.size()) {
+                drag_scroll_+=lines_[top_].height;++top_;
+            }
+            while(drag_scroll_>0 && top_) {--top_;drag_scroll_-=lines_[top_].height;}
+            if(!top_ && drag_scroll_>0)drag_scroll_=0;
+            if(top_+1==lines_.size() && drag_scroll_<0)drag_scroll_=0;
+        }
+        redraw_=true;
     }
 
     void sync_inline_images() {
         std::vector<std::size_t> visible;
-        const auto end = visible_end();
-        for (auto at = top_; at < end; ++at)
+        const auto window=reading_window();const auto end=window.end;
+        for (auto at = window.first; at < end; ++at)
             if (lines_[at].illustration != reader::no_illustration) visible.push_back(lines_[at].illustration);
         inline_images_.erase(std::remove_if(inline_images_.begin(), inline_images_.end(), [&](const InlineTexture& cached) {
             return std::find(visible.begin(), visible.end(), cached.illustration) == visible.end();
         }), inline_images_.end());
-        for (auto at = top_; at < end; ++at) {
+        for (auto at = window.first; at < end; ++at) {
             const auto& block = lines_[at];
             if (block.illustration == reader::no_illustration) continue;
             const auto found = std::find_if(inline_images_.begin(), inline_images_.end(), [&](const InlineTexture& cached) {
@@ -2720,8 +2836,15 @@ private:
         if(online)text(730,421,palette().muted,0.7f,in_library()?"In library":"Not saved",180);
         else text(24,475,palette().muted,0.66f,item.filename,880);
     }
-    void capture_turn_page() {
-        if(settings_.page_effect!=static_cast<int>(reader::PageEffect::PageCurl))return;
+    void capture_reader_frame() {
+        if(!turn_page_)turn_page_.reset(vita2d_create_empty_texture_rendertarget(960,544,SCE_GXM_TEXTURE_FORMAT_A8B8G8R8));
+        if(!turn_page_)return;
+        draw_frame(turn_page_.get());
+        vita2d_wait_rendering_done();
+    }
+    void capture_turn_page(bool dragging=false) {
+        if(reuse_turn_capture_ || settings_.page_effect==static_cast<int>(reader::PageEffect::None) ||
+           (!dragging && settings_.page_effect!=static_cast<int>(reader::PageEffect::PageCurl)))return;
         // Reuse one outgoing-page snapshot. Capture before changing the chapter
         // so styled text and illustrations curl together, including at boundaries.
         if(!turn_page_)turn_page_.reset(vita2d_create_empty_texture_rendertarget(960,544,SCE_GXM_TEXTURE_FORMAT_A8B8G8R8));
@@ -2737,16 +2860,18 @@ private:
     void start_page_turn(bool forward) {
         if(settings_.page_effect==static_cast<int>(reader::PageEffect::None))return;
         page_turn_forward_=forward;
-        page_turn_until_=sceKernelGetProcessTimeWide()+turn_duration();
+        page_turn_from_=1;page_turn_to_=0;curl_touch_y_=0.5f;
+        page_turn_span_=turn_duration();
+        page_turn_until_=sceKernelGetProcessTimeWide()+page_turn_span_;
         redraw_=true;
     }
     std::uint64_t turn_duration() const {
-        return settings_.page_effect==static_cast<int>(reader::PageEffect::PageCurl) && turn_page_?320000:page_turn_duration;
+        return settings_.page_effect==static_cast<int>(reader::PageEffect::PageCurl) && turn_page_?650000:page_turn_duration;
     }
     float page_turn_remaining() const {
-        const auto now=sceKernelGetProcessTimeWide();
-        if(!page_turn_until_ || now>=page_turn_until_ || !menu_.empty() || feedback_active())return 0;
-        return std::min(1.f,float(page_turn_until_-now)/turn_duration());
+        if(drag_axis_==1 && settings_.page_effect!=static_cast<int>(reader::PageEffect::None))return 1-drag_progress_;
+        if(!page_turn_until_ || !menu_.empty() || feedback_active())return 0;
+        return page_turn_to_+(page_turn_from_-page_turn_to_)*animation_remaining(page_turn_until_,page_turn_span_);
     }
     void draw_page_curl(float remaining) const {
         const auto area=reading_area();
@@ -2766,7 +2891,8 @@ private:
         // retains its text; a mirrored, shaded back rolls over the incoming page.
         for(int row=0;row<area.height;row+=4) {
             const int height=std::min(4,area.height-row);
-            const float bow=std::sin(float(row)/area.height*3.14159265f);
+            const float row_fraction=float(row)/area.height;
+            const float bow=std::max(0.f,1.f-std::abs(row_fraction-curl_touch_y_));
             const float width=bend*(92+28*bow);
             const float edge=864*remaining-width;
             const float flat=std::max(0.f,edge);
@@ -2799,20 +2925,25 @@ private:
     void draw_reader() const {
         const auto end=visible_end();
         const int percent=reader::reading_percent(chapter_,publication_.chapters.size(),lines_[top_].offset,book_.text.size(),end==lines_.size());
-        const auto area=reading_area(); int y=area.top;
+        const auto area=reading_area();const auto window=reading_window();int y=window.y;
         // A short eased slide and paper-colored fade needs no extra framebuffer
         // or duplicate chapter/image textures on the Vita.
         const float remaining=page_turn_remaining();
         const bool curl=settings_.page_effect==static_cast<int>(reader::PageEffect::PageCurl) && turn_page_;
+        const bool drag_slide=(drag_axis_==1 || page_drag_settle_) && settings_.page_effect==static_cast<int>(reader::PageEffect::SlideAndFade) && turn_page_;
         const float eased=curl?0:remaining*remaining*remaining;
-        const int shift=static_cast<int>((page_turn_forward_?1:-1)*64*eased);
+        const int shift=static_cast<int>((page_turn_forward_?1:-1)*(drag_slide?864*remaining:64*eased));
         vita2d_enable_clipping();vita2d_set_clip_rectangle(48,area.top,912,area.top+area.height);
-        for (auto i=top_;i<end;++i) {
+        for (auto i=window.first;i<window.end;++i) {
             if (lines_[i].illustration==reader::no_illustration) draw_line(lines_[i],y+line_height()-8,shift);
             else draw_inline_image(lines_[i],y,shift);
             y+=lines_[i].height;
         }
-        if(remaining>0 && curl)draw_page_curl(remaining);
+        if(drag_slide) {
+            const float offset=(page_turn_forward_?-1:1)*864*(1-remaining);
+            vita2d_draw_texture_tint(turn_page_.get(),offset,0,0xffffffffu);
+        }
+        else if(remaining>0 && curl)draw_page_curl(remaining);
         else if(remaining>0) {
             const auto paper=(palette().background&0x00ffffffu) | (static_cast<unsigned>(112*eased)<<24);
             vita2d_draw_rectangle(48,area.top,864,area.height,paper);
@@ -2965,19 +3096,10 @@ private:
                 vita2d_draw_fill_circle(knob,cy,8,accent);
                 vita2d_draw_fill_circle(knob-2,cy-2,2,mix(accent,palette().text,0.35f));
                 text(540,box.y+64,palette().text,0.84f,values[i],72,reader::FontRole::Heading);
-            } else if(i==3) {
-                for(int theme=0;theme<3;++theme) {
-                    const auto swatch=reader::ui::settings_swatch(theme);
-                    const bool chosen=theme==settings_.theme;
-                    rounded(swatch.x,swatch.y,swatch.width,swatch.height,chosen?accent:border,6);
-                    rounded(swatch.x+2,swatch.y+2,swatch.width-4,swatch.height-4,palettes[theme].background,4);
-                    if(chosen)icon(Icon::Check,swatch.x+24,swatch.y+14,palettes[theme].text,0.6f);
-                }
-                text(466,box.y+63,palette().text,0.80f,values[i],146);
             } else {
-                const int value=i==4?settings_.page_effect:settings_.reading_font;
+                const int value=i==4?settings_.page_effect:i==3?settings_.theme:settings_.reading_font;
                 const auto chevron=[&](int cx,int direction,unsigned color) {
-                    const int cy=box.y+(i==4?50:40);
+                    const int cy=box.y+(i>=3?50:40);
                     for(int stroke=0;stroke<2;++stroke) {
                         vita2d_draw_line(cx-direction*4,cy-6+stroke,cx+direction*2,cy+stroke,color);
                         vita2d_draw_line(cx+direction*2,cy+stroke,cx-direction*4,cy+6+stroke,color);
@@ -2987,7 +3109,7 @@ private:
                 chevron(608,1,value<2?tint:mix(surface,border,0.7f));
                 const unsigned pixels=20;
                 const auto width=fonts_.width(reader::FontRole::Interface,pixels,values[i]);
-                fonts_.draw(reader::FontRole::Interface,pixels,516-width/2,box.y+(i==4?58:48),palette().text,values[i]);
+                fonts_.draw(reader::FontRole::Interface,pixels,516-width/2,box.y+(i>=3?58:48),palette().text,values[i]);
             }
         }
         const auto& paper=palettes[settings_.theme];
@@ -3002,7 +3124,7 @@ private:
         for(const auto& row:rows){if(y>bottom)break;fonts_.draw(reading_font(),reading_pixels(),676,y,paper.text,row.text);y+=line_height();}
         vita2d_disable_clipping();
         text(232,456,palette().text,0.78f,help[setting_row_],704);
-        text(232,482,palette().muted,0.68f,"Left / Right adjusts  ·  Touch a slider or theme to select",704);
+        text(232,482,palette().muted,0.68f,"Left / Right adjusts  ·  Touch sliders or arrows to select",704);
     }
 
     struct LibraryView { std::string filename,query; reader::LibraryFilter filter; bool search_active; };
@@ -3038,6 +3160,14 @@ private:
     bool interface_layer_ = false;
     bool redraw_=true;
     static constexpr std::uint64_t page_turn_duration=180000;
+    static constexpr std::uint64_t scroll_duration=160000,bars_duration=240000;
+    std::uint64_t scroll_until_=0,bars_until_=0,page_turn_span_=page_turn_duration;
+    float scroll_from_=0,page_turn_from_=1,page_turn_to_=0,curl_touch_y_=0.5f;
+    int drag_axis_=0;
+    std::size_t drag_origin_top_=0;
+    float drag_progress_=0,drag_scroll_=0;
+    bool reuse_turn_capture_=false;
+    bool page_drag_settle_=false;
     std::uint64_t page_turn_until_=0;
     bool page_turn_forward_=true;
     std::unique_ptr<vita2d_texture,TextureDeleter> turn_page_;
@@ -3166,8 +3296,11 @@ int main() {
                         points.push_back({data.report[i].id,
                             reader::controls::display_coordinate(data.report[i].x, panel.minDispX, panel.maxDispX, 960),
                             reader::controls::display_coordinate(data.report[i].y, panel.minDispY, panel.maxDispY, 544)});
-                    gesture = touch.sample(points, now, before == Screen::Image);
-                } else touch.cancel_until_release();
+                    gesture = touch.sample(points, now, before == Screen::Image,before == Screen::Reader);
+                } else {
+                    touch.cancel_until_release();
+                    if(before==Screen::Reader)gesture.kind=reader::controls::GestureKind::Cancel;
+                }
             }
             running = app.input(pressed);
             if (!running) break;
