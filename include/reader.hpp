@@ -58,6 +58,8 @@ struct ChapterLayout {
     std::vector<std::size_t> pages;
 };
 
+enum class PageEffect { PageCurl = 0, SlideAndFade = 1, None = 2 };
+
 struct Settings {
     int font = 1;    // Small, medium, large.
     int spacing = 1; // Compact, normal, relaxed.
@@ -67,6 +69,7 @@ struct Settings {
     int reading_font = 0; // Literata, Atkinson Hyperlegible Next, Vita system.
     int immersive = 0; // Show the reading chrome by default; immersive remains optional.
     int speech_rate = 175; // Offline narration, words per minute (100–350).
+    int page_effect = static_cast<int>(PageEffect::SlideAndFade);
 };
 
 struct Progress {

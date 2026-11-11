@@ -41,8 +41,8 @@ constexpr int grid_top=100, grid_bottom=480, grid_height=300, grid_cover_height=
 inline Rect grid_book(int index, int scroll=0) {
     return {232 + index%grid_columns*180,grid_top+index/grid_columns*grid_pitch-scroll,164,grid_height};
 }
-constexpr int settings_count = 4;
-inline Rect settings_row(int index) { return {236,82+index*84,392,80}; }
+constexpr int settings_count = 5;
+inline Rect settings_row(int index) { return {236,82+index*70,392,68}; }
 inline Rect settings_slider(int index) { return {278,settings_row(index).y+40,242,32}; }
 inline Rect settings_swatch(int index) { return {278+index*60,settings_row(3).y+42,48,28}; }
 inline Rect bookmark_row(int index) { return {232,100+index*104,704,96}; }

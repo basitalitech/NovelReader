@@ -3,7 +3,7 @@
 struct vita2d_color_vertex { float x,y,z; unsigned color; };
 enum SceGxmPrimitiveType { SCE_GXM_PRIMITIVE_TRIANGLES };
 inline void* vita2d_pool_memalign(unsigned size,unsigned) {
-    alignas(16) static unsigned char storage[65536];
+    alignas(16) static unsigned char storage[524288];
     return size<=sizeof(storage)?storage:nullptr;
 }
 using DrawArrayObserver=void (*)(const vita2d_color_vertex*,std::size_t);
@@ -14,6 +14,15 @@ inline void vita2d_draw_array(SceGxmPrimitiveType,const vita2d_color_vertex* ver
 struct vita2d_font {};
 struct vita2d_pgf {};
 struct vita2d_texture {};
+constexpr int SCE_GXM_TEXTURE_FORMAT_A8B8G8R8=0;
+inline bool& test_render_target_failure(){static bool value=false;return value;}
+inline unsigned& test_texture_parts(){static unsigned value=0;return value;}
+inline vita2d_texture* vita2d_create_empty_texture_rendertarget(unsigned,unsigned,int){
+    static vita2d_texture texture;return test_render_target_failure()?nullptr:&texture;
+}
+template<class... T> void vita2d_start_drawing_advanced(T...){}
+template<class... T> void vita2d_draw_texture_part(T...){++test_texture_parts();}
+template<class... T> void vita2d_draw_texture_tint_part_scale(T...){++test_texture_parts();}
 inline vita2d_texture* vita2d_load_PNG_file(const char*){return nullptr;}
 inline void vita2d_free_texture(vita2d_texture*){}
 inline int vita2d_texture_get_width(const vita2d_texture*){return 100;}

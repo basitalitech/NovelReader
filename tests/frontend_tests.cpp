@@ -126,6 +126,31 @@ struct FrontendTest {
         check(app.page_turn_until_ && !app.page_turn_forward_,"Backward page effect has wrong direction");
         app.input(SCE_CTRL_LEFT);
         check(!app.page_turn_until_,"Blocked first-page turn animated");
+        app.settings_.page_effect=static_cast<int>(reader::PageEffect::PageCurl);
+        app.input(SCE_CTRL_RIGHT);
+        check(app.turn_page_ && app.page_turn_forward_ && app.turn_duration()==320000,
+              "Page Curl did not capture the outgoing page");
+        test_process_time()+=app.turn_duration()/2;
+        test_texture_parts()=0;app.draw();
+        check(test_texture_parts()>0 && app.needs_redraw(),"Page Curl did not draw the folded outgoing page");
+        app.input(SCE_CTRL_LEFT);
+        check(!app.page_turn_forward_ && app.top_==original_top,"Reverse curl lost the previous page");
+        test_process_time()+=app.turn_duration()/2;
+        test_texture_parts()=0;app.draw();check(test_texture_parts()>0,"Reverse curl did not render");
+        test_process_time()+=app.turn_duration();app.needs_redraw();app.draw();
+        check(!app.needs_redraw(),"Page Curl does not return to idle");
+        app.settings_.page_effect=static_cast<int>(reader::PageEffect::None);
+        test_texture_parts()=0;app.input(SCE_CTRL_RIGHT);app.draw();
+        check(app.top_==next_page && !app.page_turn_until_ && !app.needs_redraw() && !test_texture_parts() &&
+              app.progress_.offset==app.lines_[app.top_].offset,"None still animates or loses reading progress");
+        app.input(SCE_CTRL_LEFT);
+        app.settings_.page_effect=static_cast<int>(reader::PageEffect::PageCurl);
+        app.turn_page_.reset();test_render_target_failure()=true;
+        app.input(SCE_CTRL_RIGHT);app.draw();
+        check(!app.turn_page_ && app.page_turn_until_,"Curl allocation failure did not fall back to a slide");
+        test_render_target_failure()=false;app.input(SCE_CTRL_LEFT);
+        app.settings_.page_effect=static_cast<int>(reader::PageEffect::SlideAndFade);
+        app.input(SCE_CTRL_LEFT);
         app.gesture({reader::controls::GestureKind::Swipe,700,200,-80,70,1,780,130});
         check(app.top_==original_top,"Diagonal reading gesture accidentally turned a page");
         app.gesture({reader::controls::GestureKind::Swipe,500,220,-250,0,1,750,220});
@@ -188,11 +213,21 @@ struct FrontendTest {
             for(const auto& draw:reader::font_draws)preview_controls=preview_controls || draw.text=="Chapter 1";
             check(!preview_controls,"Reading preview still shows reading-view controls");
         }
-        check(app.widgets().size()==4,"Settings still exposes Reading View");
+        check(app.widgets().size()==5,"Settings missing Page effect");
         app.set_focus(1003);app.input(SCE_CTRL_DOWN);
-        check(app.setting_row_==3,"Settings focus moved below Page theme");
-        footer(SCE_CTRL_SELECT);check(app.settings_.reading_font==0,"Touch Settings reset failed");
+        check(app.setting_row_==4,"Page effect cannot be reached from Page theme");
+        app.input(SCE_CTRL_LEFT);check(app.settings_.page_effect==0,"Page effect cannot select Page Curl");
+        app.input(SCE_CTRL_RIGHT);check(app.settings_.page_effect==1,"Page effect cannot select Slide and Fade");
+        const auto effect_row=reader::ui::settings_row(4);
+        tap(590,effect_row.y+50);check(app.settings_.page_effect==2,"Touch cannot select None");
+        app.input(SCE_CTRL_DOWN);check(app.setting_row_==4,"Focus moved below Page effect");
+        footer(SCE_CTRL_SELECT);check(app.settings_.reading_font==0 && app.settings_.page_effect==1,"Touch Settings reset failed");
         footer(SCE_CTRL_CIRCLE);check(app.settings_.reading_font==1,"Touch Settings cancel did not discard reset");
+        check(app.settings_.page_effect==1,"Cancel applied the preview page effect");
+        app.input(SCE_CTRL_SQUARE);app.set_focus(1004);app.input(SCE_CTRL_LEFT);footer(SCE_CTRL_CROSS);
+        check(app.settings_.page_effect==0 && reader::load_settings(settings_path).page_effect==0,
+              "Apply did not persist Page Curl");
+        app.input(SCE_CTRL_SQUARE);app.set_focus(1004);app.input(SCE_CTRL_RIGHT);footer(SCE_CTRL_CROSS);
 
         // Modal isolation also covers START, sidebars, gestures and shortcuts.
         app.message_="Modal failure";const auto modal_context=app.input_context();const auto modal_top=app.top_;

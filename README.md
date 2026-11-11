@@ -105,11 +105,14 @@ It draws START/SELECT/L/R as ASCII text inside the button backgrounds, without r
 on symbol glyphs. The component clips long labels to the supplied width.
 In Settings, Left/Right adjusts the selected value; Up from Typeface stays on
 that row. Cross applies, Circle cancels, and Select resets the preview.
-Reading Settings groups its four rows in one charcoal panel with subtle dividers
+Reading Settings groups its five rows in one charcoal panel with subtle dividers
 and a lavender outline around the focused row. Font size and line spacing use
 three-step sliders; page themes use labeled color swatches with a checkmark on
 the selected theme. Touch a slider position or swatch to select its value directly.
-Typeface retains a left/right selector. The adjacent live page preview reflects
+Typeface and Page effect use left/right selectors. Page effect offers **Page Curl**,
+**Slide and Fade**, and **None**; Apply saves the choice, Cancel discards changes,
+and Reset restores Slide and Fade. Existing saves also default to Slide and Fade.
+The adjacent live page preview reflects
 the typeface, size, spacing, and theme, without reading bars. Reading view is
 controlled from the reader's Show/Hide reading bar action. Contextual help below
 the panel describes the focused setting.
@@ -162,8 +165,12 @@ progress are deleted. Download cleanup runs on the existing background worker.
 bar, and bottom shortcut legend. Existing saved reading-view preferences are kept.
 Tap the center of the reading area to hide or show all reading bars; this keeps
 the current text/image anchor and saves the view preference. Center taps do not
-open Reading controls. Page turns use a brief directional slide and fade effect
-for buttons, edge taps, and horizontal swipes, including chapter boundaries.
+open Reading controls. Page turns use the effect chosen in Reading Settings for
+buttons, edge taps, and horizontal swipes, including chapter boundaries. Page Curl
+rolls a shaded, curved fold across the outgoing text and illustrations in either
+direction; Slide and Fade uses a brief eased transition; None turns immediately.
+The curl reuses one outgoing-page render texture and falls back to Slide and Fade
+if that texture cannot be allocated.
 START opens Reading controls, Cross opens Contents, Triangle opens Bookmarks, Square opens Reading
 Settings, and Circle returns to Library (or online chapters). The control panel contains Contents, Illustrations, Reading Settings, Save bookmark,
 Go to bookmark, All bookmarks, and Show/Hide reading bar. Select still jumps directly to the saved bookmark. Hold and release on the

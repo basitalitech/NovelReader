@@ -103,6 +103,12 @@ int main() {
         check(reader::save_settings(settings_path, {2, 0, 1}), "Settings save failed");
         auto settings = reader::load_settings(settings_path);
         check(settings.speech_rate == 175, "Old settings lost the default speech speed");
+        check(settings.page_effect==static_cast<int>(reader::PageEffect::SlideAndFade),"Default page effect changed");
+        for(int effect=0;effect<3;++effect) {
+            settings.page_effect=effect;
+            check(reader::save_settings(settings_path,settings) && reader::load_settings(settings_path).page_effect==effect,
+                  "Page effect did not survive restart");
+        }
         settings.speech_rate = 225;
         check(reader::save_settings(settings_path, settings) && reader::load_settings(settings_path).speech_rate == 225,
               "Speech speed failed round trip");
@@ -132,6 +138,14 @@ int main() {
         check(reader::load_settings(settings_path).immersive==1,"Reading-view preference was not bounded");
         write(settings_path,"NRS4\n1 1 0 0 0 0\n");
         check(reader::load_settings(settings_path).immersive==0,"New defaults should show reading controls");
+        check(reader::load_settings(settings_path).page_effect==1,"Legacy view settings lost Slide and Fade");
+        write(settings_path,"NRS4\n1 1 0 0 0 0 0 225\n");
+        check(reader::load_settings(settings_path).page_effect==1 && reader::load_settings(settings_path).speech_rate==225,
+              "Legacy narration settings were changed by effect migration");
+        write(settings_path,"NRS4\n1 1 0 0 0 0 0 225 -99\n");
+        check(reader::load_settings(settings_path).page_effect==0,"Negative page effect not bounded");
+        write(settings_path,"NRS4\n1 1 0 0 0 0 0 225 99\n");
+        check(reader::load_settings(settings_path).page_effect==2,"Page effect not bounded");
         write(settings_path, "NRS3\n2 1 0 2 1\n");
         check(reader::load_settings(settings_path).font == 1, "Truncated font settings have no defaults");
         write(settings_path, "NRS1\n99 -3 123\n");

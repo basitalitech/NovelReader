@@ -361,6 +361,8 @@ public:
             }
             else {
                 if ((publication_.epub || publication_.online) && (pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER))) {
+                    if(((pressed&SCE_CTRL_RTRIGGER) && chapter_+1<publication_.chapters.size()) ||
+                       ((pressed&SCE_CTRL_LTRIGGER) && chapter_>0))capture_turn_page();
                     bool changed=false;
                     if ((pressed & SCE_CTRL_RTRIGGER) && chapter_ + 1 < publication_.chapters.size()) {
                         changed=change_chapter(chapter_ + 1, 0);
@@ -372,6 +374,9 @@ public:
                 }
                 const auto previous = top_;
                 const auto previous_chapter = chapter_;
+                if(((pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER)) &&
+                    (visible_end()<lines_.size() || chapter_+1<publication_.chapters.size())) ||
+                   ((pressed & (SCE_CTRL_LEFT | SCE_CTRL_LTRIGGER)) && (top_ || chapter_)))capture_turn_page();
                 if (pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER)) {
                     if (visible_end() >= lines_.size() && chapter_ + 1 < publication_.chapters.size())
                         change_chapter(chapter_ + 1, 0);
@@ -812,7 +817,7 @@ private:
     void adjust_setting(int row,int delta) {
         if(row<0 || row>=reader::ui::settings_count)return;
         int* value=row==0?&settings_.reading_font:row==1?&settings_.font:row==2?&settings_.spacing:
-            &settings_.theme;
+            row==3?&settings_.theme:&settings_.page_effect;
         *value=std::max(0,std::min(2,*value+delta));
     }
     void cancel_settings() { settings_=previous_settings_; immersive_=settings_.immersive!=0; }
@@ -957,6 +962,9 @@ private:
             }
             save();
         }
+        if(settings_.page_effect!=static_cast<int>(reader::PageEffect::PageCurl)) {
+            vita2d_wait_rendering_done();turn_page_.reset();
+        }
         if (!reader::save_settings(settings_path,settings_)) message_="Could not save settings. Check storage.";
     }
     void navigate(int destination) {
@@ -992,6 +1000,8 @@ private:
     void clear_reading() {
         const reader::perf::Scope timing(reader::perf::Event::Cleanup);
         speech_.stop();
+        page_turn_until_=0;
+        vita2d_wait_rendering_done();turn_page_.reset();
         bookmarks_return_=Screen::Home;
         inline_images_.clear();book_={};publication_={};
         std::vector<reader::LayoutBlock>().swap(lines_);pages_.clear();active_filename_.clear();
@@ -2710,15 +2720,81 @@ private:
         if(online)text(730,421,palette().muted,0.7f,in_library()?"In library":"Not saved",180);
         else text(24,475,palette().muted,0.66f,item.filename,880);
     }
+    void capture_turn_page() {
+        if(settings_.page_effect!=static_cast<int>(reader::PageEffect::PageCurl))return;
+        // Reuse one outgoing-page snapshot. Capture before changing the chapter
+        // so styled text and illustrations curl together, including at boundaries.
+        if(!turn_page_)turn_page_.reset(vita2d_create_empty_texture_rendertarget(960,544,SCE_GXM_TEXTURE_FORMAT_A8B8G8R8));
+        if(!turn_page_)return; // Memory pressure falls back to Slide and Fade.
+        sync_inline_images();
+        vita2d_set_clear_color(palette().background);
+        vita2d_start_drawing_advanced(turn_page_.get(),0);
+        vita2d_clear_screen();
+        draw_reader();
+        vita2d_end_drawing();
+        vita2d_wait_rendering_done();
+    }
     void start_page_turn(bool forward) {
+        if(settings_.page_effect==static_cast<int>(reader::PageEffect::None))return;
         page_turn_forward_=forward;
-        page_turn_until_=sceKernelGetProcessTimeWide()+page_turn_duration;
+        page_turn_until_=sceKernelGetProcessTimeWide()+turn_duration();
         redraw_=true;
+    }
+    std::uint64_t turn_duration() const {
+        return settings_.page_effect==static_cast<int>(reader::PageEffect::PageCurl) && turn_page_?320000:page_turn_duration;
     }
     float page_turn_remaining() const {
         const auto now=sceKernelGetProcessTimeWide();
         if(!page_turn_until_ || now>=page_turn_until_ || !menu_.empty() || feedback_active())return 0;
-        return std::min(1.f,float(page_turn_until_-now)/page_turn_duration);
+        return std::min(1.f,float(page_turn_until_-now)/turn_duration());
+    }
+    void draw_page_curl(float remaining) const {
+        const auto area=reading_area();
+        const float progress=1-remaining;
+        const float bend=std::sin(progress*3.14159265f);
+        const auto capacity=static_cast<unsigned>((area.height+3)/4*28*6);
+        auto* shading=static_cast<vita2d_color_vertex*>(vita2d_pool_memalign(capacity*sizeof(vita2d_color_vertex),8));
+        std::size_t shaded=0;
+        const auto shade_rect=[&](float x,float y,float width,float height,unsigned color) {
+            if(!shading){vita2d_draw_rectangle(x,y,width,height,color);return;}
+            const vita2d_color_vertex a{x,y,0.5f,color},b{x+width,y,0.5f,color};
+            const vita2d_color_vertex c{x,y+height,0.5f,color},d{x+width,y+height,0.5f,color};
+            shading[shaded++]=a;shading[shaded++]=b;shading[shaded++]=c;
+            shading[shaded++]=b;shading[shaded++]=d;shading[shaded++]=c;
+        };
+        // Thin horizontal strips describe a bowed fold. The flat outgoing side
+        // retains its text; a mirrored, shaded back rolls over the incoming page.
+        for(int row=0;row<area.height;row+=4) {
+            const int height=std::min(4,area.height-row);
+            const float bow=std::sin(float(row)/area.height*3.14159265f);
+            const float width=bend*(92+28*bow);
+            const float edge=864*remaining-width;
+            const float flat=std::max(0.f,edge);
+            const int y=area.top+row;
+            if(flat>0) {
+                const float x=page_turn_forward_?48:912-flat;
+                vita2d_draw_texture_part(turn_page_.get(),x,y,x,y,flat,height);
+            }
+            const float fold_left=std::max(0.f,edge),fold_right=std::max(0.f,edge+width);
+            const float fold_width=fold_right-fold_left;
+            if(fold_width>0) {
+                const float x=page_turn_forward_?48+fold_left:912-fold_right;
+                vita2d_draw_rectangle(x,y,fold_width,height,palette().panel);
+                const float source=page_turn_forward_?48+fold_left:912-fold_right;
+                vita2d_draw_texture_tint_part_scale(turn_page_.get(),x+fold_width,y,source,y,
+                    fold_width,height,-1,1,0x38ffffffu);
+                for(int band=0;band<12;++band) {
+                    const float fraction=band/12.f;
+                    const unsigned alpha=static_cast<unsigned>(90*std::abs(2*fraction-1)*bend);
+                    shade_rect(x+fold_width*fraction,y,fold_width/12+1,height,alpha<<24);
+                }
+                const float shadow=page_turn_forward_?48+fold_right:912-fold_right;
+                for(int band=0;band<16;++band)
+                    shade_rect(page_turn_forward_?shadow+band:shadow-band-1,y,1,height,
+                        static_cast<unsigned>((16-band)*5*bend)<<24);
+            }
+        }
+        if(shaded)vita2d_draw_array(SCE_GXM_PRIMITIVE_TRIANGLES,shading,shaded);
     }
     void draw_reader() const {
         const auto end=visible_end();
@@ -2727,7 +2803,8 @@ private:
         // A short eased slide and paper-colored fade needs no extra framebuffer
         // or duplicate chapter/image textures on the Vita.
         const float remaining=page_turn_remaining();
-        const float eased=remaining*remaining*remaining;
+        const bool curl=settings_.page_effect==static_cast<int>(reader::PageEffect::PageCurl) && turn_page_;
+        const float eased=curl?0:remaining*remaining*remaining;
         const int shift=static_cast<int>((page_turn_forward_?1:-1)*64*eased);
         vita2d_enable_clipping();vita2d_set_clip_rectangle(48,area.top,912,area.top+area.height);
         for (auto i=top_;i<end;++i) {
@@ -2735,7 +2812,8 @@ private:
             else draw_inline_image(lines_[i],y,shift);
             y+=lines_[i].height;
         }
-        if(remaining>0) {
+        if(remaining>0 && curl)draw_page_curl(remaining);
+        else if(remaining>0) {
             const auto paper=(palette().background&0x00ffffffu) | (static_cast<unsigned>(112*eased)<<24);
             vita2d_draw_rectangle(48,area.top,864,area.height,paper);
             for(int i=0;i<24;++i) {
@@ -2855,18 +2933,20 @@ private:
         const char* sizes[]={"22 px","26 px","30 px"};
         const char* spacing[]={"1.2","1.5","1.8"};
         const char* themes[]={"Night","Paper","Sepia"};
-        const char* labels[]={"Typeface","Font size","Line spacing","Page theme"};
+        const char* effects[]={"Page Curl","Slide and Fade","None"};
+        const char* labels[]={"Typeface","Font size","Line spacing","Page theme","Page effect"};
         const char* help[]={"Choose the typeface used for reading.","Adjust the reading text size.",
-            "Adjust the space between lines.","Choose a page color for comfortable reading."};
+            "Adjust the space between lines.","Choose a page color for comfortable reading.",
+            "Choose Page Curl, Slide and Fade, or None for page turns."};
         const std::string values[]={names[settings_.reading_font],sizes[settings_.font],spacing[settings_.spacing],
-            themes[settings_.theme]};
-        rounded(232,78,400,348,mix(surface,border,0.42f),12);
-        rounded(233,79,398,346,surface,11);
+            themes[settings_.theme],effects[settings_.page_effect]};
+        rounded(232,78,400,358,mix(surface,border,0.42f),12);
+        rounded(233,79,398,356,surface,11);
         for(int i=0;i<reader::ui::settings_count;++i) {
             const auto box=reader::ui::settings_row(i);
             const bool focused=setting_row_==i;
             if(focused)rounded(box.x,box.y,box.width,box.height,mix(surface,accent,0.14f),9);
-            if(i<reader::ui::settings_count-1)vita2d_draw_rectangle(248,box.y+82,368,1,mix(surface,border,0.45f));
+            if(i<reader::ui::settings_count-1)vita2d_draw_rectangle(248,box.y+69,368,1,mix(surface,border,0.45f));
             const auto tint=focused?palette().text:palette().muted;
             if(i<2)text(245,box.y+48,tint,0.82f,"Aa",28,reader::FontRole::Heading);
             else if(i==2) {
@@ -2895,9 +2975,9 @@ private:
                 }
                 text(466,box.y+63,palette().text,0.80f,values[i],146);
             } else {
-                const int value=settings_.reading_font;
+                const int value=i==4?settings_.page_effect:settings_.reading_font;
                 const auto chevron=[&](int cx,int direction,unsigned color) {
-                    const int cy=box.y+40;
+                    const int cy=box.y+(i==4?50:40);
                     for(int stroke=0;stroke<2;++stroke) {
                         vita2d_draw_line(cx-direction*4,cy-6+stroke,cx+direction*2,cy+stroke,color);
                         vita2d_draw_line(cx+direction*2,cy+stroke,cx-direction*4,cy+6+stroke,color);
@@ -2907,7 +2987,7 @@ private:
                 chevron(608,1,value<2?tint:mix(surface,border,0.7f));
                 const unsigned pixels=20;
                 const auto width=fonts_.width(reader::FontRole::Interface,pixels,values[i]);
-                fonts_.draw(reader::FontRole::Interface,pixels,516-width/2,box.y+48,palette().text,values[i]);
+                fonts_.draw(reader::FontRole::Interface,pixels,516-width/2,box.y+(i==4?58:48),palette().text,values[i]);
             }
         }
         const auto& paper=palettes[settings_.theme];
@@ -2960,6 +3040,7 @@ private:
     static constexpr std::uint64_t page_turn_duration=180000;
     std::uint64_t page_turn_until_=0;
     bool page_turn_forward_=true;
+    std::unique_ptr<vita2d_texture,TextureDeleter> turn_page_;
     std::string pressed_action_;
     std::uint64_t pressed_until_ = 0;
     std::size_t description_row_ = 0;
