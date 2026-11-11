@@ -59,5 +59,9 @@ The guard is marked in the source and does not change non-empty track copies.
 
 See [Flite's license](flite/COPYING) and
 [acknowledgements](flite/ACKNOWLEDGEMENTS), both included in the reader VPK.
+The VPK also includes the vendored TinyXML-2, minizip, Lua, curl, and Mbed TLS
+license notices under `app0:/licenses/`. Font notices remain under `app0:/fonts/`;
+the CA bundle retains its embedded provenance and license link. About → Credits
+and License provide pageable attribution and notice summaries.
 The previous eSpeak dependency, compiled runtime data, endian shim, native
 data-generation tools and temporary SLT test app have been removed.

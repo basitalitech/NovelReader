@@ -21,6 +21,11 @@ std::string stable_id(const std::string& value);
 std::string read_file(const std::string& path, std::size_t limit);
 bool atomic_write(const std::string& path, const std::string& bytes);
 using Fetch = std::function<std::string(const std::string&)>;
+constexpr const char* app_version = NOVELREADER_VERSION;
+constexpr const char* latest_release_url = "https://api.github.com/repos/basitalitech/NovelReader/releases/latest";
+// Parse a stable GitHub release using the bounded, packaged JSON decoder.
+Result release_info(const std::string& assets, const std::string& json,
+                    const std::string& current, const std::atomic<bool>& cancel);
 // Each call owns a bounded Lua state. Only packaged adapters and safe helpers run.
 Result run_adapter(const std::string& assets, const std::string& source,
                    const std::string& operation, const std::string& url,
@@ -42,7 +47,7 @@ bool open_cached(const std::string& path, Publication& publication, std::string&
 void restore_progress(const Publication& publication, Progress& progress);
 
 // Worker results are transferred to the UI only after completion.
-enum class Action { Browse, Chapters, Read, Download, Remove };
+enum class Action { Browse, Chapters, Read, Download, Remove, CheckUpdates };
 struct Request {
     Action action = Action::Browse;
     std::string source, url, query, manifest;

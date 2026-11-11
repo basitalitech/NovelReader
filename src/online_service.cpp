@@ -72,7 +72,7 @@ size_t write(char* data,size_t size,size_t count,void* ptr) {
     return size*count;
 }
 int progress(void* ptr,curl_off_t,curl_off_t,curl_off_t,curl_off_t) { return static_cast<Transfer*>(ptr)->cancel?1:0; }
-std::string http(Network& network,const std::string& assets,const std::string& source,std::string url,const std::atomic<bool>& cancel,bool artwork=false) {
+std::string http(Network& network,const std::string& assets,const std::string& source,std::string url,const std::atomic<bool>& cancel,bool artwork=false,bool updates=false) {
     network.init();
 #ifdef __vita__
     int state=0;
@@ -80,12 +80,13 @@ std::string http(Network& network,const std::string& assets,const std::string& s
 #endif
     for(int redirect=0;redirect<6;++redirect) {
         if(cancel) throw std::runtime_error("Canceled.");
-        if(!(artwork?allowed_cover_url(url):allowed_url(source,url))) throw std::runtime_error("Redirect left the allowed HTTPS hosts.");
+        if(!(updates?url==latest_release_url:artwork?allowed_cover_url(url):allowed_url(source,url))) throw std::runtime_error("Redirect left the allowed HTTPS hosts.");
         std::unique_ptr<CURL,decltype(&curl_easy_cleanup)> curl(curl_easy_init(),curl_easy_cleanup);
         if(!curl) throw std::runtime_error("Not enough memory for HTTPS.");
         auto* c=curl.get(); Transfer transfer{{},cancel};
         curl_easy_setopt(c,CURLOPT_URL,url.c_str());
-        curl_easy_setopt(c,CURLOPT_USERAGENT,"NovelReader/0.7 (PS Vita; public novels)");
+        const std::string agent=std::string("NovelReader/")+app_version+" (PS Vita)";
+        curl_easy_setopt(c,CURLOPT_USERAGENT,agent.c_str());
         curl_easy_setopt(c,CURLOPT_PROTOCOLS_STR,"https");
         curl_easy_setopt(c,CURLOPT_FOLLOWLOCATION,0L);
         curl_easy_setopt(c,CURLOPT_PROXY,"");
@@ -99,7 +100,7 @@ std::string http(Network& network,const std::string& assets,const std::string& s
         curl_easy_setopt(c,CURLOPT_WRITEFUNCTION,write); curl_easy_setopt(c,CURLOPT_WRITEDATA,&transfer);
         curl_easy_setopt(c,CURLOPT_NOPROGRESS,0L); curl_easy_setopt(c,CURLOPT_XFERINFOFUNCTION,progress); curl_easy_setopt(c,CURLOPT_XFERINFODATA,&transfer);
         const auto code=curl_easy_perform(c);
-        if(cancel) throw std::runtime_error("Canceled. Completed chapters are kept.");
+        if(cancel) throw std::runtime_error(updates?"Update check canceled.":"Canceled. Completed chapters are kept.");
         if(transfer.oversized) throw std::runtime_error("Response exceeds 4 MiB.");
         if(transfer.failed) throw std::runtime_error("Not enough memory for response.");
         if(code!=CURLE_OK) throw std::runtime_error(std::string("HTTPS: ")+curl_easy_strerror(code));
@@ -109,7 +110,9 @@ std::string http(Network& network,const std::string& assets,const std::string& s
             if(!target) throw std::runtime_error("Invalid source redirect.");
             url=target; continue;
         }
-        if(status!=200) throw std::runtime_error("Source returned HTTP "+std::to_string(status)+". Retry later; login or browser access may be required.");
+        if(updates && status==404)throw std::runtime_error("No published release found, or the repository is unavailable.");
+        if(updates && (status==403 || status==429))throw std::runtime_error("GitHub denied the update check or its request limit was reached. Try later.");
+        if(status!=200) throw std::runtime_error((updates?"Update server":"Source")+std::string(" returned HTTP ")+std::to_string(status)+". Try again later.");
         if(transfer.bytes.find("Just a moment...")!=std::string::npos || transfer.bytes.find("cf-chl-")!=std::string::npos) throw std::runtime_error("Source requires browser verification. Try another source.");
         return std::move(transfer.bytes);
     }
@@ -134,7 +137,12 @@ struct Service::Impl {
         try {
             auto fetch=[&](const std::string& url){ return transport ? transport(url) : http(network,assets,request.source,url,canceled); };
             auto run=[&](const std::string& op,const std::string& url){return run_adapter(assets,request.source,op,url,request.query,fetch,canceled);};
-            if(request.action==Action::Browse) {
+            if(request.action==Action::CheckUpdates) {
+                status(0,0,"Checking GitHub for updates...");
+                const auto bytes=transport?transport(latest_release_url):http(network,assets,"",latest_release_url,canceled,false,true);
+                if(canceled)throw std::runtime_error("Update check canceled.");
+                result.result=release_info(assets,bytes,app_version,canceled);
+            } else if(request.action==Action::Browse) {
                 status(0,0,"Loading catalog..."); result.result=run("browse",request.url);
             } else if(request.action==Action::Remove) {
                 status(0,0,"Deleting downloaded book data...");
@@ -218,11 +226,11 @@ bool Service::start(const Request& request) {
     try { impl_->thread=std::thread([this,request]{impl_->work(request);}); }
     catch(const std::exception& e) {
         std::lock_guard<std::mutex> lock(impl_->mutex);
-        impl_->state={}; impl_->state.done=true;
+        impl_->state={}; impl_->state.done=true;impl_->state.request=request;
         impl_->state.error=std::string("Worker start failed: ")+e.what(); return false;
     } catch(...) {
         std::lock_guard<std::mutex> lock(impl_->mutex);
-        impl_->state={}; impl_->state.done=true;
+        impl_->state={}; impl_->state.done=true;impl_->state.request=request;
         impl_->state.error="Worker start failed: unknown exception."; return false;
     }
     return true;

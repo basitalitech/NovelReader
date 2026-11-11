@@ -7,7 +7,7 @@ illustration viewer, local book imports, analog-stick navigation, and front touc
 Online novel sources are **Novgo, Asura Novels, and Beast Novels**, using packaged
 Lua adapters for public catalogs and chapters.
 
-**Offline read aloud:** open a book, press START, choose **Read aloud**, then
+**Offline read aloud (tts):** open a book, press START, choose **Read aloud (TTS)**, then
 **Start here**. The bundled **Flite SLT English voice** reads from the current text
 position through the end of the chapter. The same panel offers pause/resume,
 stop, and a saved speed setting from 100 to 350 words per minute. No connection,
@@ -124,8 +124,17 @@ controlled from the reader's Show/Hide reading bar action. Contextual help below
 the panel describes the focused setting.
 
 **About** centers the logo, NovelReader name, **by basitalitech**, version, and
-description in the content area. A disabled **Check for Updates** placeholder
-sits above the Credits and License buttons; update checking is not connected yet.
+description in the content area. **Check for Updates** checks the latest stable
+release from this project's [GitHub releases](https://github.com/basitalitech/NovelReader/releases)
+on the background network worker. It reports whether a newer version is available;
+download the VPK from the release page and install it with VitaShell. Nothing is
+downloaded or installed automatically. Wi-Fi, HTTPS, missing-release and request-limit
+errors are shown; Circle cancels an active check. Startup stays offline.
+**Credits** lists the current platform, font, EPUB, image, online and Flite/SLT
+contributors. **License** summarizes dependency licenses and the locations of
+the full notices packaged under `app0:/licenses/` and `app0:/fonts/`.
+Long messages have Previous/Next buttons and a page count; use Left/Right or touch
+to read every page, and Circle or Dismiss to close.
 
 **Home** opens on a moonlit reading scene, with one large Continue Reading card.
 The narrower, dark translucent card leaves more of the artwork visible, with a
@@ -200,7 +209,7 @@ reading area to save one. Inline illustrations expand into inspection within the
 panels overlay the page without reflowing; changing the reading view or font
 reflows around the same text/image anchor.
 
-Reading controls also include **Read aloud**. Narration follows each spoken
+Reading controls also include **Read aloud (TTS)**. Narration follows each spoken
 sentence on screen, skips illustration markers, and uses the existing reading
 progress when saving or leaving the reader. Opening another chapter or leaving
 the reading screen stops narration. English is the initial supported voice;

@@ -273,7 +273,7 @@ struct FrontendTest {
             close_hint=close_hint || (draw.text=="Close" && draw.y==527);
         }
         check(select_hint && close_hint,"Popup does not show Select and Close in the bottom bar");
-        footer(SCE_CTRL_CROSS);check(app.menu_title_=="Read aloud","Bottom-bar Select did not activate the popup selection");
+        footer(SCE_CTRL_CROSS);check(app.menu_title_=="Read aloud (TTS)","Bottom-bar Select did not activate the popup selection");
         footer(SCE_CTRL_CIRCLE);check(app.menu_title_=="Reading controls","Bottom-bar Close did not return from submenu");
         check(app.widgets().size()==app.menu_.size(),"Reader popup hides actions behind pages");
         // Save bookmark through the menu, then through a long press. Neither
@@ -693,7 +693,12 @@ struct FrontendTest {
         check(reader::save_library(library_path,{}),"Cannot reset fixture library");
         check(reader::save_progress(reader::progress_path(progress_directory,"@welcome"),{}),"Cannot reset guide history");
         reader::font_draws.clear();reader::capture_font_draws=true;
-        vita2d_pgf pgf;App app(&pgf);
+        std::atomic<unsigned> update_requests{0};
+        vita2d_pgf pgf;App app(&pgf,reader::speech::platform_audio,[&](const std::string& url) {
+            check(url==reader::online::latest_release_url,"Update check used the wrong repository");
+            ++update_requests;
+            return std::string("{\"tag_name\":\"v9.0.0\",\"draft\":false,\"prerelease\":false}");
+        });
         reader::capture_font_draws=false;
         int startup_titles=0,startup_subtitles=0,startup_statuses=0,prepared_views=0;
         for(const auto& draw:reader::font_draws) {
@@ -737,17 +742,34 @@ struct FrontendTest {
         }
         app.navigate(4);app.normalize_focus();verify_graph(app);
         const auto about_controls=app.widgets();
-        check(about_controls.size()==3 && !about_controls[0].target.enabled &&
-              about_controls[0].action.label=="Check for Updates","About update placeholder is missing or connected");
-        check(focus(app)==1001,"About did not skip the unconnected update button");
+        check(about_controls.size()==3 && about_controls[0].target.enabled &&
+              about_controls[0].action.command==Command::CheckUpdates,"About update button is unavailable");
+        check(focus(app)==1000,"About update button cannot receive focus");
         const auto update=reader::ui::about_action(0);
         app.gesture({reader::controls::GestureKind::Tap,float(update.x+update.width/2),float(update.y+update.height/2)});
-        check(app.message_.empty() && !app.online_busy_ && focus(app)==1001,"Update placeholder performed an action");
+        check(app.online_busy_,"Update button did not start a background check");
+        for(unsigned i=0;i<1000 && app.online_busy_;++i){app.tick_online();std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+        check(!app.online_busy_ && update_requests==1 && app.screen_==Screen::About &&
+              app.message_.find("Update available: v9.0.0")!=std::string::npos,"Update result did not return to About");
+        app.input(SCE_CTRL_CIRCLE);
+        app.input(SCE_CTRL_DOWN);check(focus(app)==1001,"About Credits cannot be reached");
         app.input(SCE_CTRL_RIGHT);check(focus(app)==1002,"About License cannot be reached");
         app.input(SCE_CTRL_CROSS);check(!app.message_.empty(),"About License no longer opens");
+        check(app.feedback_pages()>1 && app.message_.find("Apache License 2.0")!=std::string::npos &&
+              app.message_.find("flite-ACKNOWLEDGEMENTS.txt")!=std::string::npos,"License notices are incomplete");
+        const auto page_count=app.feedback_pages();
+        app.input(SCE_CTRL_RIGHT);check(app.feedback_page_==1,"License text cannot advance with the D-pad");
+        const auto previous=app.feedback_page_action(0);
+        app.gesture({reader::controls::GestureKind::Tap,float(previous.x+40),float(previous.y+28)});
+        check(app.feedback_page_==0,"License text cannot return with touch");
+        for(std::size_t page=1;page<page_count+2;++page)app.input(SCE_CTRL_RIGHT);
+        check(app.feedback_page_==page_count-1,"License paging escaped the final page");
         app.input(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_LEFT);
         check(focus(app)==1001,"About Credits cannot be reached");
         app.input(SCE_CTRL_CROSS);check(!app.message_.empty(),"About Credits no longer opens");
+        check(app.feedback_page_==0 && app.feedback_pages()>1 &&
+              app.message_.find("basitalitech")!=std::string::npos && app.message_.find("CMU SLT")!=std::string::npos,
+              "Credits did not reset pagination or include current attribution");
         app.input(SCE_CTRL_CIRCLE);app.navigate(0);
         app.focus_memory_[app.focus_key()]=304;
         check(focus(app)==1000,"Stale footer focus was not restored to content");
@@ -956,8 +978,8 @@ struct FrontendTest {
         app.input(SCE_CTRL_CIRCLE);
         app.input(SCE_CTRL_START);check(!app.menu_.empty(),"Reader START does not open Reading controls");
         verify_graph(app);app.input(SCE_CTRL_CIRCLE);check(app.menu_.empty(),"Reader panel cannot close");
-        app.perform({"Read aloud",0,Command::Speech});
-        check(app.menu_title_=="Read aloud" && app.menu_[0].label=="Start here","Narration controls unavailable");
+        app.perform({"Read aloud (TTS)",0,Command::Speech});
+        check(app.menu_title_=="Read aloud (TTS)" && app.menu_[0].label=="Start here","Narration controls unavailable");
         verify_graph(app);
         const auto old_rate=app.settings_.speech_rate;
         app.perform({"Faster",0,Command::SpeechFaster});
@@ -992,7 +1014,7 @@ struct FrontendTest {
                 narrated.draw();
                 check(narrated.speech_.status().state == reader::speech::State::Finished,
                       "Reader narration failed at completion");
-                check(narrated.screen_ == Screen::Reader && narrated.menu_title_ == "Read aloud" &&
+                check(narrated.screen_ == Screen::Reader && narrated.menu_title_ == "Read aloud (TTS)" &&
                       narrated.menu_[0].label == "Start here", "Narration EOF did not leave a usable reader/menu");
                 narrated.input(SCE_CTRL_CIRCLE);
             }

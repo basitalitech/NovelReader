@@ -3,6 +3,7 @@
 #include "lua_cpp.hpp"
 #include <cstdlib>
 #include <stdexcept>
+#include <array>
 
 namespace reader { namespace online {
 namespace {
@@ -79,6 +80,46 @@ void execute(lua_State* L,const std::string& script,const std::string& name) {
         const auto* e=lua_tostring(L,-1); throw std::runtime_error(e?e:"Lua adapter failed.");
     }
 }
+}
+Result release_info(const std::string& assets,const std::string& json,const std::string& current,const std::atomic<bool>& cancel) {
+    if(json.size()>max_response_bytes)throw std::runtime_error("Release response exceeds 4 MiB.");
+    const Fetch unused;
+    Context c{unused,cancel,""};
+    std::unique_ptr<lua_State,decltype(&lua_close)> state(lua_newstate(allocate,&c),lua_close);
+    if(!state)throw std::runtime_error("Not enough memory to check updates.");
+    auto* L=state.get();*static_cast<Context**>(lua_getextraspace(L))=&c;
+    const struct {const char* name;lua_CFunction fn;} libs[]={{"_G",luaopen_base},{LUA_TABLIBNAME,luaopen_table},{LUA_STRLIBNAME,luaopen_string},{LUA_UTF8LIBNAME,luaopen_utf8}};
+    for(const auto& lib:libs){luaL_requiref(L,lib.name,lib.fn,1);lua_pop(L,1);}
+    lua_sethook(L,hook,LUA_MASKCOUNT,10000);
+    execute(L,read_file(assets+"/sources/json.lua",128*1024),"json");
+    lua_pushlstring(L,json.data(),json.size());
+    if(lua_pcall(L,1,1,0) || !lua_istable(L,-1))throw std::runtime_error("Invalid release response. Try again later.");
+    for(const auto* flag:{"draft","prerelease"}) {
+        lua_getfield(L,-1,flag);
+        const bool stable=lua_isboolean(L,-1) && !lua_toboolean(L,-1);lua_pop(L,1);
+        if(!stable)throw std::runtime_error("No stable published release was returned.");
+    }
+    Result result;result.title=field(L,"tag_name",64);
+    const auto version=[](const std::string& tag) {
+        std::array<unsigned,3> parts{};
+        std::size_t at=(!tag.empty() && (tag[0]=='v' || tag[0]=='V'))?1:0;
+        for(unsigned i=0;i<3;++i) {
+            const auto begin=at;
+            while(at<tag.size() && tag[at]>='0' && tag[at]<='9') {
+                if(at-begin>=6)throw std::runtime_error("Unsupported release version.");
+                parts[i]=parts[i]*10+tag[at++]-'0';
+            }
+            if(at==begin)throw std::runtime_error("Unsupported release version.");
+            if(at==tag.size() && i>=1)return parts; // Accept v0.7 as well as v0.7.0.
+            if(i==2 || at==tag.size() || tag[at++]!='.')throw std::runtime_error("Unsupported release version.");
+        }
+        return parts;
+    };
+    const auto latest=version(result.title),installed=version(current);
+    result.text=latest>installed?"Update available: "+result.title+". Installed: v"+current+
+        ". Download NovelReader.vpk from github.com/basitalitech/NovelReader/releases and install with VitaShell.":
+        "You are up to date. Installed: v"+current+". Latest published release: "+result.title+".";
+    return result;
 }
 Result run_adapter(const std::string& assets,const std::string& source,const std::string& operation,const std::string& url,const std::string& query,const Fetch& fetcher,const std::atomic<bool>& cancel) {
     bool known=false; for(const auto& s:sources()) if(s.id==source) known=true;

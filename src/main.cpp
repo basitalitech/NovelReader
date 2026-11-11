@@ -79,7 +79,8 @@ enum class Command { Button, More, Sort, Jump, Immersive, Resume, Retry, Appeara
     BookBookmark, RemoveBook, ConfirmRemoveBook, Online, ClearSearch, PreviousPage, NextPage,
     ApplySettings, CancelSettings, ResetSettings, Illustrations, FullTitle, AddBook,
     Speech, SpeechToggle, SpeechStop, SpeechSlower, SpeechFaster, SaveBookmark, Dismiss,
-    CloseMenu, ReadOnline, OnlineContents, LocalContents, ConfirmDeleteBookmark };
+    CloseMenu, ReadOnline, OnlineContents, LocalContents, ConfirmDeleteBookmark,
+    CheckUpdates, FeedbackPrevious, FeedbackNext };
 struct Action {
     std::string label;
     unsigned button;
@@ -105,8 +106,11 @@ class App {
     friend struct FrontendTest;
 #endif
 public:
-    explicit App(vita2d_pgf* font, reader::speech::Player::AudioFactory audio = reader::speech::platform_audio)
-        : fonts_(font), speech_(std::move(audio)), settings_(reader::load_settings(settings_path)) {
+    explicit App(vita2d_pgf* font, reader::speech::Player::AudioFactory audio = reader::speech::platform_audio,
+                 reader::online::Fetch transport = {})
+        : fonts_(font), speech_(std::move(audio)),
+          online_("app0:",books_directory+"/Online",std::move(transport)),
+          settings_(reader::load_settings(settings_path)) {
         sort_ = static_cast<reader::LibrarySort>(settings_.library_sort);
         filter_ = static_cast<reader::LibraryFilter>(settings_.library_filter);
         immersive_ = settings_.immersive != 0;
@@ -310,6 +314,8 @@ public:
             if(pressed&(SCE_CTRL_CIRCLE|SCE_CTRL_CROSS)){pending_bookmark_=false;online_.cancel();message_="Canceling...";}
             return true;
         }
+        if(feedback_active() && feedback_pages()>1 && (pressed&(SCE_CTRL_LEFT|SCE_CTRL_RIGHT)))
+            return perform({"",0,pressed&SCE_CTRL_LEFT?Command::FeedbackPrevious:Command::FeedbackNext});
         if(physical && (!menu_.empty() || feedback_active())) {
             focus_input(pressed);return focus_result_;
         }
@@ -357,10 +363,10 @@ public:
         }
         if (screen_ == Screen::About) {
             if (pressed & SCE_CTRL_LEFT) sidebar_focus_=true;
-            if (pressed & SCE_CTRL_UP) about_selected_=1;
-            if (pressed & SCE_CTRL_DOWN) about_selected_=2;
-            if ((pressed & SCE_CTRL_CROSS) && about_selected_>0)
-                perform({"",0,about_selected_==1?Command::Credits:Command::License});
+            if ((pressed & SCE_CTRL_UP) && about_selected_>0) --about_selected_;
+            if ((pressed & SCE_CTRL_DOWN) && about_selected_<2) ++about_selected_;
+            if (pressed & SCE_CTRL_CROSS)
+                perform({"",0,about_selected_==0?Command::CheckUpdates:about_selected_==1?Command::Credits:Command::License});
             if (pressed & SCE_CTRL_CIRCLE) navigate(0);
             return true;
         }
@@ -859,6 +865,10 @@ private:
             return result;
         }
         if(feedback_active()) {
+            if(feedback_pages()>1) {
+                add(4003,feedback_page_action(0),{"Previous",0,Command::FeedbackPrevious,feedback_page_>0});
+                add(4004,feedback_page_action(1),{"Next",0,Command::FeedbackNext,feedback_page_+1<feedback_pages()});
+            }
             if(retry_available_)add(4000,feedback_action(true),{"Retry",0,Command::Retry});
             add(4001,feedback_action(false),{"Dismiss"},WidgetKind::Dismiss);
             return result;
@@ -883,7 +893,7 @@ private:
         } else if(screen_==Screen::Settings) {
             for(int i=0;i<reader::ui::settings_count;++i)add(1000+i,reader::ui::settings_row(i),{"Adjust"},WidgetKind::Setting,i);
         } else if(screen_==Screen::About) {
-            add(1000,reader::ui::about_action(0),{"Check for Updates",0,Command::Button,false});
+            add(1000,reader::ui::about_action(0),{"Check for Updates",0,Command::CheckUpdates});
             add(1001,reader::ui::about_action(1),{"Credits",0,Command::Credits});
             add(1002,reader::ui::about_action(2),{"License",0,Command::License});
         } else if(screen_==Screen::Novel) {
@@ -990,7 +1000,7 @@ private:
         }
         if(pressed&SCE_CTRL_CIRCLE) {
             if(!menu_.empty()){close_menu();return true;}
-            if(feedback_active()){message_.clear();return true;}
+            if(feedback_active()){message_.clear();feedback_page_=0;return true;}
             if(screen_==Screen::Settings){finish_settings(false);return true;}
         }
         const auto mask=SCE_CTRL_LEFT|SCE_CTRL_RIGHT|SCE_CTRL_UP|SCE_CTRL_DOWN|SCE_CTRL_CROSS;
@@ -1365,17 +1375,17 @@ private:
         draw_logo(584,130,88,0xffffffffu);
         centered(212,32,palette().text,"NovelReader",reader::FontRole::Heading);
         centered(240,20,palette().muted,"by basitalitech");
-        centered(266,20,palette().accent,"v0.7.0");
+        centered(266,20,palette().accent,std::string("v")+reader::online::app_version);
         centered(299,20,palette().text,"A simple and comfortable novel reading");
         centered(323,20,palette().text,"experience for PS Vita.");
         const char* labels[]={"Check for Updates","Credits","License"};
         for(int i=0;i<3;++i) {
             const auto box=reader::ui::about_action(i);
-            panel(box.x,box.y,box.width,box.height,!sidebar_focus_ && about_selected_==i,i!=0);
+            panel(box.x,box.y,box.width,box.height,!sidebar_focus_ && about_selected_==i);
             const unsigned pixels=22;
             const auto width=fonts_.width(reader::FontRole::Interface,pixels,labels[i]);
             fonts_.draw(reader::FontRole::Interface,pixels,box.x+(box.width-width)/2,box.y+36,
-                i==0?palette().muted:palette().text,labels[i]);
+                palette().text,labels[i]);
         }
     }
     bool is_online_screen() const {
@@ -1416,7 +1426,7 @@ private:
     }
     void show_speech() {
         focus_memory_.erase(100);
-        menu_title_ = "Read aloud";
+        menu_title_ = "Read aloud (TTS)";
         const auto state = speech_.status().state;
         const bool playing = state == reader::speech::State::Speaking;
         const bool paused = state == reader::speech::State::Paused;
@@ -1447,7 +1457,7 @@ private:
             if (status.state == State::Error) notify(status.error);
             if (status.state == State::Finished) { save(); notify("End of narration for this chapter."); }
             speech_seen_ = status.state;
-            if (!menu_.empty() && menu_title_ == "Read aloud") show_speech();
+            if (!menu_.empty() && menu_title_ == "Read aloud (TTS)") show_speech();
         }
     }
     void show_more() {
@@ -1462,7 +1472,7 @@ private:
                 {"Search Library",0,Command::Search},{"Sort and Filter",0,Command::Sort},
                 {"Add a new book",0,Command::AddBook},{"Save and exit app",0,Command::Exit}};
         } else if (screen_ == Screen::Reader) {
-            menu_={{"Read aloud",0,Command::Speech},{"Contents",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reading settings",0,Command::Appearance},{"Save bookmark",0,Command::SaveBookmark},
+            menu_={{"Read aloud (TTS)",0,Command::Speech},{"Contents",SCE_CTRL_CROSS},{"Illustrations",0,Command::Illustrations},{"Reading settings",0,Command::Appearance},{"Save bookmark",0,Command::SaveBookmark},
                 {"Go to bookmark",SCE_CTRL_SELECT,Command::Button,progress_.has_bookmark},{"All bookmarks",0,Command::Bookmarks},{publication_.online?"Back to chapters":"Back to library",SCE_CTRL_CIRCLE},
                 {immersive_ ? "Show reading bar" : "Hide reading bar",0,Command::Immersive}};
         } else if (screen_ == Screen::Catalog) {
@@ -1509,7 +1519,18 @@ private:
         case Command::ReadOnline: resume_online();break;
         case Command::LocalContents: open_local_contents();break;
         case Command::OnlineContents: screen_=Screen::OnlineChapters;online_selected_=online_saved_chapter_;message_.clear();break;
-        case Command::Dismiss: message_.clear();break;
+        case Command::Dismiss: message_.clear();feedback_page_=0;break;
+        case Command::FeedbackPrevious:
+            feedback_rows();
+            if(feedback_page_>0)--feedback_page_;
+            break;
+        case Command::FeedbackNext:
+            if(feedback_page_+1<feedback_pages())++feedback_page_;
+            break;
+        case Command::CheckUpdates: {
+            reader::online::Request request;request.action=reader::online::Action::CheckUpdates;
+            start_online(request);break;
+        }
         case Command::SaveBookmark:
             if(!lines_.empty()) {
                 progress_.has_bookmark=true;progress_.bookmark=lines_[top_].offset;progress_.bookmark_chapter=chapter_;
@@ -1607,9 +1628,23 @@ private:
             break;
         case Command::ConfirmDeleteBookmark: delete_bookmark();break;
         case Command::Credits:
-            message_="Built with VitaSDK and vita2d. Fonts: Source Sans 3, Literata and Atkinson. EPUB: TinyXML2 and Minizip. Online: Lua, curl and Mbed TLS. Offline speech: Flite 2.2, English SLT voice."; break;
+            retry_available_=false;
+            message_="Credits\nNovelReader by basitalitech.\n"
+                "Platform: VitaSDK and vita2d; font rendering: FreeType and the Vita system font.\n"
+                "Interface: Source Sans 3 by Adobe. Reading: Literata and Atkinson Hyperlegible Next project authors.\n"
+                "EPUB: TinyXML-2 10.0.0, minizip from zlib 1.3.1, and zlib. Images: libpng, libjpeg-turbo and JPEG.\n"
+                "Online: Lua 5.4.8, curl 8.17.0, Mbed TLS 3.6.5 and Mozilla CA certificates.\n"
+                "Offline narration: Flite 2.2 by Carnegie Mellon University and contributors, with the CMU SLT English voice.\n"
+                "Thanks to the Vita homebrew community and all upstream contributors. Books belong to their authors and publishers."; break;
         case Command::License:
-            message_="Flite / SLT: CMU permissive license; notices included in app0:/licenses. Fonts: SIL OFL 1.1. Third-party notices and sources are in the source distribution. Books retain their original copyrights."; break;
+            retry_available_=false;
+            message_="Licenses and notices\nThird-party licenses apply to their respective components. Books and artwork retain their original copyrights.\n"
+                "Fonts: Source Sans 3, Literata and Atkinson Hyperlegible Next use SIL Open Font License 1.1. Full notices are in app0:/fonts/.\n"
+                "TinyXML-2: zlib license. minizip and zlib: zlib-style permissive licenses. Lua: MIT license. curl: curl permission notice.\n"
+                "Mbed TLS: distributed using its Apache License 2.0 option. Mozilla CA bundle: provenance and license link are in app0:/cacert.pem.\n"
+                "Flite and CMU SLT: Carnegie Mellon University and contributor permissive licenses, with additional notices in Flite COPYING and ACKNOWLEDGEMENTS.\n"
+                "Full bundled notices: app0:/licenses/ contains tinyxml2-LICENSE.txt, minizip-LICENSE.txt, lua-readme.html, curl-COPYING.txt, mbedtls-LICENSE.txt, flite-COPYING.txt and flite-ACKNOWLEDGEMENTS.txt.\n"
+                "VitaSDK, vita2d, FreeType, libpng, JPEG and libjpeg-turbo retain their upstream licenses. Source and dependency references: github.com/basitalitech/NovelReader."; break;
         case Command::More: show_more(); break;
         case Command::DownloadAll: download_online(true); break;
         case Command::Sort: show_sort(); break;
@@ -1704,7 +1739,11 @@ private:
         if(!menu_.empty())return menu_toolbar();
         if(ime_active_)return {};
         if(online_busy_)return removal_busy_?std::vector<Action>{}:std::vector<Action>{{"Cancel",SCE_CTRL_CIRCLE}};
-        if(feedback_active())return {{"Select",SCE_CTRL_CROSS},{"Close",SCE_CTRL_CIRCLE}};
+        if(feedback_active()) {
+            if(feedback_pages()>1)return {{"Previous",SCE_CTRL_LEFT,Command::FeedbackPrevious,feedback_page_>0},
+                {"Next",SCE_CTRL_RIGHT,Command::FeedbackNext,feedback_page_+1<feedback_pages()},{"Close",SCE_CTRL_CIRCLE}};
+            return {{"Select",SCE_CTRL_CROSS},{"Close",SCE_CTRL_CIRCLE}};
+        }
         const Action options{"Options",SCE_CTRL_START,Command::More};
         const auto confirm=[&](const std::string& fallback) {
             const auto focus=focus_memory_.find(focus_key());
@@ -1882,6 +1921,11 @@ private:
         if (!update.done) return;
         redraw_=true;
         online_busy_ = false;
+        if(update.request.action==reader::online::Action::CheckUpdates) {
+            retry_available_=false;
+            message_=update.error.empty()?update.result.text:update.error;
+            return;
+        }
         if(update.request.action==reader::online::Action::Remove) {
             removal_busy_=false;retry_available_=!update.error.empty();
             if(retry_available_)message_=update.error;else notify("Book, downloads and saved progress removed.");
@@ -2186,11 +2230,17 @@ private:
             (command==Command::FilterFinished && filter_==reader::LibraryFilter::Finished);
     }
     std::vector<reader::Line> feedback_rows() const {
+        if(feedback_message_!=message_){feedback_message_=message_;feedback_page_=0;}
         return ui_wrap(message_,feedback_box().width-48,24,reader::FontRole::Interface);
+    }
+    std::size_t feedback_pages() const {const auto count=(feedback_rows().size()+5)/6;return retry_available_?1:count;}
+    reader::ui::Rect feedback_page_action(int index) const {
+        const auto box=feedback_box();return {box.x+16+index*160,box.y+box.height-72,152,56};
     }
     reader::ui::Rect feedback_box() const { return {224,128,512,288}; }
     reader::ui::Rect feedback_action(bool retry) const {
         const auto box=feedback_box();
+        if(!online_busy_ && feedback_pages()>1)return feedback_page_action(retry?0:2);
         if(retry_available_ && !online_busy_)return {box.x+16+(retry?0:248),box.y+box.height-72,232,56};
         return {box.x+16,box.y+box.height-72,box.width-32,56};
     }
@@ -2207,7 +2257,14 @@ private:
             vita2d_draw_rectangle(0,top,960,reader::visual::hint_bar_top-top,0xb0000000);
         }
         reader::visual::popup(box);
-        for(std::size_t i=0;i<count;++i)text(box.x+24,box.y+36+i*28,palette().text,0.92f,rows[i].text,box.width-48);
+        const auto first=online_busy_?0:feedback_page_*6;
+        for(std::size_t i=0;i<count && first+i<rows.size();++i)text(box.x+24,box.y+36+i*28,palette().text,0.92f,rows[first+i].text,box.width-48);
+        if(!online_busy_ && feedback_pages()>1) {
+            text(box.x+24,box.y+203,palette().muted,0.65f,
+                "Page "+std::to_string(feedback_page_+1)+" / "+std::to_string(feedback_pages()),box.width-48);
+            button(feedback_page_action(0),{"Previous",0,Command::FeedbackPrevious,feedback_page_>0});
+            button(feedback_page_action(1),{"Next",0,Command::FeedbackNext,feedback_page_+1<feedback_pages()});
+        }
         if(retry_available_ && !online_busy_)button(feedback_action(true),{"Retry",0,Command::Retry});
         if(feedback_active())button(feedback_action(false),{"Dismiss"});
         if(online_busy_) {
@@ -3344,6 +3401,8 @@ private:
     std::vector<std::size_t> pages_;
     std::vector<InlineTexture> inline_images_;
     std::string active_filename_, message_;
+    mutable std::string feedback_message_;
+    mutable std::size_t feedback_page_=0;
     std::string current_folder_;
     std::size_t folder_revision_ = 0;
     std::size_t selected_ = 0, top_ = 0;

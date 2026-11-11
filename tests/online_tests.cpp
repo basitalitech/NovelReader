@@ -55,6 +55,39 @@ void parsers() {
     try { parse("beast","browse","[{\"name\":\"Book\",\"url\":\"https://evil.test/book\"}]","","book"); } catch(...) { failed=true; }
     check(failed,"Remote URLs cannot escape source");
 }
+void updates() {
+    std::atomic<bool> canceled{false};
+    const auto json=[](const std::string& tag){return "{\"tag_name\":\""+tag+"\",\"draft\":false,\"prerelease\":false}";};
+    check(release_info(assets,json("v0.8.0"),"0.7.0",canceled).text.find("Update available")!=std::string::npos,"New release was not detected");
+    check(release_info(assets,json("v0.10"),"0.9.0",canceled).text.find("Update available")!=std::string::npos,"Version comparison is lexical");
+    for(const auto* tag:{"v0.7","0.7.0","v0.6.99"})
+        check(release_info(assets,json(tag),"0.7.0",canceled).text.find("up to date")!=std::string::npos,"Equal or older release offered as update");
+    for(const auto* data:{"{}","[]","not JSON","{\"tag_name\":\"v0.8\",\"draft\":false,\"prerelease\":true}",
+                         "{\"tag_name\":\"v0.8\",\"draft\":true,\"prerelease\":false}"}) {
+        bool failed=false;try{release_info(assets,data,"0.7.0",canceled);}catch(...){failed=true;}
+        check(failed,"Malformed or unpublished release accepted");
+    }
+    for(const auto* tag:{"latest","v0.8.0-beta","v1.2.3.4","v9999999.0","v1..2","v1.2x"}) {
+        bool failed=false;try{release_info(assets,json(tag),"0.7.0",canceled);}catch(...){failed=true;}
+        check(failed,"Unsupported version accepted");
+    }
+    const auto dir=scratch();unsigned calls=0;
+    Service service(assets,dir,[&](const std::string& url){check(url==latest_release_url,"Update URL is not fixed");++calls;return json("v9.0.0");});
+    Request request;request.action=Action::CheckUpdates;request.url="https://evil.test/";
+    check(service.start(request),"Update worker did not start");
+    auto result=finish(service);
+    check(result.error.empty() && result.request.action==Action::CheckUpdates && calls==1 &&
+          result.result.text.find("Update available")!=std::string::npos && result.manifest.empty(),"Update worker changed novel state or lost its result");
+    Service failure(assets,dir,[](const std::string&)->std::string{throw std::runtime_error("Offline test");});
+    check(failure.start(request),"Offline update worker did not start");result=finish(failure);
+    check(result.error=="Offline test" && result.request.action==Action::CheckUpdates,"Update errors are not surfaced");
+    std::atomic<bool> entered{false},release{false};
+    Service cancel(assets,dir,[&](const std::string&){entered=true;while(!release)std::this_thread::yield();return json("v9.0.0");});
+    check(cancel.start(request),"Cancelable update worker did not start");
+    while(!entered)std::this_thread::yield();
+    cancel.cancel();release=true;result=finish(cancel);
+    check(!result.error.empty() && result.result.text.empty(),"Canceled update check reported success");
+}
 void persistence() {
     const auto dir=scratch(); mkdir((dir+"/novgo").c_str(),0777);
     Novel n{"novgo","A \"novel\"","Author","https://novgo.net/book.html","Description",{{"One","https://novgo.net/book/one.html",false},{"Two","https://novgo.net/book/two.html",false}}};
@@ -155,6 +188,6 @@ int main(int argc,char** argv) {
             if(!result.error.empty()) throw std::runtime_error(result.error);
             std::cout<<"Verified HTTPS download and cache: "<<read_file(chapter_path(result.manifest,argv[4]),max_chapter_bytes).size()<<" text bytes\n"; return 0;
         }
-        parsers(); persistence(); artwork(); adapter_limits(); worker(); std::cout<<"Online tests passed\n";
+        parsers(); updates(); persistence(); artwork(); adapter_limits(); worker(); std::cout<<"Online tests passed\n";
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 }

@@ -38,6 +38,7 @@ else()
 endif()
 
 add_library(reader_core src/reader.cpp src/epub.cpp src/library.cpp src/image_info.cpp src/layout.cpp src/controls.cpp src/online_store.cpp src/page_curl.cpp)
+target_compile_definitions(reader_core PUBLIC NOVELREADER_VERSION="${PROJECT_VERSION}")
 if(NOVELREADER_PROFILE)
     target_compile_definitions(reader_core PUBLIC NOVELREADER_PROFILE)
 endif()
@@ -125,6 +126,7 @@ if(NOVELREADER_HOST_TESTS)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture/ux0:data/NovelReader/books")
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture/app0:")
     configure_file(assets/welcome.txt "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture/app0:/welcome.txt" COPYONLY)
+    configure_file(assets/sources/json.lua "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture/app0:/sources/json.lua" COPYONLY)
     add_test(NAME native_frontend_navigation COMMAND frontend_tests)
     set_tests_properties(native_frontend_navigation PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/frontend-fixture")
@@ -162,6 +164,11 @@ else()
         VERSION "00.70" NAME "NovelReader"
         FILE third_party/flite/COPYING licenses/flite-COPYING.txt
         FILE third_party/flite/ACKNOWLEDGEMENTS licenses/flite-ACKNOWLEDGEMENTS.txt
+        FILE third_party/tinyxml2/LICENSE.txt licenses/tinyxml2-LICENSE.txt
+        FILE third_party/minizip/LICENSE licenses/minizip-LICENSE.txt
+        FILE third_party/lua/doc/readme.html licenses/lua-readme.html
+        FILE third_party/curl/COPYING licenses/curl-COPYING.txt
+        FILE third_party/mbedtls3/LICENSE licenses/mbedtls-LICENSE.txt
         FILE assets/welcome.txt welcome.txt
         FILE assets/ui/moonlit.png ui/moonlit.png
         FILE assets/ui/logo.png ui/logo.png
