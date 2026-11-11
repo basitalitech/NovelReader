@@ -111,7 +111,21 @@ struct FrontendTest {
         tap(322,220,319,220);
         check(app.menu_.empty() && app.top_==original_top,"Reading tap crossed action zones");
         const auto next_page=app.visible_end();app.input(SCE_CTRL_RIGHT|SCE_CTRL_DOWN);
-        check(app.top_==next_page,"One diagonal D-pad sample ran two reading actions");app.input(SCE_CTRL_LEFT);
+        check(app.top_==next_page,"One diagonal D-pad sample ran two reading actions");
+        check(app.page_turn_until_ && app.page_turn_forward_,"Forward page turn has no effect");
+        reader::font_draws.clear();reader::capture_font_draws=true;app.draw();reader::capture_font_draws=false;
+        bool shifted=false;
+        for(const auto& draw:reader::font_draws)if(draw.role==app.reading_font() && draw.x==112)shifted=true;
+        check(shifted && app.needs_redraw(),"Page effect does not animate the reading content");
+        test_process_time()+=App::page_turn_duration/2;
+        check(app.page_turn_remaining()>0 && app.page_turn_remaining()<1,"Page effect does not advance with time");
+        test_process_time()+=App::page_turn_duration;
+        app.needs_redraw();app.draw();
+        check(!app.page_turn_until_ && !app.needs_redraw(),"Completed page effect prevents idle rendering");
+        app.input(SCE_CTRL_LEFT);
+        check(app.page_turn_until_ && !app.page_turn_forward_,"Backward page effect has wrong direction");
+        app.input(SCE_CTRL_LEFT);
+        check(!app.page_turn_until_,"Blocked first-page turn animated");
         app.gesture({reader::controls::GestureKind::Swipe,700,200,-80,70,1,780,130});
         check(app.top_==original_top,"Diagonal reading gesture accidentally turned a page");
         app.gesture({reader::controls::GestureKind::Swipe,500,220,-250,0,1,750,220});
@@ -149,6 +163,34 @@ struct FrontendTest {
         check(app.screen_==Screen::Reader && app.settings_.reading_font==1,"Touch-only Settings Apply failed");
         app.input(SCE_CTRL_SQUARE);app.input(SCE_CTRL_SQUARE);
         check(app.screen_==Screen::Settings,"Settings still has duplicate Apply buttons");
+        // Direct controls choose their displayed value, including repeated taps.
+        const auto size_track=reader::ui::settings_slider(1);
+        tap(size_track.x+size_track.width-1,size_track.y+16);
+        check(app.settings_.font==2 && app.setting_row_==1,"Font slider did not select its last step");
+        tap(size_track.x,size_track.y+16);
+        check(app.settings_.font==0,"Font slider did not select its first step");
+        const auto spacing_track=reader::ui::settings_slider(2);
+        tap(spacing_track.x+spacing_track.width/2,spacing_track.y+16);
+        check(app.settings_.spacing==1,"Spacing slider did not select its middle step");
+        for(int theme=0;theme<3;++theme) {
+            const auto swatch=reader::ui::settings_swatch(theme);
+            tap(swatch.x+24,swatch.y+14);tap(swatch.x+24,swatch.y+14);
+            check(app.settings_.theme==theme && app.setting_row_==3,"Theme swatch cycled instead of selecting");
+        }
+        const auto size_row=reader::ui::settings_row(1);
+        tap(300,size_row.y+14);
+        check(app.settings_.font==0 && app.setting_row_==1,"Tapping a setting label changed its value");
+        for(int immersive=0;immersive<2;++immersive) {
+            app.settings_.immersive=immersive;
+            reader::font_draws.clear();reader::capture_font_draws=true;
+            app.draw_frame();reader::capture_font_draws=false;
+            bool preview_controls=false;
+            for(const auto& draw:reader::font_draws)preview_controls=preview_controls || draw.text=="Chapter 1";
+            check(!preview_controls,"Reading preview still shows reading-view controls");
+        }
+        check(app.widgets().size()==4,"Settings still exposes Reading View");
+        app.set_focus(1003);app.input(SCE_CTRL_DOWN);
+        check(app.setting_row_==3,"Settings focus moved below Page theme");
         footer(SCE_CTRL_SELECT);check(app.settings_.reading_font==0,"Touch Settings reset failed");
         footer(SCE_CTRL_CIRCLE);check(app.settings_.reading_font==1,"Touch Settings cancel did not discard reset");
 
@@ -158,8 +200,20 @@ struct FrontendTest {
         tap(60,170);app.gesture({reader::controls::GestureKind::Swipe,500,220,-250,0,1,750,220});
         check(app.input_context()==modal_context && app.top_==modal_top,"Error modal leaked input to Reader");
         footer(SCE_CTRL_CIRCLE);check(app.message_.empty(),"Touch-only error dismissal failed");
-        app.immersive_=true;tap(480,490);check(!app.menu_.empty(),"Immersive reading body is blocked by hidden footer");
-        footer(SCE_CTRL_CIRCLE);app.immersive_=false;
+        if(!app.immersive_)app.toggle_immersive();
+        const auto hidden_anchor=app.lines_[app.top_].offset;
+        tap(480,490);
+        check(!app.immersive_ && app.menu_.empty() && app.lines_[app.top_].offset==hidden_anchor,
+              "Center tap did not show reading bars at the same anchor");
+        const auto visible_anchor=app.lines_[app.top_].offset;
+        tap(480,220);
+        check(app.immersive_ && app.menu_.empty() && app.lines_[app.top_].offset==visible_anchor &&
+              reader::load_settings(settings_path).immersive==1,"Center tap did not hide and persist reading bars");
+        reader::font_draws.clear();reader::capture_font_draws=true;app.draw_frame();reader::capture_font_draws=false;
+        for(const auto& draw:reader::font_draws)
+            check(draw.role!=reader::FontRole::Interface || draw.text.find("Chapter ")!=0,
+                  "Hidden reading bars still draw chapter information");
+        tap(480,220);check(!app.immersive_ && app.menu_.empty(),"Repeated center tap opened options");
 
         // Exercise held state through the actual screen dispatcher, including
         // a press which opens a dialog while a navigation key is still down.
@@ -193,7 +247,9 @@ struct FrontendTest {
         app.input(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_CIRCLE);footer(SCE_CTRL_CIRCLE);
         check(app.screen_==Screen::Library,"Touch Reader Back failed");
         tap(60,360);check(app.screen_==Screen::About,"Touch-only About entry failed");
-        tap(700,176);check(app.feedback_active(),"Touch-only credits failed");footer(SCE_CTRL_CIRCLE);
+        const auto credits=reader::ui::about_action(1);
+        tap(credits.x+credits.width/2,credits.y+credits.height/2);
+        check(app.feedback_active(),"Touch-only credits failed");footer(SCE_CTRL_CIRCLE);
         tap(60,104);check(app.screen_==Screen::Home,"Touch-only Home return failed");
         app.navigate(1);app.input(SCE_CTRL_SELECT);
         check(app.screen_==Screen::Library,"Removed Library Select shortcut is still active");
@@ -513,6 +569,20 @@ struct FrontendTest {
             check(app.screen_==destinations[i] && app.nav_active_==i,
                 "L sidebar cycle contains a removed or incorrect destination");
         }
+        app.navigate(4);app.normalize_focus();verify_graph(app);
+        const auto about_controls=app.widgets();
+        check(about_controls.size()==3 && !about_controls[0].target.enabled &&
+              about_controls[0].action.label=="Check for Updates","About update placeholder is missing or connected");
+        check(focus(app)==1001,"About did not skip the unconnected update button");
+        const auto update=reader::ui::about_action(0);
+        app.gesture({reader::controls::GestureKind::Tap,float(update.x+update.width/2),float(update.y+update.height/2)});
+        check(app.message_.empty() && !app.online_busy_ && focus(app)==1001,"Update placeholder performed an action");
+        app.input(SCE_CTRL_RIGHT);check(focus(app)==1002,"About License cannot be reached");
+        app.input(SCE_CTRL_CROSS);check(!app.message_.empty(),"About License no longer opens");
+        app.input(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_LEFT);
+        check(focus(app)==1001,"About Credits cannot be reached");
+        app.input(SCE_CTRL_CROSS);check(!app.message_.empty(),"About Credits no longer opens");
+        app.input(SCE_CTRL_CIRCLE);app.navigate(0);
         app.focus_memory_[app.focus_key()]=304;
         check(focus(app)==1000,"Stale footer focus was not restored to content");
         app.focus_memory_[app.focus_key()]=100;

@@ -41,9 +41,14 @@ constexpr int grid_top=100, grid_bottom=480, grid_height=300, grid_cover_height=
 inline Rect grid_book(int index, int scroll=0) {
     return {232 + index%grid_columns*180,grid_top+index/grid_columns*grid_pitch-scroll,164,grid_height};
 }
-inline Rect settings_row(int index) { return {232,80+index*60,376,56}; }
+constexpr int settings_count = 4;
+inline Rect settings_row(int index) { return {236,82+index*84,392,80}; }
+inline Rect settings_slider(int index) { return {278,settings_row(index).y+40,242,32}; }
+inline Rect settings_swatch(int index) { return {278+index*60,settings_row(3).y+42,48,28}; }
 inline Rect bookmark_row(int index) { return {232,100+index*104,704,96}; }
-inline Rect about_action(int index) { return {638,154+index*72,286,56}; }
+inline Rect about_action(int index) {
+    return index==0 ? Rect{424,340,320,56} : Rect{424+(index-1)*168,412,152,56};
+}
 inline Rect contents_row(int index) { return {288,136+index*64,648,56}; }
 inline Rect details_cover() { return {24,72,240,380}; }
 inline Rect details_primary(bool online) { return {288,online?352:396,248,56}; }

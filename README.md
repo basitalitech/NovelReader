@@ -105,6 +105,18 @@ It draws START/SELECT/L/R as ASCII text inside the button backgrounds, without r
 on symbol glyphs. The component clips long labels to the supplied width.
 In Settings, Left/Right adjusts the selected value; Up from Typeface stays on
 that row. Cross applies, Circle cancels, and Select resets the preview.
+Reading Settings groups its four rows in one charcoal panel with subtle dividers
+and a lavender outline around the focused row. Font size and line spacing use
+three-step sliders; page themes use labeled color swatches with a checkmark on
+the selected theme. Touch a slider position or swatch to select its value directly.
+Typeface retains a left/right selector. The adjacent live page preview reflects
+the typeface, size, spacing, and theme, without reading bars. Reading view is
+controlled from the reader's Show/Hide reading bar action. Contextual help below
+the panel describes the focused setting.
+
+**About** centers the logo, NovelReader name, **by basitalitech**, version, and
+description in the content area. A disabled **Check for Updates** placeholder
+sits above the Credits and License buttons; update checking is not connected yet.
 
 **Home** opens on a moonlit reading scene, with one large Continue Reading card.
 The narrower, dark translucent card leaves more of the artwork visible, with a
@@ -148,6 +160,10 @@ progress are deleted. Download cleanup runs on the existing background worker.
 
 **Reader** starts with the title bar, chapter/page information, purple progress
 bar, and bottom shortcut legend. Existing saved reading-view preferences are kept.
+Tap the center of the reading area to hide or show all reading bars; this keeps
+the current text/image anchor and saves the view preference. Center taps do not
+open Reading controls. Page turns use a brief directional slide and fade effect
+for buttons, edge taps, and horizontal swipes, including chapter boundaries.
 START opens Reading controls, Cross opens Contents, Triangle opens Bookmarks, Square opens Reading
 Settings, and Circle returns to Library (or online chapters). The control panel contains Contents, Illustrations, Reading Settings, Save bookmark,
 Go to bookmark, All bookmarks, and Show/Hide reading bar. Select still jumps directly to the saved bookmark. Hold and release on the
@@ -286,7 +302,7 @@ The **front touchscreen** supports:
 | --- | --- |
 | Home / Library | Tap Continue Reading to resume, a cover for details, or Library's Add Book to import; swipe Library vertically to scroll |
 | Reader | Swipe left/right for next/previous page; swipe up/down to move through text and images |
-| Reader | Tap an illustration to zoom; left/right body taps turn pages, center taps open Reading controls |
+| Reader | Tap an illustration to zoom; left/right body taps turn pages, center taps hide/show reading bars |
 | Reader | Hold and release on the reading area to save a bookmark |
 | Contents / illustration list | Tap an entry to open; swipe to browse five chapters or four illustrations |
 | Settings | Tap the left/right halves of rows to adjust; tap Apply, Cancel, or Reset in the footer |
