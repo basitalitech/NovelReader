@@ -176,6 +176,7 @@ public:
     }
     bool needs_redraw() {
         const auto now=sceKernelGetProcessTimeWide();
+        if(inspection_hint_until_ && now>=inspection_hint_until_) {inspection_hint_until_=0;redraw_=true;}
         if(scroll_until_ && (now>=scroll_until_ || screen_!=Screen::Reader)){scroll_until_=0;redraw_=true;}
         if(bars_until_ && (now>=bars_until_ || screen_!=Screen::Reader)){bars_until_=0;redraw_=true;}
         if(page_turn_until_ && (now>=page_turn_until_ || screen_!=Screen::Reader || !menu_.empty() || feedback_active())) {
@@ -215,8 +216,10 @@ public:
         else if (screen_ == Screen::Image) draw_image();
         else draw_settings();
         interface_layer_ = true;
-        if (screen_ != Screen::Reader || !immersive_) draw_chrome();
-        draw_toolbar();
+        if (!inspecting_) {
+            if (screen_ != Screen::Reader || !immersive_) draw_chrome();
+            draw_toolbar();
+        }
         // Curl the captured sheet after composing the incoming page and its
         // reading bars. Modal feedback remains above the turning sheet.
         if(screen_==Screen::Reader && settings_.page_effect==static_cast<int>(reader::PageEffect::PageCurl) &&
@@ -266,6 +269,11 @@ public:
             focus_input(pressed);return focus_result_;
         }
         if (physical && focus_input(pressed)) return focus_result_;
+        if (screen_==Screen::Reader && inspecting_ && pressed) {
+            const bool fit=pressed&(SCE_CTRL_TRIANGLE|SCE_CTRL_CIRCLE);
+            end_inspection();
+            if(fit)return true;
+        }
         if (pressed & SCE_CTRL_START) { show_more(); return true; }
         if (!menu_.empty()) return true;
         if (physical && has_sidebar() && (pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER))) {
@@ -479,10 +487,55 @@ public:
         return directions | ((!menu_.empty() || screen_==Screen::Reader || screen_==Screen::Image)?
             SCE_CTRL_LTRIGGER|SCE_CTRL_RTRIGGER:0);
     }
-    bool can_pan_image() const { return screen_ == Screen::Image && menu_.empty() && !ime_active_ && !feedback_active() && !online_busy_; }
+    std::size_t visible_illustration() const {
+        std::size_t selected=reader::no_illustration;
+        int largest=0;
+        if(screen_!=Screen::Reader)return selected;
+        for(auto i=top_;i<visible_end();++i) {
+            const auto& block=lines_[i];
+            const int area=block.image_width*block.image_height;
+            if(block.illustration!=reader::no_illustration && area>largest) {
+                largest=area;selected=block.illustration;
+            }
+        }
+        return selected;
+    }
+    bool image_controls() const {
+        return screen_==Screen::Image || (screen_==Screen::Reader &&
+            (inspecting_ || visible_illustration()!=reader::no_illustration));
+    }
+    bool reserve_image_sticks() const {
+        return (screen_==Screen::Reader || screen_==Screen::Image) &&
+            menu_.empty() && !ime_active_ && !feedback_active() && !online_busy_;
+    }
+    bool can_pan_image() const { return reserve_image_sticks() && image_controls(); }
+    bool inspecting_image() const { return inspecting_; }
+    reader::ui::Rect image_area() const {
+        return inspecting_ ? reader::ui::Rect{0,0,960,544} :
+            reader::ui::Rect{48,reader::ui::image_top,864,reader::ui::image_height};
+    }
+    void end_inspection() {
+        if(!inspecting_)return;
+        inspecting_=false;inspection_hint_until_=0;release_image();zoom_=1;pan_x_=pan_y_=0;redraw_=true;
+    }
+    void image_sticks(float x,float y,float zoom_axis,float seconds) {
+        if(!can_pan_image())return;
+        if(screen_==Screen::Reader && !inspecting_) {
+            if(zoom_axis<=0)return;
+            show_illustration(visible_illustration(),Screen::Reader);
+            if(!inspecting_)return;
+        }
+        const float next=std::max(1.f,std::min(4.f,zoom_*std::pow(2.f,zoom_axis*seconds)));
+        if(next!=zoom_) {
+            const auto ratio=next/zoom_;pan_x_*=ratio;pan_y_*=ratio;
+            zoom_=next;clamp_pan();redraw_=true;
+        }
+        if(inspecting_ && zoom_axis<0 && zoom_<=1) {end_inspection();return;}
+        pan_image(-x*480*seconds,-y*480*seconds);
+    }
     std::size_t folder_revision() const { return folder_revision_; }
     void pan_image(float dx, float dy) {
-        if (screen_ != Screen::Image) return;
+        if (screen_ != Screen::Image && !inspecting_) return;
         const auto before_x=pan_x_,before_y=pan_y_;
         pan_x_ += dx; pan_y_ += dy; clamp_pan();
         if(pan_x_!=before_x || pan_y_!=before_y)redraw_=true;
@@ -493,8 +546,9 @@ public:
         const auto next = std::max(1.0f, std::min(4.0f, zoom_ * gesture.scale));
         const auto ratio = next / zoom_;
         // Keep the image point beneath the pinch midpoint stationary.
+        const auto area=image_area();
         pan_x_ = gesture.x - 480 - (gesture.x - 480 - pan_x_) * ratio;
-        pan_y_ = gesture.y - reader::ui::image_center_y - (gesture.y - reader::ui::image_center_y - pan_y_) * ratio;
+        pan_y_ = gesture.y - (area.y+area.height/2) - (gesture.y - (area.y+area.height/2) - pan_y_) * ratio;
         zoom_ = next; clamp_pan();
     }
 
@@ -502,6 +556,11 @@ public:
         using reader::controls::GestureKind;
         if (gesture.kind == GestureKind::None || ime_active_) return true;
         if(gesture.kind==GestureKind::Cancel){cancel_reader_drag();return true;}
+        if(inspecting_ && can_pan_image()) {
+            if(gesture.kind==GestureKind::Transform)transform_image(gesture);
+            else if(gesture.kind==GestureKind::Tap)end_inspection();
+            return true;
+        }
         if(gesture.kind==GestureKind::Drag || gesture.kind==GestureKind::Release) {
             if(screen_==Screen::Reader && menu_.empty() && !feedback_active() && !online_busy_)reader_drag(gesture);
             else cancel_reader_drag();
@@ -1014,6 +1073,7 @@ private:
     }
     void clear_reading() {
         const reader::perf::Scope timing(reader::perf::Event::Cleanup);
+        end_inspection();
         speech_.stop();
         page_turn_until_=0;
         drag_axis_=0;scroll_until_=0;bars_until_=0;
@@ -1331,6 +1391,7 @@ private:
         if ((status.state == State::Speaking || status.state == State::Paused || status.state == State::Finished) && !lines_.empty()) {
             // Follow the spoken sentence only when it advances, allowing manual page browsing.
             if (status.offset != speech_offset_) {
+                end_inspection();
                 redraw_=true;
                 speech_offset_ = status.offset;
                 top_ = reader::block_at_offset(lines_, status.offset);
@@ -2359,14 +2420,16 @@ private:
     }
     void clamp_pan() {
         if (!image_) return;
-        const auto scale = fit_scale(864, reader::ui::image_height) * zoom_;
-        const auto limit_x = std::max(0.0f, (vita2d_texture_get_width(image_) * scale - 864) / 2);
-        const auto limit_y = std::max(0.0f, (vita2d_texture_get_height(image_) * scale - reader::ui::image_height) / 2);
+        const auto area=image_area();
+        const auto scale = fit_scale(area.width, area.height) * zoom_;
+        const auto limit_x = std::max(0.0f, (vita2d_texture_get_width(image_) * scale - area.width) / 2);
+        const auto limit_y = std::max(0.0f, (vita2d_texture_get_height(image_) * scale - area.height) / 2);
         pan_x_ = std::max(-limit_x, std::min(limit_x, pan_x_));
         pan_y_ = std::max(-limit_y, std::min(limit_y, pan_y_));
     }
 
     void show_illustration(std::size_t index, Screen return_to) {
+        if(index>=book_.illustrations.size())return;
         message_ = "Opening illustration..."; draw_loading();
         try {
             std::string bytes, error;
@@ -2377,7 +2440,12 @@ private:
             if (!candidate) { message_ = error; return; }
             release_image(); image_ = candidate;
             illustration_selected_ = index; zoom_ = 1; pan_x_ = pan_y_ = 0;
-            image_return_ = return_to; screen_ = Screen::Image; message_.clear();
+            inspecting_=return_to==Screen::Reader;
+            image_return_ = return_to; screen_ = inspecting_?Screen::Reader:Screen::Image; message_.clear();
+            if(inspecting_) {
+                cancel_reader_drag();page_turn_until_=scroll_until_=bars_until_=0;
+                inspection_hint_until_=sceKernelGetProcessTimeWide()+4000000;
+            }
         } catch (const std::exception&) { message_ = "Not enough memory for this illustration."; }
     }
     const Palette& palette() const { return screen_ == Screen::Reader && !interface_layer_ ? palettes[settings_.theme] : menu_palette; }
@@ -2925,6 +2993,7 @@ private:
         vita2d_disable_clipping();
     }
     void draw_reader() const {
+        if(inspecting_) {draw_image();return;}
         const auto end=visible_end();
         const int percent=reader::reading_percent(chapter_,publication_.chapters.size(),lines_[top_].offset,book_.text.size(),end==lines_.size());
         const auto area=reading_area();const auto window=reading_window();int y=window.y;
@@ -2956,6 +3025,8 @@ private:
         vita2d_disable_clipping();
         if(immersive_)return;
         const int bar_y=432;
+        if(visible_illustration()!=reader::no_illustration)
+            text(48,420,palette().muted,0.6f,"Right stick up: inspect illustration",864,reader::FontRole::Interface);
         reader::visual::progress(40,bar_y,880,std::max(0,percent)/100.f,3);
         const auto speech_state = speech_.status().state;
         const std::string narration = speech_state == reader::speech::State::Speaking ? " · Speaking" :
@@ -3050,12 +3121,17 @@ private:
         draw_pager(illustration_selected_,book_.illustrations.size());
     }
     void draw_image() const {
-        heading(book_.illustrations[illustration_selected_].label,std::to_string(illustration_selected_+1)+" / "+std::to_string(book_.illustrations.size())+" images  /  "+std::to_string(static_cast<int>(zoom_*100))+"% zoom");
+        if(!inspecting_)heading(book_.illustrations[illustration_selected_].label,std::to_string(illustration_selected_+1)+" / "+std::to_string(book_.illustrations.size())+" images  /  "+std::to_string(static_cast<int>(zoom_*100))+"% zoom");
         if (image_) {
-            const auto scale=fit_scale(864,reader::ui::image_height)*zoom_;
-            vita2d_enable_clipping();vita2d_set_clip_rectangle(48,reader::ui::image_top,912,reader::ui::image_top+reader::ui::image_height);
-            vita2d_draw_texture_scale(image_,480-vita2d_texture_get_width(image_)*scale/2+pan_x_,reader::ui::image_center_y-vita2d_texture_get_height(image_)*scale/2+pan_y_,scale,scale);
+            const auto area=image_area();
+            const auto scale=fit_scale(area.width,area.height)*zoom_;
+            vita2d_enable_clipping();vita2d_set_clip_rectangle(area.x,area.y,area.x+area.width,area.y+area.height);
+            vita2d_draw_texture_scale(image_,480-vita2d_texture_get_width(image_)*scale/2+pan_x_,area.y+area.height/2-vita2d_texture_get_height(image_)*scale/2+pan_y_,scale,scale);
             vita2d_disable_clipping();
+        }
+        if(inspecting_ && sceKernelGetProcessTimeWide()<inspection_hint_until_) {
+            vita2d_draw_rectangle(0,506,960,38,0xc0000000u);
+            text(24,532,0xffffffffu,0.65f,"Left stick: pan   Right stick: zoom   Triangle: fit   D-pad / L / R: continue",912);
         }
     }
     void draw_settings() const {
@@ -3215,6 +3291,8 @@ private:
     vita2d_texture* image_ = nullptr;
     std::string cover_key_, cover_message_;
     float zoom_ = 1, pan_x_ = 0, pan_y_ = 0;
+    bool inspecting_=false;
+    std::uint64_t inspection_hint_until_=0;
     std::size_t illustration_selected_ = 0;
     std::vector<reader::LayoutBlock> lines_;
     std::vector<std::size_t> pages_;
@@ -3282,7 +3360,7 @@ int main() {
                 return result;
             };
             const bool image_pan = app.can_pan_image();
-            auto held = pad.buttons | (image_pan ? 0 : buttons(left | right));
+            auto held = pad.buttons | (app.reserve_image_sticks() ? 0 : buttons(left | right));
             if ((held & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) == (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) held &= ~(SCE_CTRL_LEFT | SCE_CTRL_RIGHT);
             if ((held & (SCE_CTRL_UP | SCE_CTRL_DOWN)) == (SCE_CTRL_UP | SCE_CTRL_DOWN)) held &= ~(SCE_CTRL_UP | SCE_CTRL_DOWN);
             const unsigned shoulders = SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER;
@@ -3297,7 +3375,8 @@ int main() {
                         points.push_back({data.report[i].id,
                             reader::controls::display_coordinate(data.report[i].x, panel.minDispX, panel.maxDispX, 960),
                             reader::controls::display_coordinate(data.report[i].y, panel.minDispY, panel.maxDispY, 544)});
-                    gesture = touch.sample(points, now, before == Screen::Image,before == Screen::Reader);
+                    gesture = touch.sample(points, now, before == Screen::Image || app.inspecting_image(),
+                                           before == Screen::Reader && !app.inspecting_image());
                 } else {
                     touch.cancel_until_release();
                     if(before==Screen::Reader)gesture.kind=reader::controls::GestureKind::Cancel;
@@ -3305,11 +3384,10 @@ int main() {
             }
             running = app.input(pressed);
             if (!running) break;
-            if (image_pan && app.can_pan_image() && pad_ready) {
-                const auto x = (left ? reader::controls::axis(pad.lx) : 0) + (right ? reader::controls::axis(pad.rx) : 0);
-                const auto y = (left ? reader::controls::axis(pad.ly) : 0) + (right ? reader::controls::axis(pad.ry) : 0);
-                app.pan_image(-std::max(-1.0f, std::min(1.0f, x)) * 480 * seconds,
-                              -std::max(-1.0f, std::min(1.0f, y)) * 480 * seconds);
+            if (image_pan && app.can_pan_image() && pad_ready && !pad.buttons) {
+                app.image_sticks(left ? reader::controls::axis(pad.lx) : 0,
+                                 left ? reader::controls::axis(pad.ly) : 0,
+                                 right ? -reader::controls::axis(pad.ry) : 0,seconds);
             }
             if (app.input_context() == context_before) running = app.gesture(gesture);
             if (app.input_context() != context_before) {

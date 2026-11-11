@@ -33,6 +33,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Library | Add Book → Browse Online, or Options → Online novels |
 | Import | Cross: open folder/import book; Circle: parent folder or Library at root; Options → Refresh folder |
 | Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
+| Reader illustration | Right stick up/down: zoom in/out; left stick: pan; Triangle: return to fit |
 | EPUB reader | L/R: previous/next chapter; Cross → Contents |
 | TXT reader | L/R: turn page |
 | Contents | Up/Down: choose chapter across pages; Left/Right: browse five entries; Cross: open; Circle: return |
@@ -40,6 +41,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Contents | Options → Jump to chapter: enter a number and focus that entry |
 | Illustrations | Up/Down: choose; Cross: view; Circle: contents |
 | Image viewer | Cross: zoom in; Square: zoom out; D-pad: pan; Triangle: fit image |
+| Image viewer | Left stick: smooth pan; right stick up/down: smooth zoom |
 | Image viewer | L/R: previous/next image in chapter; Circle: illustration list |
 | Reader | START → Save bookmark (or hold page); Select: jump to bookmark |
 | Reader | Cross: Contents; Triangle: Bookmarks; Square: font settings; Circle: library/online chapters |
@@ -190,7 +192,7 @@ Fade; frame-pool exhaustion uses a bounded whole-page fade. See the
 START opens Reading controls, Cross opens Contents, Triangle opens Bookmarks, Square opens Reading
 Settings, and Circle returns to Library (or online chapters). The control panel contains Contents, Illustrations, Reading Settings, Save bookmark,
 Go to bookmark, All bookmarks, and Show/Hide reading bar. Select still jumps directly to the saved bookmark. Hold and release on the
-reading area to save one. Inline illustrations still open their viewer. Control
+reading area to save one. Inline illustrations expand into inspection within the reader. Control
 panels overlay the page without reflowing; changing the reading view or font
 reflows around the same text/image anchor.
 
@@ -311,11 +313,14 @@ Wi-Fi, TLS, the system keyboard, and controls still need Vita hardware testing.
 
 ## Analog and touch controls
 
-Both analog sticks navigate menus and the reader: vertical movement selects
-items or moves through text/illustrations. Horizontal movement traverses a Library
-cover row, browses list pages, or turns reading pages. Settings use vertical selection and horizontal
-adjustment. In the image viewer, either stick pans smoothly; the D-pad still
-provides discrete pan steps. Sticks have a dead zone, axis hysteresis, and the
+Both analog sticks navigate menus: vertical movement selects items. Horizontal
+movement traverses a Library cover row or browses list pages. Settings use vertical
+selection and horizontal adjustment. In the reader, sticks are reserved for
+illustrations: push the right stick up to inspect the largest visible image,
+then up/down to zoom and use the left stick to pan. D-pad and triggers keep their
+normal reading actions, including while zoomed. In the separate image viewer,
+the left stick pans smoothly and the right stick up/down zooms; the D-pad still
+provides discrete pan steps. Sticks have a dead zone, axis hysteresis, and menu navigation uses the
 same 350 ms initial / 140 ms repeat timing as directional buttons. After a
 screen transition, return the stick to center before moving again.
 
@@ -325,7 +330,8 @@ The **front touchscreen** supports:
 | --- | --- |
 | Home / Library | Tap Continue Reading to resume, a cover for details, or Library's Add Book to import; swipe Library vertically to scroll |
 | Reader | Drag left/right to preview a page turn, then release to complete or cancel; drag up/down to scroll text and images |
-| Reader | Tap an illustration to zoom; left/right body taps turn pages, center taps hide/show reading bars |
+| Reader | Tap an illustration to inspect; left/right body taps turn pages, center taps hide/show reading bars |
+| Reader illustration inspection | Drag/pinch to pan/zoom; tap to return to the reading page |
 | Reader | Hold and release on the reading area to save a bookmark |
 | Contents / illustration list | Tap an entry to open; swipe to browse five chapters or four illustrations |
 | Settings | Tap the left/right halves of rows to adjust; tap Apply, Cancel, or Reset in the footer |
@@ -466,12 +472,24 @@ including raster images referenced by SVG `<image>` wrappers. Paths are resolved
 relative to the chapter document, including parent directories and URL-encoded
 filenames. External images are not fetched.
 
-The viewer supports embedded PNG and JPEG images, fits them to the screen, and
+Illustrations can be inspected directly from the reading page without opening
+the chapter image list. Push the right stick up to expand the largest visible
+illustration into a full-screen inspection view, or tap a specific illustration.
+Right stick up/down zooms smoothly from 1× to 4× the fitted size; the left stick
+pans with its speed controlled by stick deflection. Pan stays within image edges,
+and smaller axes remain centered. A brief hint explains the inspection controls.
+Triangle, Circle, a tap, or zooming out to 1× returns to the original reading page.
+D-pad navigation and L/R work directly while inspecting: they reset inspection
+and perform their existing reading action (EPUB/online chapters, TXT pages for
+L/R). The text/image anchor, bookmark, and saved reading-bar preference remain
+intact during inspection. Sticks do not turn reading pages.
+
+The separate chapter image viewer supports embedded PNG and JPEG images, fits them to the screen, and
 zooms from 1× to 4× the fitted size. Pan is clamped to the image edges; smaller
 axes stay centered. The image is clipped to the viewing area, leaving controls
 visible. Viewing images does not move the reading position or bookmark. Tap an
-inline image to zoom it directly, or use **Cross (Contents) → Square** to choose an image
-from the chapter list. **Circle** or the touch Back button returns to the screen
+inline image to inspect it directly, or use **Cross (Contents) → Square** to choose an image
+from the chapter list. In the separate viewer, **Circle** or the touch Back button returns to the screen
 that opened the viewer.
 
 Each image is limited to 8 MiB encoded, 4,096 pixels per side, and 4 megapixels

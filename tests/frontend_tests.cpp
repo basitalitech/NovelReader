@@ -29,6 +29,58 @@ vita2d_texture* decode_thumbnail(const std::string&,unsigned,unsigned,std::strin
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 struct FrontendTest {
+    static void illustration_controls() {
+        vita2d_pgf font;App app(&font);
+        app.navigate(1);app.filter_=reader::LibraryFilter::All;
+        app.library_query_.clear();app.refresh_library("@welcome");app.open();app.message_.clear();
+        check(app.screen_==Screen::Reader,"Illustration fixture did not open");
+        app.top_=0;
+        app.book_.illustrations={{0,"Small","missing.png",0,100,160},{1,"Large","missing2.png",0,200,320}};
+        app.lines_[0].illustration=0;app.lines_[0].image_width=50;app.lines_[0].image_height=80;
+        app.lines_[1].illustration=1;app.lines_[1].image_width=100;app.lines_[1].image_height=160;
+        check(app.visible_illustration()==1 && app.can_pan_image(),"Reader did not target the largest visible image");
+        const auto anchor=app.top_,offset=app.progress_.offset;
+        app.image_sticks(1,1,0,0.05f);
+        check(!app.inspecting_ && app.top_==anchor,"Pan alone entered inspection or moved the reader");
+        app.image_sticks(0,0,1,0.05f);
+        check(!app.inspecting_ && app.screen_==Screen::Reader && app.top_==anchor && !app.image_,
+              "Failed image decoding changed reader state");
+        app.message_.clear();
+        // Supply a GPU texture at the decoder boundary; controls and navigation
+        // below execute the actual frontend, layout and persistence paths.
+        static vita2d_texture texture;
+        const auto inspect=[&] {
+            app.image_=&texture;app.inspecting_=true;app.illustration_selected_=1;
+            app.zoom_=1;app.pan_x_=app.pan_y_=0;
+        };
+        inspect();app.image_sticks(0,0,1,1);
+        check(app.zoom_==2 && app.top_==anchor && app.progress_.offset==offset,
+              "Zoom changed the reading anchor");
+        app.image_sticks(1,1,0,10);
+        check(app.pan_x_==0 && app.pan_y_<0 && app.pan_y_>=-272,
+              "Analog pan escaped image bounds or moved a smaller axis off center");
+        app.image_sticks(0,0,1,10);check(app.zoom_==4,"Analog zoom exceeded its upper bound");
+        app.image_sticks(1,1,0,10);
+        check(app.pan_x_==-200 && app.pan_y_==-816,"Zoomed pan did not clamp to the image edges");
+        app.show_more();const auto zoom=app.zoom_;app.image_sticks(1,1,-1,1);
+        check(app.zoom_==zoom && !app.reserve_image_sticks(),"Image sticks leaked through a menu or blocked menu navigation");
+        app.input(SCE_CTRL_CIRCLE);app.input(SCE_CTRL_TRIANGLE);
+        check(!app.inspecting_ && !app.image_ && app.top_==anchor && app.menu_.empty(),
+              "Triangle did not return to the inline image");
+        inspect();app.zoom_=2;app.image_sticks(0,0,-1,2);
+        check(!app.inspecting_ && app.zoom_==1,"Zooming out to fit did not restore the reading page");
+        inspect();app.zoom_=2;app.input(SCE_CTRL_CIRCLE);
+        check(!app.inspecting_ && app.screen_==Screen::Reader,"Inspection Back exited the book");
+        inspect();app.zoom_=2;const auto end=app.visible_end();app.input(SCE_CTRL_RIGHT);
+        check(!app.inspecting_ && !app.image_ && app.top_==end,"Page turn did not continue from a zoomed illustration");
+        check(app.visible_illustration()==reader::no_illustration && !app.can_pan_image(),
+              "Text-only page retained illustration controls");
+        app.top_=0;inspect();app.input(SCE_CTRL_RTRIGGER);
+        check(!app.inspecting_ && app.top_==app.pages_[1],"TXT trigger did not continue reading");
+        app.top_=0;inspect();app.publication_.epub=true;
+        app.input(SCE_CTRL_RTRIGGER);
+        check(!app.inspecting_ && app.top_==0,"EPUB trigger changed into a page turn");
+    }
     static void control_regressions() {
         std::vector<std::string> names;
         for(int i=0;i<8;++i) {
@@ -1016,7 +1068,7 @@ struct FrontendTest {
             guide.input(SCE_CTRL_CROSS);check(guide.screen_==Screen::Reader && guide.active_filename_=="@welcome",
                 "Continue Reading cannot reopen the welcome TXT");
         }
-        control_regressions();cache_regressions();
+        control_regressions();cache_regressions();illustration_controls();
     }
 };
 }
