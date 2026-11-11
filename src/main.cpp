@@ -66,7 +66,11 @@ const Palette palettes[] = {
     {rgb(245, 245, 241), rgb(226, 232, 229), rgb(30, 40, 43),
      rgb(84, 97, 100), rgb(22, 109, 87)},
     {rgb(239, 226, 199), rgb(224, 207, 174), rgb(64, 49, 33),
-     rgb(113, 90, 61), rgb(115, 66, 36)}
+     rgb(113, 90, 61), rgb(115, 66, 36)},
+    {rgb(0, 0, 0), rgb(12, 12, 15), rgb(235, 235, 235),
+     rgb(164, 164, 174), rgb(180, 125, 239)},
+    {rgb(0, 0, 0), rgb(12, 10, 8), rgb(174, 149, 117),
+     rgb(123, 105, 83), rgb(168, 119, 76)}
 };
 const Palette menu_palette = {reader::visual::background, reader::visual::surface,
     reader::visual::text, reader::visual::muted, reader::visual::accent};
@@ -331,10 +335,8 @@ public:
             const int step=pressed&SCE_CTRL_RTRIGGER?1:reader::ui::sidebar_count-1;
             navigate((nav_active_+step)%reader::ui::sidebar_count);sidebar_focus_=false;normalize_focus();return true;
         }
-        if (screen_==Screen::Reader) {
-            if (pressed & SCE_CTRL_TRIANGLE) return perform({"Bookmarks",0,Command::Bookmarks});
-            if (pressed & SCE_CTRL_SQUARE) return perform({"Font",0,Command::Appearance});
-        }
+        if(screen_==Screen::Reader && (pressed&SCE_CTRL_SQUARE))
+            return perform({"Bookmark",SCE_CTRL_SQUARE,Command::SaveBookmark});
         if ((pressed & SCE_CTRL_TRIANGLE) && screen_==Screen::Library && !importing_) {
             show_sort();
             return true;
@@ -484,14 +486,6 @@ public:
                 else screen_=Screen::Reader;
                 message_.clear();
             }
-            if (pressed & SCE_CTRL_SQUARE) {
-                if(lines_.empty() && !change_chapter(chapter_,progress_.offset))return true;
-                illustration_selected_ = 0;
-                // Start near the currently visible illustration, if any.
-                for (std::size_t i = 0; i < book_.illustrations.size(); ++i)
-                    if (book_.illustrations[i].offset <= lines_[top_].offset) illustration_selected_ = i;
-                screen_ = Screen::Illustrations; message_.clear();
-            }
             if (pressed & SCE_CTRL_CROSS) {
                 if ((!lines_.empty() && contents_selected_ == chapter_) ||
                     change_chapter(contents_selected_,contents_selected_==progress_.chapter?progress_.offset:0)) {
@@ -556,8 +550,18 @@ public:
             (inspecting_ || visible_illustration()!=reader::no_illustration));
     }
     bool reserve_image_sticks() const {
-        return (screen_==Screen::Reader || screen_==Screen::Image) &&
+        return image_controls() &&
             menu_.empty() && !ime_active_ && !feedback_active() && !online_busy_;
+    }
+    unsigned navigation_sticks(unsigned left,unsigned right) const {
+        if(reserve_image_sticks())return 0;
+        const auto directions=left|right;
+        unsigned buttons=0;
+        if(directions&reader::controls::Left)buttons|=SCE_CTRL_LEFT;
+        if(directions&reader::controls::Right)buttons|=SCE_CTRL_RIGHT;
+        if(directions&reader::controls::Up)buttons|=SCE_CTRL_UP;
+        if(directions&reader::controls::Down)buttons|=SCE_CTRL_DOWN;
+        return buttons;
     }
     bool can_pan_image() const { return reserve_image_sticks() && image_controls(); }
     bool inspecting_image() const { return inspecting_; }
@@ -947,14 +951,19 @@ private:
         if(row<0 || row>=reader::ui::settings_count)return;
         int* value=row==0?&settings_.reading_font:row==1?&settings_.font:row==2?&settings_.spacing:
             row==3?&settings_.theme:&settings_.page_effect;
-        *value=std::max(0,std::min(2,*value+delta));
+        *value=std::max(0,std::min(row==3?reader::page_theme_count-1:2,*value+delta));
     }
     void cancel_settings() { settings_=previous_settings_; immersive_=settings_.immersive!=0; }
     void finish_settings(bool apply) {
         const bool applied=apply && apply_settings();
         if(!apply)cancel_settings();
-        screen_=settings_return_;nav_active_=nav_selected_=settings_nav_return_;
-        sidebar_focus_=settings_sidebar_return_;
+        if(apply && settings_return_!=Screen::Reader) {
+            screen_=Screen::Settings;nav_active_=nav_selected_=3;sidebar_focus_=false;
+            if(applied)previous_settings_=settings_;
+        } else {
+            screen_=settings_return_;nav_active_=nav_selected_=settings_nav_return_;
+            sidebar_focus_=settings_sidebar_return_;
+        }
         if(applied && (message_.empty() || message_==notice_)) {
             retry_available_=false;message_="Reader Settings applied.";
         }
@@ -1496,7 +1505,7 @@ private:
                 {"Jump to chapter",0,Command::Jump},{"Refresh chapters",SCE_CTRL_TRIANGLE}};
             if(in_library())menu_.push_back({"Remove from library",0,Command::RemoveBook});
         } else if (screen_ == Screen::Contents) {
-            menu_={{"Jump to chapter",0,Command::Jump},{"Illustrations",SCE_CTRL_SQUARE},{"Back to reading",SCE_CTRL_CIRCLE}};
+            menu_={{"Jump to chapter",0,Command::Jump},{"Illustrations",0,Command::Illustrations},{"Back to reading",SCE_CTRL_CIRCLE}};
         } else if (screen_ == Screen::Image) {
             menu_={{"Zoom in",SCE_CTRL_CROSS,Command::Button,zoom_<4},{"Zoom out",SCE_CTRL_SQUARE,Command::Button,zoom_>1},{"Fit image",SCE_CTRL_TRIANGLE},
                 {"Previous image",SCE_CTRL_LTRIGGER,Command::Button,illustration_selected_>0},{"Next image",SCE_CTRL_RTRIGGER,Command::Button,illustration_selected_+1<book_.illustrations.size()},{"Back",SCE_CTRL_CIRCLE}};
@@ -1589,7 +1598,11 @@ private:
             if(!order_.empty())message_=entries_[order_[selected_]].title;
             break;
         case Command::Illustrations:
-            illustration_selected_=0;screen_=Screen::Illustrations;message_.clear();break;
+            if(screen_==Screen::Contents && lines_.empty() && !change_chapter(chapter_,progress_.offset))break;
+            illustration_selected_=0;
+            for(std::size_t i=0;i<book_.illustrations.size() && !lines_.empty();++i)
+                if(book_.illustrations[i].offset<=lines_[top_].offset)illustration_selected_=i;
+            screen_=Screen::Illustrations;message_.clear();break;
 
         case Command::BookBookmark:
             if(!order_.empty()) {
@@ -1763,9 +1776,10 @@ private:
                 return Action{control.action.label,SCE_CTRL_CROSS,Command::Button,control.action.enabled};
             return Action{fallback,SCE_CTRL_CROSS};
         };
-        if(screen_==Screen::About)return {{"Select",SCE_CTRL_CROSS},{"Back",SCE_CTRL_CIRCLE}};
-        if(screen_==Screen::Reader || screen_==Screen::Image)return {{screen_==Screen::Reader?"Chapters":"Zoom in",SCE_CTRL_CROSS},
-            {"Back",SCE_CTRL_CIRCLE},{screen_==Screen::Reader?"Controls":"Options",SCE_CTRL_START,Command::More}};
+        if(screen_==Screen::About)return {{"Select",SCE_CTRL_CROSS}};
+        if(screen_==Screen::Reader)return {{"Chapters",SCE_CTRL_CROSS},{"Back",SCE_CTRL_CIRCLE},
+            {"Bookmark",SCE_CTRL_SQUARE,Command::SaveBookmark,!lines_.empty()},{"Controls",SCE_CTRL_START,Command::More}};
+        if(screen_==Screen::Image)return {{"Zoom in",SCE_CTRL_CROSS},{"Back",SCE_CTRL_CIRCLE},options};
         if(screen_==Screen::Library && !importing_)return {confirm("Open"),
             {library_search_active_?"Clear search":"Back",SCE_CTRL_CIRCLE},{"Search",SCE_CTRL_SQUARE,Command::Search},
             {"Filter",SCE_CTRL_TRIANGLE,Command::Sort},options};
@@ -2154,6 +2168,10 @@ private:
         }
         if(screen_==Screen::Settings && menu_.empty() && !feedback_active() && !online_busy_ && count==4) {
             const reader::ui::Rect boxes[]={{28,484,170,56},{228,484,170,56},{428,484,230,56},{732,484,200,56}};
+            return boxes[index];
+        }
+        if(screen_==Screen::Reader && menu_.empty() && !feedback_active() && !online_busy_ && count==4) {
+            const reader::ui::Rect boxes[]={{28,484,200,56},{248,484,152,56},{420,484,216,56},{732,484,200,56}};
             return boxes[index];
         }
         if(screen_==Screen::Home && menu_.empty() && !feedback_active() && !online_busy_ && count==1)
@@ -3266,7 +3284,7 @@ private:
         const char* names[]={"Literata","Atkinson","Vita system"};
         const char* sizes[]={"22 px","26 px","30 px"};
         const char* spacing[]={"1.2","1.5","1.8"};
-        const char* themes[]={"Night","Paper","Sepia"};
+        const char* themes[]={"Night","Paper","Sepia","OLED","OLED Night"};
         const char* effects[]={"Page Curl","Slide and Fade","None"};
         const char* labels[]={"Typeface","Font size","Line spacing","Page theme","Page effect"};
         const char* help[]={"Choose the typeface used for reading.","Adjust the reading text size.",
@@ -3288,8 +3306,8 @@ private:
                     vita2d_draw_fill_circle(247,box.y+32+line*8,1.5f,tint);
                     rounded(253,box.y+31+line*8,14,2,tint,1);
                 }
-            } else icon(Icon::Settings,256,box.y+40,tint,0.72f);
-            text(278,box.y+(i>0?28:48),tint,0.78f,labels[i],132);
+            } else icon(i==3?Icon::Moon:Icon::Settings,256,box.y+40,tint,0.72f);
+            text(278,box.y+28,tint,0.78f,labels[i],132);
             if(i==1 || i==2) {
                 const auto track=reader::ui::settings_slider(i);
                 const int step=i==1?settings_.font:settings_.spacing;
@@ -3302,17 +3320,17 @@ private:
             } else {
                 const int value=i==4?settings_.page_effect:i==3?settings_.theme:settings_.reading_font;
                 const auto chevron=[&](int cx,int direction,unsigned color) {
-                    const int cy=box.y+(i>=3?50:40);
+                    const int cy=box.y+50;
                     for(int stroke=0;stroke<2;++stroke) {
                         vita2d_draw_line(cx-direction*4,cy-6+stroke,cx+direction*2,cy+stroke,color);
                         vita2d_draw_line(cx+direction*2,cy+stroke,cx-direction*4,cy+6+stroke,color);
                     }
                 };
                 chevron(424,-1,value>0?tint:mix(surface,border,0.7f));
-                chevron(608,1,value<2?tint:mix(surface,border,0.7f));
+                chevron(608,1,value<(i==3?reader::page_theme_count-1:2)?tint:mix(surface,border,0.7f));
                 const unsigned pixels=20;
                 const auto width=fonts_.width(reader::FontRole::Interface,pixels,values[i]);
-                fonts_.draw(reader::FontRole::Interface,pixels,516-width/2,box.y+(i>=3?58:48),palette().text,values[i]);
+                fonts_.draw(reader::FontRole::Interface,pixels,516-width/2,box.y+58,palette().text,values[i]);
             }
         }
         const auto& paper=palettes[settings_.theme];
@@ -3478,16 +3496,8 @@ int main() {
             const auto before = app.screen();
             const auto context_before = app.input_context();
             const auto left = left_stick.direction(pad.lx, pad.ly), right = right_stick.direction(pad.rx, pad.ry);
-            const auto buttons = [](unsigned directions) {
-                unsigned result = 0;
-                if (directions & reader::controls::Left) result |= SCE_CTRL_LEFT;
-                if (directions & reader::controls::Right) result |= SCE_CTRL_RIGHT;
-                if (directions & reader::controls::Up) result |= SCE_CTRL_UP;
-                if (directions & reader::controls::Down) result |= SCE_CTRL_DOWN;
-                return result;
-            };
             const bool image_pan = app.can_pan_image();
-            auto held = pad.buttons | (app.reserve_image_sticks() ? 0 : buttons(left | right));
+            auto held = pad.buttons | app.navigation_sticks(left,right);
             if ((held & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) == (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) held &= ~(SCE_CTRL_LEFT | SCE_CTRL_RIGHT);
             if ((held & (SCE_CTRL_UP | SCE_CTRL_DOWN)) == (SCE_CTRL_UP | SCE_CTRL_DOWN)) held &= ~(SCE_CTRL_UP | SCE_CTRL_DOWN);
             const unsigned shoulders = SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER;

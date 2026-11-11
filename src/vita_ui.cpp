@@ -272,6 +272,15 @@ void icon(Icon kind,int x,int y,unsigned tint,float scale) {
             mesh.vertices[mesh.count++]=vertex;
         mesh.draw();
     } else if(kind==Icon::Bookmark) {line(-8,-12,8,-12);line(-8,-12,-8,12);line(8,-12,8,12);line(-8,12,0,6);line(0,6,8,12);
+    } else if(kind==Icon::Moon) {
+        // Crescent outline: a circular outer edge and an inward quadratic arc.
+        for(int i=0;i<32;++i) {
+            const float a=1.04719755f+i*4.1887902f/32,b=1.04719755f+(i+1)*4.1887902f/32;
+            line(12*std::cos(a),12*std::sin(a),12*std::cos(b),12*std::sin(b));
+            const float t=i/32.f,u=(i+1)/32.f;
+            line(6-32*t*(1-t),-10.392305f+20.78461f*t,
+                 6-32*u*(1-u),-10.392305f+20.78461f*u);
+        }
     } else if(kind==Icon::Settings) {
         circle(0,0,10); circle(0,0,4);
         for(int i=0;i<8;++i){const float a=i*6.2831853f/8;line(10*std::cos(a),10*std::sin(a),14*std::cos(a),14*std::sin(a));}

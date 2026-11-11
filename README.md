@@ -32,21 +32,21 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Library | Triangle: sorting/filtering; Square: search; Circle clears an active search before returning Home |
 | Library | Add Book → Browse Online, or Options → Online novels |
 | Import | Cross: open folder/import book; Circle: parent folder or Library at root; Options → Refresh folder |
-| Reader | Left/Right: turn page; Up/Down: move one text line or illustration |
+| Reader | D-pad or either stick on text pages: Left/Right turns pages; Up/Down moves one text line |
 | Reader illustration | Right stick up/down: zoom in/out; left stick: pan; Triangle: return to fit |
 | EPUB reader | L/R: previous/next chapter; Cross → Contents |
 | TXT reader | L/R: turn page |
 | Contents | Up/Down: choose chapter across pages; Left/Right: browse five entries; Cross: open; Circle: return |
-| Contents | Square: illustrations in the current reading chapter |
+| Contents | Options → Illustrations: images in the current reading chapter |
 | Contents | Options → Jump to chapter: enter a number and focus that entry |
 | Illustrations | Up/Down: choose; Cross: view; Circle: contents |
 | Image viewer | Cross: zoom in; Square: zoom out; D-pad: pan; Triangle: fit image |
 | Image viewer | Left stick: smooth pan; right stick up/down: smooth zoom |
 | Image viewer | L/R: previous/next image in chapter; Circle: illustration list |
 | Reader | START → Bookmarks → Save bookmark (or hold page); Select: jump to bookmark |
-| Reader | Cross: Contents; Triangle: Bookmarks; Square: font settings; Circle: library/online chapters |
+| Reader | Cross: Chapters; Square: Bookmark (save current position); START: Controls; Circle: library/online chapters |
 | Settings | D-pad: select rows; Left/Right: adjust; Cross: apply; Circle: cancel; Select: reset |
-| All screens | Start: options; Options → Save and exit |
+| START | Reader: Controls; other screens except Home/About: Options |
 | Contextual Triangle | Import: refresh folder; Contents: jump; Catalog: next/reload; online details/chapters: refresh |
 | Popup menus | Up/Down or either stick: choose; Cross: confirm; Circle: close/back; START: close |
 
@@ -111,10 +111,12 @@ It draws START/SELECT/L/R as ASCII text inside the button backgrounds, without r
 on symbol glyphs. The component clips long labels to the supplied width.
 In Settings, Left/Right adjusts the selected value; Up from Typeface stays on
 that row. Cross applies, Circle cancels, and Select resets the preview.
-Reader Settings groups its five rows in one charcoal panel with subtle dividers
-and a lavender outline around the focused row. Font size and line spacing use
-three-step sliders. Page theme uses a text selector for Night, Paper, and Sepia,
-without colored boxes. Touch a slider position or the selector arrows to adjust.
+Reader Settings groups all five rows in one panel. The Typeface label sits above
+its selector, matching Page theme and Page effect. Subtle dividers and a lavender outline mark the focused row.
+Font size and line spacing use three-step sliders. Page theme uses a moon icon
+and a text selector for Night, Paper, Sepia, OLED, and OLED Night, without colored
+boxes. OLED uses a pure-black background with light text; OLED Night uses the same
+black background with dim, warm text. Touch a slider position or the selector arrows to adjust.
 Typeface, Page theme, and Page effect use left/right selectors. Page effect offers **Page Curl**,
 **Slide and Fade**, and **None**; Apply saves the choice, Cancel discards changes,
 and Reset restores Slide and Fade. Successful Apply shows a confirmation popup.
@@ -136,7 +138,8 @@ contributors. **License** summarizes dependency licenses and the locations of
 the full notices packaged under `app0:/licenses/` and `app0:/fonts/`.
 Long messages have Previous/Next buttons and a page count; use Left/Right or touch
 to read every page, and Circle or Dismiss to close.
-About has no Options menu; START leaves its actions visible.
+About shows only Select in its normal footer. Popup Close/Cancel hints remain
+available. About has no Options menu; START leaves its actions visible.
 
 **Home** opens on a moonlit reading scene, with one large Continue Reading card.
 The narrower, dark translucent card leaves more of the artwork visible, with a
@@ -204,8 +207,10 @@ The curl reuses one outgoing-page render texture. Its fixed-size geometry uses
 loading in the fold renderer. Texture allocation failure falls back to Slide and
 Fade; frame-pool exhaustion uses a bounded whole-page fade. See the
 [curl performance notes](docs/performance.md#full-screen-corner-curl).
-START opens Reading controls, Cross opens Chapters, Triangle opens Bookmarks, Square opens Reading
-Settings, and Circle returns to Library (or online chapters). The control panel contains Chapters, Illustrations, Reader Settings,
+START opens Reading controls, Cross opens Chapters, and Circle returns to Library
+(or online chapters). Square saves the current position as a bookmark, with a
+matching Bookmark hint in the bottom bar. Triangle has no shortcut on the reading page.
+The control panel contains Chapters, Illustrations, Reader Settings,
 a Bookmarks submenu (Save bookmark, Go to bookmark, All bookmarks), and Show/Hide reading bar.
 Select still jumps directly to the saved bookmark. Hold and release on the
 reading area to save one. Inline illustrations expand into inspection within the reader. Control
@@ -244,12 +249,16 @@ START Options contains only Open and Remove; Remove opens a confirmation submenu
 that defaults to Keep. Square has no delete action. There is still one bookmark per book.
 Online bookmark jumps use the existing chapter download/retry flow.
 
-**Reader Settings** is available from Home or Reader, with font, size and spacing
-controls, Night/Paper/Sepia choices, reading view, and a live sample. Left/Right
-adjusts the selected row; touch controls adjust the corresponding value. Apply saves changes and returns to the previous screen; Cancel or Circle discards
-them. Select or Reset restores reading defaults in the preview until Apply.
-About shows the application version, credits, and licensing information. Start
-opens Options everywhere; **Options → Save and exit** on other screens closes the application.
+**Reader Settings** is available from the sidebar or Reader's Controls menu, with font, size and spacing
+controls, five page themes, and a live sample. Left/Right
+adjusts the selected row; touch controls adjust the corresponding value. Apply
+saves changes and shows a confirmation popup. Settings opened outside Reader stays
+on Settings after Apply and after the popup is dismissed; Reader's Controls menu
+returns to the reading page after Apply. Cancel or Circle discards changes made
+since opening Settings or the last successful Apply. Select or Reset restores
+reading defaults in the preview until Apply.
+About shows the application version, credits, and licensing information. START
+opens Options on screens other than Home and About, or Controls in Reader.
 
 Brief confirmations disappear automatically; errors use a modal with focusable
 Retry (when available) and Dismiss actions. The previous [layout reference](docs/native-ui-preview.html)
@@ -333,8 +342,9 @@ Wi-Fi, TLS, the system keyboard, and controls still need Vita hardware testing.
 
 Both analog sticks navigate menus: vertical movement selects items. Horizontal
 movement traverses a Library cover row or browses list pages. Settings use vertical
-selection and horizontal adjustment. In the reader, sticks are reserved for
-illustrations: push the right stick up to inspect the largest visible image,
+selection and horizontal adjustment. On text-only reader pages, either stick
+turns pages horizontally and moves through text vertically. When an illustration
+is visible or being inspected, sticks control the image: push the right stick up to inspect the largest visible image,
 then up/down to zoom and use the left stick to pan. D-pad and triggers keep their
 normal reading actions, including while zoomed. In the separate image viewer,
 the left stick pans smoothly and the right stick up/down zooms; the D-pad still
@@ -378,7 +388,8 @@ to a bookmark in another chapter opens that chapter. Font and spacing changes
 preserve the text position rather than a page number. Existing TXT saves from
 versions 0.1–0.3 are read automatically. Text and image positions remain compatible
 because image anchors use the existing normalized-text offsets.
-Night, Paper, and Sepia themes are available. Saves live in
+Night, Paper, Sepia, OLED, and OLED Night themes are available. Existing theme
+selections are retained when updating. Saves live in
 `ux0:data/NovelReader/progress/`; settings live in
 `ux0:data/NovelReader/settings.txt`. Renaming a book or moving it to another
 folder gives it a new save identity.
@@ -463,7 +474,7 @@ hardware testing.
   Headings use the accent color, bold uses a second glyph pass, and emphasis is
   underlined using the selected reader font. Scripts, styles, and ruby annotations are
   omitted; ruby base text remains. Illustrations render between their surrounding
-  paragraphs. Open **Cross (Contents) → Square** from the reader for the full chapter image
+  paragraphs. Open **Cross (Chapters) → Options → Illustrations** from the reader for the full chapter image
   list and zoom viewer.
 - CSS, publisher-embedded fonts, and exact publisher layouts are not supported. XHTML must
   be well-formed UTF-8 XML. XML/numeric entities and common
@@ -500,13 +511,13 @@ Triangle, Circle, a tap, or zooming out to 1× returns to the original reading p
 D-pad navigation and L/R work directly while inspecting: they reset inspection
 and perform their existing reading action (EPUB/online chapters, TXT pages for
 L/R). The text/image anchor, bookmark, and saved reading-bar preference remain
-intact during inspection. Sticks do not turn reading pages.
+intact during inspection. Sticks do not turn pages while controlling an image.
 
 The separate chapter image viewer supports embedded PNG and JPEG images, fits them to the screen, and
 zooms from 1× to 4× the fitted size. Pan is clamped to the image edges; smaller
 axes stay centered. The image is clipped to the viewing area, leaving controls
 visible. Viewing images does not move the reading position or bookmark. Tap an
-inline image to inspect it directly, or use **Cross (Contents) → Square** to choose an image
+inline image to inspect it directly, or use **Cross (Chapters) → Options → Illustrations** to choose an image
 from the chapter list. In the separate viewer, **Circle** or the touch Back button returns to the screen
 that opened the viewer.
 

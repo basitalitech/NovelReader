@@ -59,11 +59,12 @@ struct ChapterLayout {
 };
 
 enum class PageEffect { PageCurl = 0, SlideAndFade = 1, None = 2 };
+constexpr int page_theme_count = 5;
 
 struct Settings {
     int font = 1;    // Small, medium, large.
     int spacing = 1; // Compact, normal, relaxed.
-    int theme = 0;   // Night, paper, sepia.
+    int theme = 0;   // Night, paper, sepia, OLED, OLED night.
     int library_sort = 0;
     int library_filter = 0;
     int reading_font = 0; // Literata, Atkinson Hyperlegible Next, Vita system.

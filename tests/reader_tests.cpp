@@ -113,6 +113,11 @@ int main() {
         check(reader::save_settings(settings_path, settings) && reader::load_settings(settings_path).speech_rate == 225,
               "Speech speed failed round trip");
         check(settings.font == 2 && settings.spacing == 0 && settings.theme == 1, "Settings failed round trip");
+        for(int theme=0;theme<reader::page_theme_count;++theme) {
+            auto themed=settings;themed.theme=theme;
+            check(reader::save_settings(settings_path,themed) && reader::load_settings(settings_path).theme==theme,
+                  "Reading theme did not survive restart");
+        }
         settings.immersive=0;
         check(reader::save_settings(settings_path,settings) && reader::load_settings(settings_path).immersive==0,
               "Reading controls preference did not survive restart");
@@ -150,7 +155,7 @@ int main() {
         check(reader::load_settings(settings_path).font == 1, "Truncated font settings have no defaults");
         write(settings_path, "NRS1\n99 -3 123\n");
         settings = reader::load_settings(settings_path);
-        check(settings.font == 2 && settings.spacing == 0 && settings.theme == 2, "Settings not bounded");
+        check(settings.font == 2 && settings.spacing == 0 && settings.theme == reader::page_theme_count-1, "Settings not bounded");
         write(settings_path, "broken");
         check(reader::load_settings(settings_path).font == 1, "Corrupt settings have no defaults");
         std::cout << "Reader tests passed\n";

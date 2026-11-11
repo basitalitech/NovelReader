@@ -29,6 +29,34 @@ vita2d_texture* decode_thumbnail(const std::string&,unsigned,unsigned,std::strin
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 struct FrontendTest {
+    static void choose_menu(App& app,Command command) {
+        for(std::size_t i=0;i<app.menu_.size();++i)if(app.menu_[i].command==command) {
+            app.set_focus(2000+i);app.input(SCE_CTRL_CROSS);return;
+        }
+        throw std::runtime_error("Missing menu action");
+    }
+    static void reader_settings(App& app) {
+        app.input(SCE_CTRL_START);choose_menu(app,Command::Appearance);
+        check(app.screen_==Screen::Settings,"Reader Settings menu action failed");
+    }
+    static void sidebar_settings_apply() {
+        vita2d_pgf font;App app(&font);
+        for(const int origin:{0,1,2,4}) {
+            app.message_.clear();app.navigate(origin);app.navigate(3);
+            app.adjust_setting(3,app.settings_.theme==4?-1:1);
+            const auto committed=app.settings_.theme;
+            app.input(SCE_CTRL_CROSS);
+            check(app.screen_==Screen::Settings && app.nav_active_==3 && app.feedback_active(),
+                  "Sidebar Apply left Settings before dismissing the popup");
+            app.input(SCE_CTRL_CIRCLE);
+            check(app.screen_==Screen::Settings && app.nav_active_==3 && app.message_.empty(),
+                  "Sidebar Apply returned to its previous destination after the popup");
+            app.settings_.theme=(committed+1)%reader::page_theme_count;
+            app.navigate(origin);
+            check(app.settings_.theme==committed && reader::load_settings(settings_path).theme==committed,
+                  "Leaving Settings undid the previously applied settings");
+        }
+    }
     static void verify_footer_fit(App& app) {
         const auto actions=app.toolbar();
         int previous_right=0;
@@ -52,6 +80,7 @@ struct FrontendTest {
         app.lines_[0].illustration=0;app.lines_[0].image_width=50;app.lines_[0].image_height=80;
         app.lines_[1].illustration=1;app.lines_[1].image_width=100;app.lines_[1].image_height=160;
         check(app.visible_illustration()==1 && app.can_pan_image(),"Reader did not target the largest visible image");
+        check(!app.navigation_sticks(reader::controls::Right,reader::controls::Down),"Illustration sticks leaked into text navigation");
         const auto anchor=app.top_,offset=app.progress_.offset;
         app.image_sticks(1,1,0,0.05f);
         check(!app.inspecting_ && app.top_==anchor,"Pan alone entered inspection or moved the reader");
@@ -88,6 +117,8 @@ struct FrontendTest {
         check(!app.inspecting_ && !app.image_ && app.top_==end,"Page turn did not continue from a zoomed illustration");
         check(app.visible_illustration()==reader::no_illustration && !app.can_pan_image(),
               "Text-only page retained illustration controls");
+        check(!app.reserve_image_sticks() && app.navigation_sticks(reader::controls::Right,0)==SCE_CTRL_RIGHT &&
+              app.navigation_sticks(0,reader::controls::Up)==SCE_CTRL_UP,"Text-only page does not release both sticks");
         app.top_=0;inspect();app.input(SCE_CTRL_RTRIGGER);
         check(!app.inspecting_ && app.top_==app.pages_[1],"TXT trigger did not continue reading");
         app.top_=0;inspect();app.publication_.epub=true;
@@ -170,9 +201,30 @@ struct FrontendTest {
         tap(local_chapters.x+50,local_chapters.y+28);
         check(app.screen_==Screen::Contents && app.lines_.empty() && app.progress_.last_read==local_read_time,
             "Local Chapters started reading instead of opening the chapter list");
+        app.input(SCE_CTRL_SQUARE);
+        check(app.screen_==Screen::Contents && app.lines_.empty(),"Removed Chapters Square shortcut still opens illustrations");
+        app.input(SCE_CTRL_START);choose_menu(app,Command::Illustrations);
+        check(app.screen_==Screen::Illustrations && !app.lines_.empty(),"Chapters menu failed to load the current chapter's illustrations");
+        app.input(SCE_CTRL_CIRCLE);
         app.input(SCE_CTRL_CIRCLE);check(app.screen_==Screen::Book,"Local Chapters Back did not return to details");
         app.set_focus(200);tap(300,420);check(app.screen_==Screen::Reader,"Touch-only Read failed");
         app.message_.clear();const auto original_top=app.top_;
+        app.progress_.has_bookmark=false;
+        app.input(SCE_CTRL_SQUARE);
+        check(app.progress_.has_bookmark && app.progress_.bookmark==app.lines_[app.top_].offset &&
+              reader::load_progress(reader::progress_path(progress_directory,app.active_filename_)).has_bookmark,
+              "Square did not save the current reading position as a bookmark");
+        check(app.toolbar().size()==4 && app.toolbar()[2].label=="Bookmark" && app.toolbar()[2].button==SCE_CTRL_SQUARE,
+              "Reader footer does not expose the Square bookmark shortcut");
+        reader::controls::Stick text_left,text_right;
+        app.input(app.navigation_sticks(text_left.direction(255,128),0));
+        check(app.top_>original_top,"Left joystick does not turn text pages");
+        app.input(app.navigation_sticks(0,text_right.direction(0,128)));
+        check(app.top_==original_top,"Right joystick does not turn back through text");
+        app.input(app.navigation_sticks(text_left.direction(128,255),0));
+        check(app.top_>original_top,"Left joystick does not move down through text");
+        app.input(app.navigation_sticks(0,text_right.direction(128,0)));
+        check(app.top_==original_top,"Right joystick does not move up through text");
         tap(322,220,319,220);
         check(app.menu_.empty() && app.top_==original_top,"Reading tap crossed action zones");
         const auto next_page=app.visible_end();app.input(SCE_CTRL_RIGHT|SCE_CTRL_DOWN);
@@ -306,19 +358,25 @@ struct FrontendTest {
                           "Menu bookmark action did not share the bookmark operation");
         app.gesture({reader::controls::GestureKind::Hold,500,220,0,0,1,500,220});
         check(app.screen_==Screen::Reader && app.progress_.bookmark==app.lines_[app.top_].offset,"Hold saved wrong bookmark");
-        app.input(SCE_CTRL_TRIANGLE);check(app.screen_==Screen::Bookmarks,"Reader bookmarks shortcut failed");
+        app.input(SCE_CTRL_TRIANGLE);app.input(SCE_CTRL_SQUARE);
+        check(app.screen_==Screen::Reader && app.menu_.empty(),"Removed Reader shortcuts still open screens");
+        app.input(SCE_CTRL_START);choose_menu(app,Command::BookmarkActions);choose_menu(app,Command::Bookmarks);
+        check(app.screen_==Screen::Bookmarks,"Reader Bookmarks menu action failed");
         app.gesture({reader::controls::GestureKind::Swipe,300,180,0,-120,1,300,300});
         check(app.bookmark_selected_>=3,"Bookmarks cannot be browsed by touch");
         footer(SCE_CTRL_CIRCLE);
         check(app.screen_==Screen::Reader && app.nav_active_==1 && app.top_==page_top,"Bookmarks Back restored wrong context");
-        app.input(SCE_CTRL_SQUARE);app.set_focus(1000);app.input(SCE_CTRL_RIGHT);
+        app.progress_.has_bookmark=false;footer(SCE_CTRL_SQUARE);
+        check(app.progress_.has_bookmark && app.progress_.bookmark==app.lines_[app.top_].offset,
+              "Touch Bookmark does not share the Square shortcut action");
+        reader_settings(app);app.set_focus(1000);app.input(SCE_CTRL_RIGHT);
         app.input(SCE_CTRL_CIRCLE|SCE_CTRL_CROSS);
         check(app.screen_==Screen::Reader && app.settings_.reading_font==0,"Simultaneous cancel/confirm applied Settings");
-        app.input(SCE_CTRL_SQUARE);tap(590,101);footer(SCE_CTRL_CROSS);
+        reader_settings(app);tap(590,101);footer(SCE_CTRL_CROSS);
         check(app.screen_==Screen::Reader && app.settings_.reading_font==1,"Touch-only Settings Apply failed");
         check(app.feedback_active() && app.message_=="Reader Settings applied.","Settings Apply did not show a popup");
         app.input(SCE_CTRL_CIRCLE);
-        app.input(SCE_CTRL_SQUARE);app.input(SCE_CTRL_SQUARE);
+        reader_settings(app);app.input(SCE_CTRL_SQUARE);
         check(app.screen_==Screen::Settings,"Settings still has duplicate Apply buttons");
         verify_footer_fit(app);
         // Direct controls choose their displayed value, including repeated taps.
@@ -335,6 +393,16 @@ struct FrontendTest {
         check(app.settings_.theme==0 && app.setting_row_==3,"Theme arrows cannot select Night");
         tap(608,theme_row.y+50);check(app.settings_.theme==1,"Theme arrows cannot select Paper");
         tap(608,theme_row.y+50);check(app.settings_.theme==2,"Theme arrows cannot select Sepia");
+        tap(608,theme_row.y+50);check(app.settings_.theme==3,"Theme arrows cannot select OLED");
+        tap(608,theme_row.y+50);tap(608,theme_row.y+50);
+        check(app.settings_.theme==4 && palettes[3].background==rgb(0,0,0) && palettes[4].background==rgb(0,0,0) &&
+              palettes[4].text!=palettes[3].text,"OLED themes lack distinct text colors on pure black");
+        reader::font_draws.clear();reader::capture_font_draws=true;app.draw_frame();reader::capture_font_draws=false;
+        bool typeface_above=false;
+        for(const auto& draw:reader::font_draws)if(draw.text=="Typeface")
+            typeface_above=draw.y<reader::ui::settings_row(0).y+58;
+        check(typeface_above && reader::ui::settings_row(1).y-reader::ui::settings_row(0).y==70,
+              "Typeface label is not above its selector in the shared settings panel");
         const auto size_row=reader::ui::settings_row(1);
         tap(300,size_row.y+14);
         check(app.settings_.font==0 && app.setting_row_==1,"Tapping a setting label changed its value");
@@ -359,11 +427,11 @@ struct FrontendTest {
         footer(SCE_CTRL_SELECT);check(app.settings_.reading_font==0 && app.settings_.page_effect==1,"Touch Settings reset failed");
         footer(SCE_CTRL_CIRCLE);check(app.settings_.reading_font==1,"Touch Settings cancel did not discard reset");
         check(app.settings_.page_effect==1,"Cancel applied the preview page effect");
-        app.input(SCE_CTRL_SQUARE);app.set_focus(1004);app.input(SCE_CTRL_LEFT);footer(SCE_CTRL_CROSS);
+        reader_settings(app);app.set_focus(1004);app.input(SCE_CTRL_LEFT);footer(SCE_CTRL_CROSS);
         check(app.settings_.page_effect==0 && reader::load_settings(settings_path).page_effect==0,
               "Apply did not persist Page Curl");
         app.input(SCE_CTRL_CIRCLE);
-        app.input(SCE_CTRL_SQUARE);app.set_focus(1004);app.input(SCE_CTRL_RIGHT);footer(SCE_CTRL_CROSS);
+        reader_settings(app);app.set_focus(1004);app.input(SCE_CTRL_RIGHT);footer(SCE_CTRL_CROSS);
 
         // Modal isolation also covers START, sidebars, gestures and shortcuts.
         app.message_="Modal failure";const auto modal_context=app.input_context();const auto modal_top=app.top_;
@@ -770,7 +838,7 @@ struct FrontendTest {
                 "L sidebar cycle contains a removed or incorrect destination");
         }
         app.navigate(4);app.normalize_focus();verify_graph(app);
-        check(app.toolbar().size()==2,"About retains the Options footer hint");
+        check(app.toolbar().size()==1 && app.toolbar()[0].button==SCE_CTRL_CROSS,"About retains Back or Options in its normal footer");
         app.input(SCE_CTRL_START);check(app.menu_.empty(),"About START still opens Options");
         const auto about_controls=app.widgets();
         check(about_controls.size()==3 && about_controls[0].target.enabled &&
@@ -942,9 +1010,11 @@ struct FrontendTest {
         check(app.screen_==Screen::Library && app.settings_.reading_font==before.reading_font,"Circle did not cancel Settings");
         app.perform({"Settings",0,Command::Appearance});app.set_focus(1000);app.input(SCE_CTRL_RIGHT);
         tap.x=60;tap.y=520;app.gesture(tap);
-        check(app.screen_==Screen::Library,"Touch could not apply Settings through the footer");
+        check(app.screen_==Screen::Settings,"Touch Apply left the standalone Settings screen");
         check(app.settings_.reading_font==1 && reader::load_settings(settings_path).reading_font==1,"Apply did not persist the reader font");
         check(app.feedback_active(),"Controller Apply did not show a popup");
+        app.input(SCE_CTRL_CIRCLE);
+        check(app.screen_==Screen::Settings,"Dismissing Apply popup left standalone Settings");
         app.input(SCE_CTRL_CIRCLE);
         app.show_more();verify_graph(app);app.input(SCE_CTRL_CIRCLE);
         check(app.menu_.empty() && focus(app)==1008,"Closing Options lost invoking focus");
@@ -1150,7 +1220,7 @@ struct FrontendTest {
             guide.input(SCE_CTRL_CROSS);check(guide.screen_==Screen::Reader && guide.active_filename_=="@welcome",
                 "Continue Reading cannot reopen the welcome TXT");
         }
-        control_regressions();cache_regressions();illustration_controls();
+        control_regressions();cache_regressions();illustration_controls();sidebar_settings_apply();
     }
 };
 }

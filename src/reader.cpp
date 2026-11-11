@@ -232,7 +232,7 @@ Settings load_settings(const std::string& path) {
     if (magic == "NRS4" && (input >> page_effect)) result.page_effect = bounded(page_effect);
     result.font = bounded(result.font);
     result.spacing = bounded(result.spacing);
-    result.theme = bounded(result.theme);
+    result.theme = std::max(0,std::min(page_theme_count-1,result.theme));
     result.library_sort = bounded(result.library_sort);
     result.library_filter = bounded(result.library_filter);
     result.reading_font = bounded(result.reading_font);
@@ -244,7 +244,7 @@ bool save_settings(const std::string& path, const Settings& settings) {
     const perf::Scope timing(perf::Event::SettingsWrite);
     std::ostringstream output;
     output << "NRS4\n" << bounded(settings.font) << ' ' << bounded(settings.spacing) << ' '
-           << bounded(settings.theme) << ' ' << bounded(settings.library_sort) << ' '
+           << std::max(0,std::min(page_theme_count-1,settings.theme)) << ' ' << bounded(settings.library_sort) << ' '
            << bounded(settings.library_filter) << ' ' << bounded(settings.reading_font) << ' '
            << std::max(0, std::min(1, settings.immersive)) << ' '
            << std::max(100, std::min(350, settings.speech_rate)) << ' '
