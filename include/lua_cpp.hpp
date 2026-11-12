@@ -12,7 +12,8 @@
 #endif
 // Lua supports C++ exception unwinding. Preserve its C API while compiling its
 // implementation as C++, so an allocation error also releases native HTML data.
-extern "C" {
+extern "C"
+{
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
