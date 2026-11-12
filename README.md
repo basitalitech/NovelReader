@@ -55,8 +55,9 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 The native 960 × 544 interface follows the supplied screen designs: charcoal and
 violet surfaces, lavender focus outlines and progress bars, rounded cover cards,
 refined white line icons, text-only NovelReader branding, and a slim controller
-legend using native Vita button geometry. The supplied [logo](assets/ui/logo.png)
-appears on the About page and as the app icon (using a resized 128 × 128 copy).
+legend using native Vita button geometry. The supplied [logo](sce_sys/logo.png)
+appears inside the app, including the About page, and the [loading artwork](sce_sys/pic0.png)
+provides the in-app backdrop.
 The physical Vita housing
 in the reference images is not drawn inside the application.
 Wi-Fi is used only when an online request initializes the network module and
@@ -549,11 +550,14 @@ cmake --build build/vita -j2
 ```
 
 The installable package is `build/vita/NovelReader.vpk`, title ID `NVRD00001`.
-The Vita app icon must be a 128 × 128, 8-bit indexed, non-interlaced PNG;
-an RGBA icon can cause VitaShell installation error `0x8010113D`. Configuration
-checks this format. After changing the logo, regenerate the app icon with
-`convert assets/ui/logo.png -resize 128x128 -strip PNG8:assets/ui/icon0.png`
-(ImageMagick); the in-app logo keeps its original full-color format.
+The package uses the updated artwork in [sce_sys](sce_sys), following the
+[LiveArea specifications](https://github.com/hammerill/livearea-specs):
+128 × 128 for the icon, 960 × 544 for the loading picture, 840 × 500 for the
+LiveArea background, and 280 × 158 for the startup image. All four PNGs must
+be 8-bit indexed and non-interlaced; only the startup image may use transparency.
+The loading picture requires a 256-entry palette. Configuration checks these
+requirements to catch incompatible replacement artwork before packaging.
+The [template](sce_sys/livearea/contents/template.xml) uses the centered `a1` gate.
 The Vita build links the complete pthread library and checks the executable's
 thread-support symbols before packaging. This prevents unresolved weak probes
 from making the C++ runtime reject worker creation on hardware.

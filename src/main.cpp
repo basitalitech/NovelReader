@@ -120,7 +120,7 @@ public:
         immersive_ = settings_.immersive != 0;
         {
             const reader::perf::Scope timing(reader::perf::Event::Resources);
-            backdrop_.reset(vita2d_load_PNG_file("app0:/ui/moonlit.png"));
+            backdrop_.reset(vita2d_load_PNG_file("app0:/sce_sys/pic0.png"));
             logo_.reset(vita2d_load_PNG_file("app0:/ui/logo.png"));
         }
         draw_startup(0.15f,"Loading library");
