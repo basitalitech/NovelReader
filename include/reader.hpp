@@ -121,6 +121,10 @@ bool is_text_book(const std::string& name);
 bool is_epub_book(const std::string& name);
 bool is_online_book(const std::string& name);
 bool is_supported_book(const std::string& name);
+// Absolute Vita paths are retained for external imports; legacy local IDs stay relative.
+bool valid_device_path(const std::string& path);
+std::string library_identity(const std::string& path, const std::string& books_directory);
+std::string library_book_path(const std::string& identity, const std::string& books_directory);
 bool valid_utf8(const std::string& text);
 bool open_publication(const std::string& path, Publication& publication, std::string& error);
 bool load_chapter(const Publication& publication, std::size_t index, Book& chapter, std::string& error);

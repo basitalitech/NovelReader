@@ -38,6 +38,15 @@ int main() {
         { std::ofstream corrupt(index); corrupt << "NRLIBRARY1\nStory.txt\n../outside.epub\n"; }
         check(!reader::load_library(index, restored_library) && restored_library.size() == 3, "Invalid index partially replaced library");
         check(reader::save_library(index, {}) && reader::load_library(index, restored_library) && restored_library.empty(), "Empty library persistence");
+        const std::vector<std::string> external={"uma0:/Books/Novel.TXT","imc0:/Books/Novel.TXT","ux0:/Books/Story.epub"};
+        check(reader::save_library(index,external) && reader::load_library(index,restored_library) && restored_library==external,
+              "External device identities did not round trip");
+        for(const auto& invalid:{"uma0:/../escape.txt","uma0:/.secret/story.txt","uma0:/Books//story.txt","uma0:relative.txt","uma0:/Books/", "uma0:/Books/../story.txt"})
+            check(!reader::save_library(index,{invalid}),"Invalid external identity accepted");
+        check(reader::library_identity("ux0:/data/NovelReader/books/Series/Story.TXT","ux0:data/NovelReader/books")=="Series/Story.TXT",
+              "Absolute local path changed legacy progress identity");
+        check(reader::library_book_path(external[0],"ux0:data/NovelReader/books")==external[0],"External path was prefixed with Library directory");
+        check(reader::progress_path(directory,external[0])!=reader::progress_path(directory,external[1]),"Different storage devices share progress");
         std::remove(index.c_str());
         std::vector<reader::LibraryItem> items(4);
         items[0].filename = "b.epub"; items[0].title = "beta";

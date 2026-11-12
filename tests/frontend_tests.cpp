@@ -7,6 +7,7 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <unistd.h>
 
 namespace reader {
 struct FontDraw { FontRole role; unsigned pixels,color; int x,y; std::string text; bool offscreen; };
@@ -29,6 +30,105 @@ vita2d_texture* decode_thumbnail(const std::string&,unsigned,unsigned,std::strin
 namespace {
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 struct FrontendTest {
+    static void wait_browser(App& app) {
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+        while(app.browser_loading_ || app.browser_import_busy_) {
+            app.tick_browser();
+            check(std::chrono::steady_clock::now()<deadline,"Filesystem worker timed out");
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    static void browser_regressions() {
+        mkdir("uma0:",0777);mkdir("imc0:",0777);mkdir("uma0:/Folder",0777);mkdir("uma0:/.hidden",0777);
+        const auto write=[](const std::string& path,const std::string& content="A source book.\n") {
+            std::ofstream out(path);out<<content;check(bool(out),"Browser fixture write failed");
+        };
+        write("uma0:/Book.TXT");write("uma0:/Folder/Book.TXT");write("imc0:/Book.TXT");
+        write("uma0:/.secret.txt");write("uma0:/unsupported.pdf");write("uma0:/broken.epub","bad archive");
+        write("uma0:/vanishing.txt");
+        reader::online::Novel novel{"novgo","External cached novel","Author","https://novgo.net/external.html","",{{"One","https://novgo.net/external/1",false}}};
+        check(reader::online::save_novel("imc0:/Saved.nvr",novel),"External online fixture");
+        for(int i=0;i<140;++i)write("uma0:/Folder/Row "+std::to_string(i)+".txt");
+        symlink("Book.TXT","uma0:/linked.txt");
+        check(reader::save_library(library_path,{}),"Reset browser collection");
+        vita2d_pgf font;App app(&font);app.message_.clear();app.navigate(1);app.begin_import();wait_browser(app);
+        const auto choose=[&](const std::string& identity) {
+            app.refresh_library(identity);
+            check(app.selected_filename()==identity,"Browser selection missing");
+            app.set_focus(1000+app.selected_);app.input(SCE_CTRL_CROSS);wait_browser(app);
+        };
+        check(std::any_of(app.entries_.begin(),app.entries_.end(),[](const reader::LibraryItem& i){return i.path=="uma0:/";}),"Available storage not listed");
+        choose("uma0:/");
+        for(const auto& item:app.entries_)
+            check(item.title!=".hidden" && item.title!=".secret.txt" && item.title!="unsupported.pdf" && item.title!="linked.txt",
+                  "Hidden, unsupported, or symbolic entries leaked into browser");
+        choose("uma0:/Book.TXT");check(app.import_marks_.size()==1,"Cross did not mark file");
+        choose("uma0:/Book.TXT");check(app.import_marks_.empty(),"Cross did not toggle selection");
+        choose("uma0:/Book.TXT");choose("uma0:/Folder");
+        check(app.entries_.size()==141,"Large folder listing dropped entries");
+        app.set_item(139);app.set_focus(1139);app.input(SCE_CTRL_DOWN);
+        check(app.selected_==140,"D-pad did not scroll to final row");
+        app.gesture({reader::controls::GestureKind::Swipe,300,200,0,120,1,300,200});
+        check(app.selected_<140,"Touch swipe did not scroll directory");
+        choose("uma0:/Folder/Book.TXT");app.input(SCE_CTRL_CIRCLE);wait_browser(app);
+        check(app.current_folder_=="uma0:/" && app.selected_filename()=="uma0:/Folder","Parent did not restore folder focus");
+        choose("uma0:/broken.epub");choose("uma0:/vanishing.txt");
+        std::remove("uma0:/vanishing.txt");
+        app.input(SCE_CTRL_CIRCLE);wait_browser(app);choose("imc0:/");
+        choose("imc0:/Book.TXT");choose("imc0:/Saved.nvr");
+        // The same touch action as the footer imports across both storage devices.
+        const auto actions=app.toolbar();
+        bool imported=false;
+        for(std::size_t i=0;i<actions.size();++i)if(actions[i].button==SCE_CTRL_SQUARE) {
+            const auto box=app.footer_touch_rect(app.toolbar_rect(actions,i),actions[i]);
+            app.gesture({reader::controls::GestureKind::Tap,float(box.x+box.width/2),520});imported=true;break;
+        }
+        check(imported,"Touch import control missing");wait_browser(app);
+        check(app.library_books_.size()==4 && app.import_marks_.size()==2,"Batch did not isolate unreadable/missing books");
+        check(app.browser_error_.find("2 unavailable")!=std::string::npos,"Batch failures not reported");
+        choose("imc0:/Book.TXT");app.input(SCE_CTRL_SQUARE);wait_browser(app);
+        check(app.library_books_.size()==4 && app.browser_error_.find("1 already")!=std::string::npos,"Duplicate import added another identity");
+        std::ifstream original("uma0:/Book.TXT");std::string content;std::getline(original,content);
+        check(content=="A source book.","Import changed source file");
+        app.browse_folder("imc0:/unavailable");wait_browser(app);
+        check(app.order_.empty() && !app.browser_error_.empty(),"Inaccessible folder not handled");
+        {
+            std::lock_guard<std::mutex> lock(test_directory_mutex());test_denied_directory()="imc0:/Denied";
+        }
+        app.browse_folder("imc0:/Denied");wait_browser(app);
+        check(app.order_.empty() && !app.browser_error_.empty(),"Permission error not handled");
+        {
+            std::lock_guard<std::mutex> lock(test_directory_mutex());test_denied_directory().clear();
+        }
+        app.input(SCE_CTRL_CIRCLE);wait_browser(app);
+        app.browse_folder("uma0:/Folder");app.browse_folder("imc0:/");wait_browser(app);
+        check(app.current_folder_=="imc0:/" && app.entries_.size()==2,"Canceled listing replaced newer navigation");
+        // Explicit refresh invalidates only metadata for listed imported books.
+        app.scan({},true);wait_browser(app);
+        check(std::any_of(app.collection_entries_.begin(),app.collection_entries_.end(),[](const reader::LibraryItem& i){return i.filename=="imc0:/Saved.nvr" && i.title=="External cached novel";}),"Refresh lost external online metadata");
+        app.navigate(1);check(!app.collection_suspended_ && app.entries_.size()==5,"Library not refreshed after successful batch");
+        app.begin_import();wait_browser(app);check(app.current_folder_=="imc0:/","Session forgot last visited directory");
+        app.navigate(1);app.refresh_library("uma0:/Book.TXT");app.open();
+        check(app.screen_==Screen::Reader,"External TXT cannot be read after import");app.input(SCE_CTRL_CIRCLE);
+        std::vector<std::string> persisted;
+        check(reader::load_library(library_path,persisted) && persisted.size()==4,"External batch did not persist");
+        // Failed atomic replacement keeps the original index and the selections.
+        app.begin_import();wait_browser(app);choose("imc0:/Book.TXT");
+        std::remove((library_path+".tmp").c_str());mkdir((library_path+".tmp").c_str(),0777);
+        app.browse_folder("uma0:/Folder");wait_browser(app);choose("uma0:/Folder/Row 0.txt");
+        app.input(SCE_CTRL_SQUARE);wait_browser(app);
+        check(app.library_books_.size()==4 && app.import_marks_.size()==2 && !app.browser_error_.empty(),"Failed save changed collection or cleared selection");
+        check(reader::load_library(library_path,persisted) && persisted.size()==4,"Failed replacement damaged index");
+        rmdir((library_path+".tmp").c_str());app.input(SCE_CTRL_SQUARE);wait_browser(app);
+        check(app.library_books_.size()==5 && app.import_marks_.empty(),"Atomic import retry failed");
+        app.browse_folder("uma0:/Folder");wait_browser(app);
+        app.input(SCE_CTRL_CIRCLE);wait_browser(app);app.input(SCE_CTRL_CIRCLE);wait_browser(app);app.input(SCE_CTRL_CIRCLE);
+        check(!app.importing_,"Circle could not leave the storage list");
+        app.begin_import();wait_browser(app);
+        check(app.current_folder_=="uma0:/Folder","Backing out forgot the last visited folder");
+        app.browse_folder("uma0:/Folder");app.navigate(1);
+        check(!app.collection_suspended_,"Cancel during listing lost Library");
+    }
     static void choose_menu(App& app,Command command) {
         for(std::size_t i=0;i<app.menu_.size();++i)if(app.menu_[i].command==command) {
             app.set_focus(2000+i);app.input(SCE_CTRL_CROSS);return;
@@ -577,13 +677,13 @@ struct FrontendTest {
         app.message_.clear();app.begin_import();app.perform({"Online",0,Command::Online});app.input(SCE_CTRL_CIRCLE);
         check(app.screen_==Screen::Library && !app.collection_suspended_ && app.entries_.size()==31,
             "Online shortcut from import did not restore collection");
-        // Refresh is the explicit invalidation boundary for externally replaced files.
+        // Refreshing storage roots leaves unrelated cached book resources intact.
         {std::ofstream changed(books_directory+'/'+names[1]);changed<<"Replacement passage for the same book.\n";}
         app.begin_import();app.scan({},true);app.input(SCE_CTRL_CIRCLE);app.message_.clear();
         app.navigate(2);app.bookmark_selected_=0;app.sync_bookmark_previews();
         bool replacement=false;
         for(const auto& preview:app.bookmark_previews_)replacement=replacement || preview.quote.find("Replacement passage")!=std::string::npos;
-        check(replacement,"Import refresh kept a stale bookmark quote");
+        check(!replacement,"Storage refresh unnecessarily rebuilt unrelated bookmark resources");
         app.navigate(1);app.refresh_library(names[1]);
         app.perform({"Remove",0,Command::ConfirmRemoveBook});app.message_.clear();
         check(app.entries_.size()==30 && app.bookmarks().size()==29,"Removal left stale collection/bookmark membership");
@@ -1220,7 +1320,7 @@ struct FrontendTest {
             guide.input(SCE_CTRL_CROSS);check(guide.screen_==Screen::Reader && guide.active_filename_=="@welcome",
                 "Continue Reading cannot reopen the welcome TXT");
         }
-        control_regressions();cache_regressions();illustration_controls();sidebar_settings_apply();
+        control_regressions();cache_regressions();illustration_controls();sidebar_settings_apply();browser_regressions();
     }
 };
 }

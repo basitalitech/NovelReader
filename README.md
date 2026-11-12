@@ -18,7 +18,7 @@ account, or additional voice download is needed. See [speech details](docs/text-
 1. Install `NovelReader.vpk` with VitaShell on a homebrew-enabled Vita.
 2. Launch the app once to create `ux0:data/NovelReader/books/`.
 3. Copy UTF-8 `.txt` or DRM-free `.epub` books into that folder using VitaShell's USB or FTP mode.
-4. Tap **Add Book** in Library (or Start → Import books in Library), browse to a book, and press **Cross** to import it.
+4. Tap **Add Book** in Library (or Start → Import books in Library), browse storage and select books with **Cross**, then press **Square** to import the selection.
 5. Open the imported book's details from Library with **Cross**, then press **Cross** to read.
 
 Library is a saved collection of imported local books and favorite online novels.
@@ -31,7 +31,7 @@ file names and EPUB metadata; uppercase `.TXT` and `.EPUB` extensions work.
 | Home / Library / sidebar screens | L/R: previous/next sidebar destination |
 | Library | Triangle: sorting/filtering; Square: search; Circle clears an active search before returning Home |
 | Library | Add Book → Browse Online, or Options → Online novels |
-| Import | Cross: open folder/import book; Circle: parent folder or Library at root; Options → Refresh folder |
+| Import | Cross/tap: open folder or toggle book selection; Square/tap Import selected: import batch; Circle: parent folder or Library at storage list; Options → Refresh folder |
 | Reader | D-pad or either stick on text pages: Left/Right turns pages; Up/Down moves one text line |
 | Reader illustration | Right stick up/down: zoom in/out; left stick: pan; Triangle: return to fit |
 | EPUB reader | L/R: previous/next chapter; Cross → Contents |
@@ -404,26 +404,36 @@ bookmarks are disabled.
   favorites. Membership is saved in `ux0:data/NovelReader/library.txt`. Cached
   online indexes alone do not make a novel a favorite. Existing collections start
   with the guide; import previously copied books or cached indexes to add them.
-- **Add Book** in Library (or Start → Import books in Library) opens a file browser rooted at
-  `ux0:data/NovelReader/books/`. Browse subfolders with Cross and Circle, then
-  select a TXT, EPUB, or saved online index with Cross. Import adds a reference
-  and returns to All books. Files stay in place; repeated imports do not duplicate
-  entries. Circle at the import root returns to Library. Refresh updates the
-  import browser after copying files with VitaShell.
+- **Add Book** in Library (or Start → Import books in Library) opens a storage browser.
+  Available user/content mounts (`ux0:`, `uma0:`, `imc0:`, `xmc0:`, `ur0:`,
+  `grw0:`, `gro0:`, `app0:`) appear when readable. Cross or a tap opens folders
+  and toggles TXT, EPUB, or saved online index selections. Square or the touch
+  **Import selected** action imports the batch; keep browsing to add more.
+  Circle returns to the parent, then the storage list, then Library. The last
+  visited directory is remembered until exit. Refresh rereads the current folder.
+  Dot-prefixed entries, links, and unsupported files are excluded. VitaSDK exposes
+  permission/type bits in `st_attr`, not a DOS hidden flag; those permission bits
+  are never treated as FAT attributes. No restricted system mounts are probed.
+  Listing and import metadata run in a background worker with batch progress;
+  directories are never scanned recursively and listings are capped at 20,000 entries.
+  Imports atomically save references, leaving source files and online chapter caches
+  in place. Interrupted writes leave the previous Library index usable; retrying
+  skips existing entries. Same filenames in different locations remain separate.
 - **Add Book → Browse Online** or **Options → Online novels** opens supported sources. Search or browse, open
   novel details, and press **Square** or tap **Add to Library**. This saves the favorite
   without downloading every chapter. Use the chapter screen to download one or
   all public chapters. Adding favorites requires a successfully loaded index.
-- Imported books retain their relative paths for progress and bookmarks, including
-  existing saves. Same-named files in different folders remain distinct. Moving or
+- Books inside the original books folder retain their relative paths for progress
+  and bookmarks, including existing saves. External books use full device paths.
+  Same-named files in different folders remain distinct. Moving or
   renaming a file changes its identity; restore missing files to their imported
   locations. Import references files rather than copying them.
 - Four covers appear per Library page; opening a cover shows author, chapters, and progress.
   Only visible covers are decoded as thumbnails. Broken or missing files stay visible with
   an error. Metadata stays in memory across screen visits. Import adds only the
-  selected entry, online updates refresh the affected novel, and removing a book
-  preserves the other entries. Import → Options → Refresh folder rereads the
-  listed files after external replacements; restart also reloads metadata.
+  selected entries, online updates refresh the affected novel, and removing a book
+  preserves the other entries. Browser refresh rereads directory entries and
+  reloads metadata only for imported books in that folder. Restart reloads all metadata.
 - Triangle opens a Title/Recent/Progress and All/Reading/Finished chooser; Square searches. L/R
   navigates to the previous or next sidebar destination.
   Preferences survive restarts. Title sorting ignores ASCII case. Recent uses

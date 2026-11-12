@@ -7,6 +7,33 @@
 #include <set>
 
 namespace reader {
+bool valid_device_path(const std::string& path) {
+    const auto colon = path.find(':');
+    if (colon == std::string::npos || colon < 2 || colon > 8 || path.size() > 768 ||
+        path.size() <= colon + 2 || path[colon + 1] != '/') return false;
+    for (std::size_t i=0;i<colon;++i)
+        if (!std::isalnum(static_cast<unsigned char>(path[i]))) return false;
+    std::size_t at=colon+2;
+    while (at<path.size()) {
+        const auto end=path.find('/',at);
+        if (!valid_library_component(path.substr(at,end==std::string::npos?end:end-at))) return false;
+        if (end==std::string::npos) return true;
+        at=end+1;
+    }
+    return false;
+}
+std::string library_identity(const std::string& path, const std::string& directory) {
+    const auto prefix=directory+'/';
+    if(path.compare(0,prefix.size(),prefix)==0)return path.substr(prefix.size());
+    // Vita accepts both ux0:data and ux0:/data. Keep pre-existing save IDs.
+    auto absolute=prefix;
+    const auto colon=absolute.find(':');
+    if(colon!=std::string::npos && absolute[colon+1]!='/')absolute.insert(colon+1,"/");
+    return path.compare(0,absolute.size(),absolute)==0 ? path.substr(absolute.size()) : path;
+}
+std::string library_book_path(const std::string& identity, const std::string& directory) {
+    return valid_device_path(identity) ? identity : directory+'/'+identity;
+}
 bool valid_library_component(const std::string& name) {
     if (name.empty() || name.front() == '.' || name.find_first_of("/\\:") != std::string::npos || !valid_utf8(name)) return false;
     for (unsigned char ch : name) if (ch < 0x20 || ch == 0x7f) return false;
@@ -42,6 +69,7 @@ std::string parent_library_folder(const std::string& folder) {
 
 namespace {
 bool valid_book_identity(const std::string& name) {
+    if (valid_device_path(name)) return is_supported_book(name);
     try { validate_folder(name); }
     catch (const std::invalid_argument&) { return false; }
     return !name.empty() && is_supported_book(name);

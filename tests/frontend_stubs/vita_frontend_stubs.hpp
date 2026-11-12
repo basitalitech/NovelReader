@@ -6,6 +6,7 @@
 #include <string>
 #include <cstdio>
 #include <cerrno>
+#include <mutex>
 constexpr unsigned SCE_CTRL_LEFT=1,SCE_CTRL_RIGHT=2,SCE_CTRL_UP=4,SCE_CTRL_DOWN=8,
     SCE_CTRL_CROSS=16,SCE_CTRL_CIRCLE=32,SCE_CTRL_TRIANGLE=64,SCE_CTRL_SQUARE=128,
     SCE_CTRL_START=256,SCE_CTRL_SELECT=512,SCE_CTRL_LTRIGGER=1024,SCE_CTRL_RTRIGGER=2048;
@@ -14,19 +15,25 @@ struct SceIoStat { int st_mode=0; };
 struct SceIoDirent { char d_name[256]{};SceIoStat d_stat; };
 inline bool SCE_S_ISDIR(int mode){return S_ISDIR(mode);}
 inline bool SCE_S_ISREG(int mode){return S_ISREG(mode);}
-inline int sceIoGetstat(const char* path,SceIoStat* result){struct stat info{};const int error=stat(path,&info);if(!error)result->st_mode=info.st_mode;return error;}
+inline int sceIoGetstat(const char* path,SceIoStat* result){struct stat info{};const int error=lstat(path,&info);if(!error)result->st_mode=info.st_mode;return error;}
 inline std::map<int,std::pair<DIR*,std::string>>& test_directories(){static std::map<int,std::pair<DIR*,std::string>> value;return value;}
+inline std::mutex& test_directory_mutex(){static std::mutex value;return value;}
+inline std::string& test_denied_directory(){static std::string value;return value;}
 inline int sceIoDopen(const char* path){
+    std::lock_guard<std::mutex> lock(test_directory_mutex());
+    if(test_denied_directory()==path)return -EACCES;
     auto* directory=opendir(path);if(!directory)return -1;
     static int next=0;const int id=++next;test_directories()[id]={directory,path};return id;
 }
 inline int sceIoDread(int id,SceIoDirent* result){
+    std::lock_guard<std::mutex> lock(test_directory_mutex());
     auto found=test_directories().find(id);if(found==test_directories().end())return -1;
     errno=0;const auto* entry=readdir(found->second.first);if(!entry)return errno?-1:0;
     *result={};std::snprintf(result->d_name,sizeof(result->d_name),"%s",entry->d_name);
     sceIoGetstat((found->second.second+'/'+entry->d_name).c_str(),&result->d_stat);return 1;
 }
 inline int sceIoDclose(int id){
+    std::lock_guard<std::mutex> lock(test_directory_mutex());
     auto found=test_directories().find(id);if(found==test_directories().end())return -1;
     const int result=closedir(found->second.first);test_directories().erase(found);return result;
 }

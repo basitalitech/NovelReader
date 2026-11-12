@@ -44,6 +44,7 @@
 #include <unordered_map>
 #include <cstdio>
 #include <cerrno>
+#include "file_browser.hpp"
 
 extern "C" {
 unsigned int _newlib_heap_size_user = 64 * 1024 * 1024;
@@ -228,6 +229,7 @@ public:
         restore_library_selection(keep);
     }
     bool needs_redraw() {
+        tick_browser();
         const auto now=sceKernelGetProcessTimeWide();
         if(inspection_hint_until_ && now>=inspection_hint_until_) {inspection_hint_until_=0;redraw_=true;}
         if(scroll_until_ && (now>=scroll_until_ || screen_!=Screen::Reader)){scroll_until_=0;redraw_=true;}
@@ -297,6 +299,8 @@ public:
     }
 
     bool input(unsigned pressed, bool physical = true) {
+        tick_browser();
+        if(browser_import_busy_)return true;
         if(pressed){cancel_reader_drag();redraw_=true;page_turn_until_=0;page_drag_settle_=false;bars_until_=0;
             if(!(pressed&(SCE_CTRL_UP|SCE_CTRL_DOWN)))scroll_until_=0;}
         const auto context=input_context();
@@ -383,9 +387,14 @@ public:
                 if (!importing_ && library_search_active_) { exit_library_search(); }
                 else if (importing_ && !current_folder_.empty()) {
                     const auto child = current_folder_;
-                    browse_folder(reader::parent_library_folder(current_folder_), child);
+                    std::string parent;
+                    if(child.back()!='/') {
+                        const auto slash=child.find_last_of('/'),colon=child.find(':');
+                        parent=child.substr(0,slash==colon+1?colon+2:slash);
+                    }
+                    browse_folder(parent,child);
                 } else if (importing_) {
-                    importing_=false;current_folder_.clear();
+                    browser_.cancel();browser_loading_=false;importing_=false;
                     filter_=import_filter_;library_query_=import_query_;scan();
                     selected_=order_.empty()?0:std::min(import_selected_,order_.size()-1);
                     focus_memory_[static_cast<int>(Screen::Library)]=200;update_cover();
@@ -403,8 +412,9 @@ public:
                 if ((pressed & SCE_CTRL_LEFT) && !order_.empty()) selected_ = selected_ > list_page ? selected_ - list_page : 0;
                 if ((pressed & SCE_CTRL_RIGHT) && !order_.empty()) selected_ = std::min(selected_ + list_page, order_.size() - 1);
             }
+            ensure_library_visible();
             if (pressed & SCE_CTRL_SQUARE) {
-                if(importing_)show_sort();else perform({"Search",0,Command::Search});
+                if(importing_)import_selection();else perform({"Search",0,Command::Search});
                 return true;
             }
             if (pressed & SCE_CTRL_TRIANGLE) {
@@ -608,6 +618,8 @@ public:
     }
 
     bool gesture(const reader::controls::Gesture& gesture) {
+        tick_browser();
+        if(browser_import_busy_)return true;
         using reader::controls::GestureKind;
         if (gesture.kind == GestureKind::None || ime_active_) return true;
         if(gesture.kind==GestureKind::Cancel){cancel_reader_drag();return true;}
@@ -736,6 +748,12 @@ public:
                 return input(horizontal ? (forward ? SCE_CTRL_RIGHT : SCE_CTRL_LEFT) : (forward ? SCE_CTRL_DOWN : SCE_CTRL_UP));
             } else if(screen_==Screen::Library && !importing_) {
                 if(!horizontal)move_library_row(forward);
+            } else if(screen_==Screen::Library && importing_) {
+                if(!order_.empty()) {
+                    const auto amount=static_cast<std::size_t>(std::max(1,static_cast<int>(std::abs(horizontal?gesture.dx:gesture.dy)/80)));
+                    set_item(forward?std::min(selected_+amount,order_.size()-1):selected_>amount?selected_-amount:0);
+                    focus_memory_[focus_key()]=1000+selected_;
+                }
             } else if (screen_ == Screen::Library || screen_ == Screen::Contents || screen_ == Screen::Illustrations ||
                        screen_ == Screen::Catalog || screen_ == Screen::OnlineChapters || screen_ == Screen::Sources || screen_==Screen::Bookmarks) {
                 turn_collection_page(forward);
@@ -813,7 +831,11 @@ private:
             screen_==Screen::Bookmarks || (is_online_screen() && screen_!=Screen::Novel);
     }
     void ensure_library_visible() {
-        if(importing_)return;
+        if(importing_) {
+            if(selected_<browser_first_)browser_first_=selected_;
+            if(selected_>=browser_first_+list_page)browser_first_=selected_-list_page+1;
+            return;
+        }
         if(order_.empty()){library_scroll_=0;return;}
         const int top=static_cast<int>(selected_/reader::ui::grid_columns)*reader::ui::grid_pitch;
         const int height=reader::ui::grid_bottom-reader::ui::grid_top;
@@ -907,7 +929,8 @@ private:
             add(202,reader::ui::details_utility(0),{"Download all",0,Command::DownloadAll});
             add(203,reader::ui::details_utility(1),{"Refresh chapters",SCE_CTRL_TRIANGLE});
         } else {
-            const auto limit=page_limit(),selected=page_selection(),count=page_count(),first=selected/limit*limit;
+            const auto limit=page_limit(),selected=page_selection(),count=page_count();
+            const auto first=screen_==Screen::Library && importing_?browser_first_:selected/limit*limit;
             for(auto i=first;i<count && i<first+limit;++i) {
                 const int row=static_cast<int>(i-first);
                 const auto box=(screen_==Screen::Contents || screen_==Screen::OnlineChapters)?reader::ui::contents_row(row):
@@ -1038,6 +1061,11 @@ private:
             pressed&SCE_CTRL_UP?reader::ui::Direction::Up:reader::ui::Direction::Down;
         const int next=reader::ui::focus_neighbor(targets,id,direction);
         if(current->kind==WidgetKind::Item && paged_screen()) {
+            if(screen_==Screen::Library && importing_ &&
+               (((pressed&SCE_CTRL_UP) && selected_>0) || ((pressed&SCE_CTRL_DOWN) && selected_+1<order_.size()))) {
+                set_item(pressed&SCE_CTRL_UP?selected_-1:selected_+1);
+                focus_memory_[focus_key()]=1000+selected_;return true;
+            }
             const bool grid=screen_==Screen::Library && !importing_;
             if(grid) {
                 const auto column=selected_%reader::ui::grid_columns;
@@ -1052,7 +1080,7 @@ private:
                     return true;
                 }
             }
-            const auto first=page_selection()/page_limit()*page_limit();
+            const auto first=screen_==Screen::Library && importing_?browser_first_:page_selection()/page_limit()*page_limit();
             const auto end=std::min(first+page_limit(),page_count());
             if((pressed&SCE_CTRL_RIGHT) && (!grid || current->index+1==static_cast<int>(end))) {
                 turn_collection_page(true);normalize_focus();return true;
@@ -1091,7 +1119,7 @@ private:
         if (screen_==Screen::Settings) cancel_settings();
         import_selected_=selected_; import_filter_=filter_; import_query_=library_query_;
         save(); clear_reading(); release_image();
-        screen_=Screen::Library; importing_=true; sidebar_focus_=false; browse_folder("");
+        screen_=Screen::Library; importing_=true; sidebar_focus_=false; import_marks_.clear();browse_folder(last_import_folder_);
     }
     bool apply_settings() {
         bool applied=true;
@@ -1123,7 +1151,7 @@ private:
             library_views_[nav_active_]={selected_filename(),library_query_,filter_,library_search_active_};
         if (screen_==Screen::Settings) cancel_settings();
         save();if(destination!=3)clear_reading();release_image();message_.clear();nav_selected_=nav_active_=destination;
-        if (importing_) { importing_=false; scan(); }
+        if (importing_) { browser_.cancel();browser_loading_=false;importing_=false; scan(); }
         if (destination==0) screen_=Screen::Home;
         else if (destination==1) {
             screen_=Screen::Library;
@@ -1484,7 +1512,8 @@ private:
         focus_memory_.erase(100);
         menu_title_ = screen_ == Screen::Reader ? "Reading controls" : "Options";
         if (screen_ == Screen::Library && importing_) {
-            menu_={{"Back",SCE_CTRL_CIRCLE},{"Refresh folder",SCE_CTRL_TRIANGLE},{"Sort files",0,Command::Sort}};
+            menu_={{"Back",SCE_CTRL_CIRCLE},{"Import selected",SCE_CTRL_SQUARE,Command::Button,!import_marks_.empty()},
+                {"Refresh folder",SCE_CTRL_TRIANGLE}};
         } else if (screen_ == Screen::Library) {
             menu_={{"Book details",0,Command::Details,!order_.empty()},
                 {"Search Library",0,Command::Search},{"Sort and Filter",0,Command::Sort},
@@ -1578,7 +1607,7 @@ private:
             show_speech(); break;
         case Command::AddBook: show_add_book();break;
         case Command::Online: {
-            const bool restore_collection=importing_;importing_=false;current_folder_.clear();
+            const bool restore_collection=importing_;browser_.cancel();browser_loading_=false;importing_=false;
             if(restore_collection)scan();
             release_image();screen_=Screen::Sources;online_selected_=0;message_.clear();break;
         }
@@ -1632,7 +1661,7 @@ private:
                     if(!progress_removed){message_="Removed from Library, but saved progress could not be deleted. Check storage.";break;}
                     if(reader::is_online_book(filename)) {
                         reader::online::Request request;request.action=reader::online::Action::Remove;
-                        request.manifest=books_directory+'/'+filename;start_online(request);
+                        request.manifest=reader::library_book_path(filename,books_directory);start_online(request);
                     } else notify("Removed from Library and deleted saved progress.");
                 } else message_="Could not update Library. Check storage.";
             }
@@ -1715,13 +1744,12 @@ private:
 
 
     bool in_library() const {
-        if (online_manifest_.size() <= books_directory.size()) return false;
-        const auto filename = online_manifest_.substr(books_directory.size() + 1);
+        const auto filename = reader::library_identity(online_manifest_,books_directory);
         return std::find(library_books_.begin(), library_books_.end(), filename) != library_books_.end();
     }
     std::string removal_filename() const {
         const auto filename=(screen_==Screen::Novel || screen_==Screen::OnlineChapters)?
-            (in_library()?online_manifest_.substr(books_directory.size()+1):std::string()):selected_filename();
+            (in_library()?reader::library_identity(online_manifest_,books_directory):std::string()):selected_filename();
         for(const auto& item:entries_)if(item.filename==filename && item.guide)return {};
         return filename;
     }
@@ -1738,7 +1766,7 @@ private:
     void resume_online() {
         reader::Publication publication;
         if (reader::open_publication(online_manifest_, publication, message_)) {
-            auto saved = reader::load_progress(reader::progress_path(progress_directory, online_manifest_.substr(books_directory.size() + 1)));
+            auto saved = reader::load_progress(reader::progress_path(progress_directory, reader::library_identity(online_manifest_,books_directory)));
             reader::online::restore_progress(publication, saved);
             online_read_in_place_ = false; begin_online_read(saved.chapter);
         }
@@ -1783,6 +1811,8 @@ private:
         if(screen_==Screen::Library && !importing_)return {confirm("Open"),
             {library_search_active_?"Clear search":"Back",SCE_CTRL_CIRCLE},{"Search",SCE_CTRL_SQUARE,Command::Search},
             {"Filter",SCE_CTRL_TRIANGLE,Command::Sort},options};
+        if(screen_==Screen::Library && importing_)return {{"Open / Select",SCE_CTRL_CROSS,Command::Button,!order_.empty() && !browser_loading_},
+            {"Back",SCE_CTRL_CIRCLE},{"Import selected",SCE_CTRL_SQUARE,Command::Button,!import_marks_.empty()},options};
         if(screen_==Screen::Settings)return {{"Apply",SCE_CTRL_CROSS,Command::ApplySettings},{"Cancel",SCE_CTRL_CIRCLE,Command::CancelSettings},
             {"Reset",SCE_CTRL_SELECT,Command::ResetSettings},options};
         if(paged_screen()) {
@@ -1879,7 +1909,7 @@ private:
         }
         reader::Publication candidate;
         if (!reader::open_publication(online_manifest_,candidate,message_)) return;
-        const auto identity = online_manifest_.substr(books_directory.size()+1);
+        const auto identity = reader::library_identity(online_manifest_,books_directory);
         auto saved = reader::load_progress(reader::progress_path(progress_directory,identity));
         reader::online::restore_progress(candidate,saved);
         const auto offset = chapter == saved.chapter ? saved.offset : 0;
@@ -1903,7 +1933,7 @@ private:
         reader::Publication publication;
         std::string error;
         if (!online_manifest_.empty() && reader::open_publication(online_manifest_, publication, error)) {
-            auto saved = reader::load_progress(reader::progress_path(progress_directory, online_manifest_.substr(books_directory.size() + 1)));
+            auto saved = reader::load_progress(reader::progress_path(progress_directory, reader::library_identity(online_manifest_,books_directory)));
             reader::online::restore_progress(publication, saved);
             online_started_ = reader::reading_started(saved);
             online_saved_chapter_ = saved.chapter;
@@ -2022,7 +2052,7 @@ private:
             }
         } else if (screen_ == Screen::Novel) {
             if (pressed & SCE_CTRL_CROSS) { screen_ = Screen::OnlineChapters; online_selected_ = online_saved_chapter_; message_.clear(); }
-            else if (pressed & SCE_CTRL_SQUARE) add_to_library(online_manifest_.substr(books_directory.size()+1));
+            else if (pressed & SCE_CTRL_SQUARE) add_to_library(reader::library_identity(online_manifest_,books_directory));
             else if (pressed & SCE_CTRL_TRIANGLE) refresh_online_novel();
             else if (pressed & SCE_CTRL_SELECT) {
                 resume_online();
@@ -2645,10 +2675,64 @@ private:
 
 
     void browse_folder(const std::string& folder, const std::string& restore = {}) {
-        release_image(); order_.clear(); selected_ = 0;
+        release_image(); order_.clear(); selected_ = 0;browser_first_=0;
         current_folder_ = folder;
+        if(restore.empty() && !folder.empty())last_import_folder_=folder;
         ++folder_revision_;
         scan(restore);
+    }
+
+    void import_selection() {
+        if(browser_loading_ || browser_import_busy_ || import_marks_.empty())return;
+        if(!library_writable_){browser_error_="Library index is unreadable. Restore it before importing.";return;}
+        std::vector<reader::LibraryItem> items;
+        for(const auto& marked:import_marks_)items.push_back(marked.second);
+        browser_error_.clear();browser_import_busy_=true;
+        browser_.import(std::move(items),library_books_,load_library_item);
+    }
+    void tick_browser() {
+        auto result=browser_.poll();
+        if(!result) {
+            if(browser_import_busy_) {
+                const auto done=browser_.completed.load();
+                if(done!=browser_progress_){browser_progress_=done;redraw_=true;}
+            }
+            return;
+        }
+        if(!importing_)return;
+        redraw_=true;++folder_revision_;
+        if(!result->importing) {
+            browser_loading_=false;browser_error_=result->error;
+            if(result->refresh) {
+                std::unordered_map<std::string,reader::LibraryItem*> cached;
+                for(auto& item:collection_entries_)cached.emplace(item.filename,&item);
+                for(const auto& item:result->items) {
+                    const auto found=cached.find(item.filename);
+                    if(!item.directory && found!=cached.end()) {
+                        invalidate_book_assets(*found->second);*found->second=item;
+                    }
+                }
+            }
+            entries_=std::move(result->items);
+            order_=std::move(result->order);
+            ordered_sort_=sort_;ordered_filter_=filter_;ordered_query_=library_query_;ordered_importing_=true;
+            library_order_dirty_=false;restore_library_selection(result->restore);
+            focus_memory_.erase(focus_key());
+            return;
+        }
+        browser_import_busy_=false;
+        if(!result->saved){browser_error_=result->error;return;}
+        const auto added=result->items.size();
+        library_books_=std::move(result->books);
+        for(auto& item:result->items)collection_entries_.push_back(std::move(item));
+        const std::unordered_set<std::string> known(library_books_.begin(),library_books_.end());
+        for(auto it=import_marks_.begin();it!=import_marks_.end();) {
+            if(known.count(it->first))it=import_marks_.erase(it);else ++it;
+        }
+        if(added){bookmarks_dirty_=true;collection_dirty_=true;}
+        browser_error_=std::to_string(added)+" imported, "+std::to_string(result->skipped)+" already in Library";
+        if(result->failed)browser_error_+=", "+std::to_string(result->failed)+" unavailable (selected for retry)";
+        browser_error_+=". Keep browsing or Back to finish.";
     }
 
     bool add_to_library(const std::string& filename) {
@@ -2681,30 +2765,8 @@ private:
                 collection_entries_=std::move(entries_);collection_suspended_=true;
             }
             entries_.clear();
-            const auto folder_path = books_directory + (current_folder_.empty() ? "" : '/' + current_folder_);
-            const auto directory = sceIoDopen(folder_path.c_str());
-            if (directory >= 0) {
-                SceIoDirent entry{};
-                int result = 0;
-                while ((result = sceIoDread(directory, &entry)) > 0) {
-                    const std::string name(entry.d_name);
-                    const bool is_folder = SCE_S_ISDIR(entry.d_stat.st_mode);
-                    if (reader::valid_library_component(name) && (is_folder ||
-                        (SCE_S_ISREG(entry.d_stat.st_mode) && reader::is_supported_book(name)))) {
-                        reader::LibraryItem item;
-                        try {
-                            item.filename = reader::child_library_folder(current_folder_, name);
-                            item.title = is_folder ? name : reader::title_from_filename(name);
-                            item.path = books_directory + '/' + item.filename;
-                            item.directory = is_folder;
-                            entries_.push_back(std::move(item));
-                        } catch (const std::invalid_argument&) { message_ = "Some paths exceed the supported folder length."; }
-                    }
-                    entry = {};
-                }
-                if (result < 0) message_ = "Could not read the entire books folder.";
-                sceIoDclose(directory);
-            } else message_ = "Cannot open this folder. Go Up or refresh after checking storage.";
+            browser_error_.clear();browser_loading_=true;
+            browser_.list(current_folder_,keep,force_refresh?library_books_:std::vector<std::string>{},load_library_item);
         } else {
             if(collection_suspended_) {
                 entries_=std::move(collection_entries_);collection_suspended_=false;
@@ -2722,7 +2784,7 @@ private:
                 if(known.count(filename))continue;
                 reader::LibraryItem item;
                 item.filename = filename;
-                item.path = books_directory + '/' + filename;
+                item.path = reader::library_book_path(filename,books_directory);
                 item.title = reader::title_from_filename(filename.substr(filename.find_last_of('/') + 1));
                 SceIoStat state{};
                 if (sceIoGetstat(item.path.c_str(), &state) < 0 || !SCE_S_ISREG(state.st_mode))
@@ -2749,20 +2811,6 @@ private:
             load_library_item(guide);
             entries_.push_back(std::move(guide));
         }
-        std::unordered_map<std::string,reader::LibraryItem*> collection;
-        if(importing_)for(auto& item:collection_entries_)collection.emplace(item.filename,&item);
-        if(importing_)for (auto& item : entries_) {
-            if (item.directory) continue;
-            const auto cached=collection.find(item.filename);
-            if(!force_refresh && cached!=collection.end() && cached->second->error.empty()) {
-                item=*cached->second;continue;
-            }
-            // Refresh explicitly rereads listed files, including replacements.
-            load_library_item(item);
-            if(cached!=collection.end()) {
-                invalidate_book_assets(*cached->second);*cached->second=item;
-            }
-        }
         if(!importing_)collection_dirty_=false;
         refresh_library(keep);
         if (!library_initialized_ && !importing_) {
@@ -2779,7 +2827,7 @@ private:
             return preview.key.compare(0,prefix.size(),prefix)==0;
         }),bookmark_previews_.end());
     }
-    void load_library_item(reader::LibraryItem& item) {
+    static void load_library_item(reader::LibraryItem& item) {
         item.progress = reader::load_progress(reader::progress_path(progress_directory, item.filename));
         if (item.error.empty() && (reader::is_epub_book(item.filename) || reader::is_online_book(item.filename))) {
             reader::Publication metadata;
@@ -2813,15 +2861,9 @@ private:
             return;
         }
         if (importing_) {
-            const auto filename = entries_[entry_index].filename;
-            if (add_to_library(filename)) {
-                if(collection_suspended_ && std::none_of(collection_entries_.begin(),collection_entries_.end(),[&](const reader::LibraryItem& item){return item.filename==filename;}))
-                    collection_entries_.push_back(entries_[entry_index]);
-                importing_ = false; current_folder_.clear();
-                filter_=reader::LibraryFilter::All;library_query_.clear();library_search_active_=false;save_library_preferences();
-                scan(filename);focus_memory_[static_cast<int>(Screen::Library)]=1000+selected_;
-                if (message_.empty()) notify("Added to library.");
-            }
+            const auto& item=entries_[entry_index];
+            if(!import_marks_.erase(item.filename))import_marks_.emplace(item.filename,item);
+            browser_error_.clear();
             return;
         }
         if (reader::is_online_book(entries_[entry_index].path)) {
@@ -2960,15 +3002,28 @@ private:
 
     void draw_library() const {
         if(importing_) {
-            heading("Import books",current_folder_.empty()?"Choose a folder or book":current_folder_);
-            const auto first=reader::ui::page_first(selected_);
+            heading("Import books",current_folder_.empty()?"Storage devices":current_folder_);
+            const auto first=browser_first_;
             for(auto i=first;i<order_.size() && i<first+list_page;++i) {
                 const auto& item=entries_[order_[i]];
-                list_row(reader::ui::library_top+static_cast<int>(i-first)*reader::ui::library_pitch,item.title,
-                    item.directory?"Folder":item.error.empty()?"Import into your library":"Unavailable",false);
+                const bool marked=import_marks_.count(item.filename)>0;
+                const bool imported=std::find(library_books_.begin(),library_books_.end(),item.filename)!=library_books_.end();
+                list_row(reader::ui::library_top+static_cast<int>(i-first)*reader::ui::library_pitch,
+                    item.directory?item.title+"/":std::string(marked?"[x] ":"[ ] ")+item.path.substr(item.path.find_last_of('/')+1),
+                    item.directory?"Folder":imported?"Already in Library":marked?"Selected for import":"Book — Cross to select",false);
             }
-            if(order_.empty())text(40,196,palette().muted,0.92f,"No supported books in this folder.",800);
-            draw_pager(selected_,order_.size());return;
+            if(order_.empty())text(40,196,palette().muted,0.92f,browser_loading_?"Loading folder...":"No visible supported books or folders.",880);
+            const auto status=browser_import_busy_?"Importing "+std::to_string(browser_.completed.load())+" / "+std::to_string(browser_.total.load()):
+                browser_error_.empty()?std::to_string(import_marks_.size())+" selected — Cross: open/select, Square: import":browser_error_;
+            text(24,477,palette().muted,0.7f,status,912);
+            text(752,102,palette().muted,0.8f,std::to_string(order_.empty()?0:selected_+1)+" / "+std::to_string(order_.size()),184);
+            if(order_.size()>list_page) {
+                const float height=std::max(12.f,316.f*list_page/order_.size());
+                const float y=144+(316-height)*first/(order_.size()-list_page);
+                vita2d_draw_rectangle(880,144,4,316,palette().panel);
+                vita2d_draw_rectangle(880,y,4,height,palette().accent);
+            }
+            return;
         }
         const char* filters[]={"All books","Reading","Finished"};
         text(232,44,palette().text,1.23f,"Library",440,reader::FontRole::Heading);
@@ -3444,6 +3499,13 @@ private:
     mutable std::string feedback_message_;
     mutable std::size_t feedback_page_=0;
     std::string current_folder_;
+    std::string last_import_folder_;
+    FileBrowser browser_{books_directory,library_path};
+    std::map<std::string,reader::LibraryItem> import_marks_;
+    bool browser_loading_=false,browser_import_busy_=false;
+    std::size_t browser_progress_=0;
+    std::size_t browser_first_=0;
+    std::string browser_error_;
     std::size_t folder_revision_ = 0;
     std::size_t selected_ = 0, top_ = 0;
     std::size_t chapter_ = 0, contents_selected_ = 0;
