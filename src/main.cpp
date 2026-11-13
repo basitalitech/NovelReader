@@ -138,7 +138,6 @@ namespace
         CancelSettings,
         ResetSettings,
         Illustrations,
-        FullTitle,
         AddBook,
         Speech,
         SpeechToggle,
@@ -1553,7 +1552,7 @@ namespace
                 {
                     const int row = static_cast<int>(i - first);
                     const auto box = (screen_ == Screen::Contents || screen_ == Screen::OnlineChapters) ? reader::ui::contents_row(row) : screen_ == Screen::Bookmarks ? reader::ui::bookmark_row(row)
-                                                                                                                                                                       : reader::ui::Rect{24, reader::ui::library_top + row * reader::ui::library_pitch, 832, 76};
+                                                                                                                                                                       : reader::ui::Rect{reader::ui::list_left, reader::ui::library_top + row * reader::ui::library_pitch, reader::ui::list_right - reader::ui::list_left, reader::ui::library_row_height};
                     add(1000 + i, box, {"Open", SCE_CTRL_CROSS}, WidgetKind::Item, i);
                 }
             }
@@ -2551,8 +2550,7 @@ namespace
             }
             else if (screen_ == Screen::Book)
             {
-                menu_ = {{"Full title", 0, Command::FullTitle},
-                         {"Remove from library", 0, Command::RemoveBook, !order_.empty() && !entries_[order_[selected_]].guide},
+                menu_ = {{"Remove from library", 0, Command::RemoveBook, !order_.empty() && !entries_[order_[selected_]].guide},
                          {"Back to library", SCE_CTRL_CIRCLE}};
             }
             else if (screen_ == Screen::Settings)
@@ -2719,10 +2717,6 @@ namespace
                 settings_.library_filter = filter;
                 break;
             }
-            case Command::FullTitle:
-                if (!order_.empty())
-                    message_ = entries_[order_[selected_]].title;
-                break;
             case Command::Illustrations:
                 if (screen_ == Screen::Contents && lines_.empty() && !change_chapter(chapter_, progress_.offset))
                     break;
@@ -3701,11 +3695,13 @@ namespace
         }
         void list_row(int y, const std::string &title, const std::string &subtitle, bool selected, bool reading = false) const
         {
-            panel(24, y, 832, 76, selected);
+            const int width = reader::ui::list_right - reader::ui::list_left;
+            const int text_width = reader::ui::list_right - 76;
+            panel(reader::ui::list_left, y, width, reader::ui::library_row_height, selected);
             if (reading)
                 vita2d_draw_fill_circle(42, y + 24, 5, palette().accent);
-            text(56, y + 31, palette().text, 1.0f, title, 780);
-            text(56, y + 62, reading ? palette().accent : palette().muted, 0.85f, subtitle, 780);
+            text(56, y + 31, palette().text, 1.0f, title, text_width);
+            text(56, y + 62, reading ? palette().accent : palette().muted, 0.85f, subtitle, text_width);
         }
         void draw_online() const
         {
@@ -3759,40 +3755,37 @@ namespace
         reader::ui::Rect toolbar_rect(const std::vector<Action> &actions, int index) const
         {
             const int count = static_cast<int>(actions.size());
-            if (index == count - 1 && actions[index].command == Command::More)
+            if (count <= 0 || index < 0 || index >= count)
+                return {0, 0, 0, 0};
+            const auto action_width = [&](const Action &action)
             {
-                const int width = std::max(200, reader::visual::controller_icon_width(controller_key(actions[index].button)) +
-                                                    10 + fonts_.width(reader::FontRole::Interface, 22, actions[index].label) + 32);
-                return {932 - width, 484, width, 56};
-            }
-            if (screen_ == Screen::Settings && menu_.empty() && !feedback_active() && !online_busy_ && count == 4)
+                const auto icon = reader::visual::controller_icon_width(controller_key(action.button));
+                return icon + (icon ? 10 : 0) + fonts_.width(reader::FontRole::Interface, 22, action.label) + 32;
+            };
+            if (count > 1 && actions.back().command == Command::More)
             {
-                const reader::ui::Rect boxes[] = {{28, 484, 170, 56}, {228, 484, 170, 56}, {428, 484, 230, 56}, {732, 484, 200, 56}};
-                return boxes[index];
-            }
-            if (screen_ == Screen::Reader && menu_.empty() && !feedback_active() && !online_busy_ && count == 4)
-            {
-                const reader::ui::Rect boxes[] = {{28, 484, 200, 56}, {248, 484, 152, 56}, {420, 484, 216, 56}, {732, 484, 200, 56}};
-                return boxes[index];
+                const int options_width = std::max(200, action_width(actions.back()));
+                const int options_x = 932 - options_width;
+                if (index == count - 1)
+                    return {options_x, 484, options_width, 56};
+                const int gap = 8;
+                const int available = std::max(0, options_x - 28 - gap * (count - 1));
+                int total = 0;
+                for (int i = 0; i < count - 1; ++i)
+                    total += action_width(actions[i]);
+                int x = 28;
+                for (int i = 0; i < count - 1; ++i)
+                {
+                    const int desired = action_width(actions[i]);
+                    const int w = total > available && total > 0 ? desired * available / total : desired;
+                    if (i == index)
+                        return {x, 484, w, 56};
+                    x += w + gap;
+                }
             }
             if (screen_ == Screen::Home && menu_.empty() && !feedback_active() && !online_busy_ && count == 1)
                 return {28, 484, 240, 56};
-            if ((screen_ == Screen::Reader || screen_ == Screen::Image) && !feedback_active() && !online_busy_ && count == 3)
-            {
-                const reader::ui::Rect boxes[] = {{28, 484, 170, 56}, {228, 484, 150, 56}, {776, 484, 156, 56}};
-                return boxes[index];
-            }
-            if (screen_ == Screen::Library && !importing_ && menu_.empty() && !online_busy_ && count == 5)
-            {
-                const reader::ui::Rect boxes[] = {{28, 484, 132, 56}, {188, 484, 212, 56}, {408, 484, 152, 56}, {568, 484, 152, 56}, {776, 484, 156, 56}};
-                return boxes[index];
-            }
-            if (screen_ == Screen::Novel && menu_.empty() && !feedback_active() && !online_busy_ && count == 4)
-            {
-                const reader::ui::Rect boxes[] = {{28, 484, 152, 56}, {200, 484, 150, 56}, {384, 484, 270, 56}, {776, 484, 156, 56}};
-                return boxes[index];
-            }
-            return count > 1 && actions.back().command == Command::More ? reader::ui::action_toolbar_button(index, count) : reader::ui::toolbar_button(index, count);
+            return reader::ui::toolbar_button(index, count);
         }
         void draw_toolbar() const
         {
@@ -4486,7 +4479,7 @@ namespace
             selected_ = 0;
             browser_first_ = 0;
             current_folder_ = folder;
-            if (restore.empty() && !folder.empty())
+            if (restore.empty() && !folder.empty() && folder.compare(0, 5, "ux0:/") == 0)
                 last_import_folder_ = folder;
             ++folder_revision_;
             scan(restore);
@@ -4990,8 +4983,8 @@ namespace
                 {
                     const float height = std::max(12.f, 316.f * list_page / order_.size());
                     const float y = 144 + (316 - height) * first / (order_.size() - list_page);
-                    vita2d_draw_rectangle(880, 144, 4, 316, palette().panel);
-                    vita2d_draw_rectangle(880, y, 4, height, palette().accent);
+                    vita2d_draw_rectangle(946, 144, 4, 316, palette().panel);
+                    vita2d_draw_rectangle(946, y, 4, height, palette().accent);
                 }
                 return;
             }

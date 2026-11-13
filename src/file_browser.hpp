@@ -92,9 +92,8 @@ namespace
         {
             if (job.path.empty())
             {
-                // User storage and ordinary read-only content mounts. No privileged
-                // mount calls, system partition probes, or permission changes.
-                for (const char *mount : {"ux0:", "uma0:", "imc0:", "xmc0:", "ur0:", "grw0:", "gro0:", "app0:"})
+                // Only user storage (ux0:/) is navigable.
+                for (const char *mount : {"ux0:"})
                 {
                     if (canceled(generation))
                         return;
@@ -111,6 +110,11 @@ namespace
                 }
                 if (job.items.empty())
                     job.error = "No accessible storage. Connect storage and refresh.";
+                return;
+            }
+            if (job.path.compare(0, 5, "ux0:/") != 0)
+            {
+                job.error = "Cannot open this folder. Go Back or check storage and refresh.";
                 return;
             }
             const auto handle = sceIoDopen(job.path.c_str());

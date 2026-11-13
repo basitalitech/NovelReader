@@ -16,7 +16,7 @@ namespace reader
         inline ReadingArea reading_area(bool immersive) { return immersive ? ReadingArea{24, 476} : ReadingArea{76, 340}; }
         constexpr int page_size = 4;
         constexpr int library_top = 144, library_pitch = 80, library_row_height = 76;
-        constexpr int list_left = 24, list_right = 856;
+        constexpr int list_left = 24, list_right = 936;
         constexpr int toolbar_top = 480, toolbar_height = 64;
         constexpr int image_top = 132, image_height = 332, image_center_y = image_top + image_height / 2;
         struct Rect
