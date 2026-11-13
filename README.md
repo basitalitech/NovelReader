@@ -555,7 +555,7 @@ see [dependency versions and licenses](third_party/README.md). No downloads are
 made during configuration or building.
 
 ```sh
-cmake -S . -B build/vita -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build/vita -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build build/vita -j2
 ```
 
@@ -578,10 +578,17 @@ Portable core tests run on a desktop without VitaSDK, using a C/C++ toolchain,
 CMake, and the system zlib development package:
 
 ```sh
-cmake -S . -B build/host -DNOVELREADER_HOST_TESTS=ON
+cmake -S . -B build/host -DNOVELREADER_HOST_TESTS=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build build/host -j2
 ctest --test-dir build/host --output-on-failure
 ```
+
+VS Code uses [.vscode/c_cpp_properties.json](.vscode/c_cpp_properties.json) to read
+both builds' compiler commands. Configure both builds before editing app and test
+code together. This supplies the SDK include paths and CMake-defined test macros,
+and keeps the different test-only `vita2d.h` headers out of the app's include path.
+If diagnostics persist after configuring, run **C/C++: Reset IntelliSense Database**
+and reopen the affected file. Keep `VITASDK` available in VS Code's environment.
 
 Idle screens retain the displayed frame and wait for VBlank while polling input.
 Input, notices, button feedback, keyboard activity, downloads, and narration
