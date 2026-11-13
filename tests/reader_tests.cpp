@@ -53,6 +53,12 @@ int main()
             check(reader::is_text_book("Novel.TXT"), "Uppercase TXT extension rejected");
             check(!reader::is_text_book("Novel.epub"), "Unsupported book listed");
             check(!reader::is_text_book(".hidden.txt"), "Hidden book listed");
+            for (const auto *name : {"", "folder/", "folder/.hidden.TXT", "folder\\.hidden.txt", "Novel.txt.bak"})
+                  check(!reader::is_text_book(name), "Invalid TXT filename listed");
+            for (const auto *name : {"", "folder/", "folder/.hidden.EPUB", "folder\\.hidden.epub", "Novel.epub.bak"})
+                  check(!reader::is_epub_book(name), "Invalid EPUB filename listed");
+            check(reader::is_text_book("folder\\Novel.TXT") && reader::is_epub_book("folder/Novel.EpUb"),
+                  "Book extension matching changed across path separators or letter case");
             check(reader::title_from_filename("folder/My_Novel.txt") == "My Novel", "Wrong title");
 
             reader::Book book;
@@ -121,6 +127,12 @@ int main()
             check(reader::progress_path(directory, "a/b.txt") != reader::progress_path(directory, "b.txt"),
                   "Book identities collide");
             check(!reader::save_progress(directory + "/missing/save", {}), "Failed write reported success");
+            check(!reader::save_progress(directory, {}) && access((directory + ".tmp").c_str(), F_OK) != 0,
+                  "Failed progress replacement left a temporary file");
+            check(!reader::save_settings(directory, {}) && access((directory + ".tmp").c_str(), F_OK) != 0,
+                  "Failed settings replacement left a temporary file");
+            check(!reader::save_library(directory, {"book.txt"}) && access((directory + ".tmp").c_str(), F_OK) != 0,
+                  "Failed library replacement left a temporary file");
 
             check(reader::save_settings(settings_path, {2, 0, 1}), "Settings save failed");
             auto settings = reader::load_settings(settings_path);

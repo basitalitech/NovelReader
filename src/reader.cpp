@@ -1,13 +1,12 @@
 #include "reader.hpp"
 #include "performance.hpp"
+#include "file_io.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <cstdio>
 #include <fstream>
 #include <iomanip>
-#include <limits>
 #include <sstream>
 #include <stdexcept>
 
@@ -73,25 +72,16 @@ namespace reader
     namespace
     {
 
-        bool atomic_write(const std::string &path, const std::string &data)
+        bool has_extension(const std::string &name, const std::string &suffix)
         {
-            const auto temporary = path + ".tmp";
-            {
-                std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-                output.write(data.data(), static_cast<std::streamsize>(data.size()));
-                output.close();
-                if (!output)
-                {
-                    std::remove(temporary.c_str());
-                    return false;
-                }
-            }
-            if (std::rename(temporary.c_str(), path.c_str()) != 0)
-            {
-                std::remove(temporary.c_str());
+            const auto slash = name.find_last_of("/\\");
+            const auto start = slash == std::string::npos ? 0 : slash + 1;
+            if (name.size() - start < suffix.size() || name[start] == '.')
                 return false;
-            }
-            return true;
+            auto extension = name.substr(name.size() - suffix.size());
+            for (auto &ch : extension)
+                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            return extension == suffix;
         }
 
         int bounded(int value) { return std::max(0, std::min(2, value)); }
@@ -100,26 +90,12 @@ namespace reader
 
     bool is_text_book(const std::string &name)
     {
-        const auto slash = name.find_last_of("/\\");
-        const auto start = slash == std::string::npos ? 0 : slash + 1;
-        if (name.size() - start < 4 || name[start] == '.')
-            return false;
-        auto extension = name.substr(name.size() - 4);
-        for (auto &ch : extension)
-            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        return extension == ".txt";
+        return has_extension(name, ".txt");
     }
 
     bool is_epub_book(const std::string &name)
     {
-        const auto slash = name.find_last_of("/\\");
-        const auto start = slash == std::string::npos ? 0 : slash + 1;
-        if (name.size() - start < 5 || name[start] == '.')
-            return false;
-        auto extension = name.substr(name.size() - 5);
-        for (auto &ch : extension)
-            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        return extension == ".epub";
+        return has_extension(name, ".epub");
     }
 
     bool is_supported_book(const std::string &name)
@@ -306,7 +282,7 @@ namespace reader
                << ' ' << progress.chapter << ' ' << progress.bookmark_chapter << ' ' << progress.percent
                << ' ' << progress.last_read << '\n'
                << std::quoted(progress.chapter_id) << ' ' << std::quoted(progress.bookmark_id) << '\n';
-        return atomic_write(path, output.str());
+        return detail::atomic_write(path, output.str());
     }
 
     Settings load_settings(const std::string &path)
@@ -352,7 +328,7 @@ namespace reader
                << std::max(0, std::min(1, settings.immersive)) << ' '
                << std::max(100, std::min(350, settings.speech_rate)) << ' '
                << bounded(settings.page_effect) << '\n';
-        return atomic_write(path, output.str());
+        return detail::atomic_write(path, output.str());
     }
 
 } // namespace reader

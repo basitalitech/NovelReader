@@ -139,12 +139,13 @@ namespace reader
             bool supported = true;
             if (!title_glyphs(pixels, text, true, [&](int pen, FT_GlyphSlot glyph)
                               {
-            const auto& bitmap=glyph->bitmap;
-            if(bitmap.pixel_mode!=FT_PIXEL_MODE_GRAY && bitmap.pixel_mode!=FT_PIXEL_MODE_MONO && bitmap.width && bitmap.rows)supported=false;
-            left=std::min(left,pen+glyph->bitmap_left);
-            top=std::min(top,-glyph->bitmap_top);
-            right=std::max(right,pen+glyph->bitmap_left+static_cast<int>(bitmap.width));
-            bottom=std::max(bottom,-glyph->bitmap_top+static_cast<int>(bitmap.rows)); }, advance) ||
+                                  const auto &bitmap = glyph->bitmap;
+                                  if (bitmap.pixel_mode != FT_PIXEL_MODE_GRAY && bitmap.pixel_mode != FT_PIXEL_MODE_MONO && bitmap.width && bitmap.rows)
+                                      supported = false;
+                                  left = std::min(left, pen + glyph->bitmap_left);
+                                  top = std::min(top, -glyph->bitmap_top);
+                                  right = std::max(right, pen + glyph->bitmap_left + static_cast<int>(bitmap.width));
+                                  bottom = std::max(bottom, -glyph->bitmap_top + static_cast<int>(bitmap.rows)); }, advance) ||
                 !supported)
                 return false;
             // Two transparent pixels on all edges prevent filtering into neighbors.
@@ -160,16 +161,19 @@ namespace reader
             std::memset(data, 0, stride * height);
             if (!title_glyphs(pixels, text, true, [&](int pen, FT_GlyphSlot glyph)
                               {
-            const auto& bitmap=glyph->bitmap;
-            for(unsigned row=0;row<bitmap.rows;++row) {
-                const auto* source=bitmap.buffer+static_cast<int>(row)*bitmap.pitch;
-                auto* destination=data+(-glyph->bitmap_top-top+2+row)*stride+pen+glyph->bitmap_left-left+2;
-                for(unsigned col=0;col<bitmap.width;++col) {
-                    const unsigned alpha=bitmap.pixel_mode==FT_PIXEL_MODE_MONO?
-                        ((source[col/8]&(0x80>>(col%8)))?255:0):source[col];
-                    destination[col]=alpha+(destination[col]*(255-alpha)+127)/255;
-                }
-            } }, advance))
+                                  const auto &bitmap = glyph->bitmap;
+                                  for (unsigned row = 0; row < bitmap.rows; ++row)
+                                  {
+                                      const auto *source = bitmap.buffer + static_cast<int>(row) * bitmap.pitch;
+                                      auto *destination = data + (-glyph->bitmap_top - top + 2 + row) * stride + pen + glyph->bitmap_left - left + 2;
+                                      for (unsigned col = 0; col < bitmap.width; ++col)
+                                      {
+                                          const unsigned alpha = bitmap.pixel_mode == FT_PIXEL_MODE_MONO
+                                                                     ? ((source[col / 8] & (0x80 >> (col % 8))) ? 255 : 0)
+                                                                     : source[col];
+                                          destination[col] = alpha + (destination[col] * (255 - alpha) + 127) / 255;
+                                      }
+                                  } }, advance))
                 return false;
             vita2d_texture_set_filters(texture.get(), SCE_GXM_TEXTURE_FILTER_POINT, SCE_GXM_TEXTURE_FILTER_POINT);
             // Home draws at most two lines. Keep a small cache across recent books.

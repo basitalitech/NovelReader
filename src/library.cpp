@@ -1,9 +1,9 @@
 #include "reader.hpp"
+#include "file_io.hpp"
 #include <algorithm>
 #include <cctype>
 #include <stdexcept>
 #include <fstream>
-#include <cstdio>
 #include <set>
 
 namespace reader
@@ -138,20 +138,13 @@ namespace reader
         for (const auto &book : books)
             if (!valid_book_identity(book))
                 return false;
-        const auto temporary = path + ".tmp";
-        std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
-        out << "NRLIBRARY1\n";
-        std::set<std::string> seen;
-        for (const auto &book : books)
-            if (seen.insert(book).second)
-                out << book << '\n';
-        out.close();
-        if (!out || std::rename(temporary.c_str(), path.c_str()) != 0)
-        {
-            std::remove(temporary.c_str());
-            return false;
-        }
-        return true;
+        return detail::atomic_write_stream(path, [&](std::ostream &output)
+                                           {
+            output << "NRLIBRARY1\n";
+            std::set<std::string> seen;
+            for (const auto &book : books)
+                if (seen.insert(book).second)
+                    output << book << '\n'; });
     }
 
     bool reading_started(const Progress &progress)
@@ -200,15 +193,19 @@ namespace reader
             titles[i] = folded(items[i].title);
         std::sort(order.begin(), order.end(), [&](std::size_t left, std::size_t right)
                   {
-        const auto& a = items[left]; const auto& b = items[right];
-        if (a.directory != b.directory) return a.directory;
-        if (a.guide != b.guide) return !a.guide;
-        if (!a.directory && sort == LibrarySort::Recent && a.progress.last_read != b.progress.last_read)
-            return a.progress.last_read > b.progress.last_read;
-        if (!a.directory && sort == LibrarySort::Progress && a.progress.percent != b.progress.percent)
-            return a.progress.percent > b.progress.percent;
-        const auto& title_a = titles[left]; const auto& title_b = titles[right];
-        return title_a == title_b ? a.filename < b.filename : title_a < title_b; });
+                      const auto &a = items[left];
+                      const auto &b = items[right];
+                      if (a.directory != b.directory)
+                          return a.directory;
+                      if (a.guide != b.guide)
+                          return !a.guide;
+                      if (!a.directory && sort == LibrarySort::Recent && a.progress.last_read != b.progress.last_read)
+                          return a.progress.last_read > b.progress.last_read;
+                      if (!a.directory && sort == LibrarySort::Progress && a.progress.percent != b.progress.percent)
+                          return a.progress.percent > b.progress.percent;
+                      const auto &title_a = titles[left];
+                      const auto &title_b = titles[right];
+                      return title_a == title_b ? a.filename < b.filename : title_a < title_b; });
         return order;
     }
 } // namespace reader

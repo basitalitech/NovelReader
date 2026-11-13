@@ -1,7 +1,7 @@
 #include "online.hpp"
 #include <curl/curl.h>
-#include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <mutex>
 #include <set>
 #include <stdexcept>
@@ -218,16 +218,130 @@ namespace reader
                 state.total = total;
                 state.message = message;
             }
+            Result adapt(const Request &request, const std::string &operation, const std::string &url)
+            {
+                const Fetch fetch = [&](const std::string &target)
+                { return transport ? transport(target) : http(network, assets, request.source, target, canceled); };
+                return run_adapter(assets, request.source, operation, url, request.query, fetch, canceled);
+            }
+            void load_chapters(const Request &request, Update &result)
+            {
+                Novel novel;
+                novel.source = request.source;
+                novel.url = request.url;
+                std::set<std::string> pages, chapters;
+                auto url = request.url;
+                while (!url.empty())
+                {
+                    if (canceled)
+                        throw std::runtime_error("Canceled.");
+                    if (pages.size() >= 400 || !pages.insert(url).second)
+                        throw std::runtime_error("Chapter pagination is too large or repeats.");
+                    status(pages.size(), 0, "Loading chapter list, page " + std::to_string(pages.size()) + "...");
+                    auto page = adapt(request, "chapters", url);
+                    if (novel.title.empty())
+                    {
+                        novel.title = page.title;
+                        novel.author = page.author;
+                        novel.description = page.description;
+                    }
+                    if (novel.cover.empty())
+                        novel.cover = page.cover;
+                    for (auto &c : page.items)
+                        if (chapters.insert(c.url).second)
+                            novel.chapters.push_back(std::move(c));
+                    if (novel.chapters.size() > 20000)
+                        throw std::runtime_error("Novel exceeds 20,000 chapters.");
+                    url = page.next;
+                }
+                if (novel.title.empty() || novel.chapters.empty())
+                    throw std::runtime_error("Novel details or chapters unavailable. Source layout may have changed.");
+                auto path = novel_path(directory, novel);
+                directories(directory + '/' + novel.source);
+                if (!save_novel(path, novel))
+                    throw std::runtime_error("Could not save novel index. Check free space.");
+                if (!novel.cover.empty())
+                {
+                    status(0, 0, "Loading cover artwork...");
+                    // Optional artwork is downloaded on this worker only. A
+                    // failed image must never prevent opening a novel.
+                    try
+                    {
+                        auto bytes = transport ? transport(novel.cover) : http(network, assets, request.source, novel.cover, canceled, true);
+                        ImageInfo info;
+                        std::string error;
+                        if (!canceled && bytes.size() <= max_response_bytes && inspect_image(bytes, info, error))
+                            atomic_write(cover_path(path), bytes);
+                    }
+                    catch (const std::exception &)
+                    {
+                    }
+                    if (canceled)
+                        throw std::runtime_error("Canceled.");
+                }
+                result.novel = std::move(novel);
+                result.manifest = path;
+            }
+            void download_chapters(const Request &request, Update &result)
+            {
+                auto novel = request.novel;
+                if (novel.source != request.source || !allowed_url(novel.source, novel.url) || request.chapter >= novel.chapters.size())
+                    throw std::runtime_error("Invalid download request.");
+                const auto path = novel_path(directory, novel);
+                directories(directory + '/' + novel.source);
+                const auto chapter_file = chapter_path(path, novel.url);
+                directories(chapter_file.substr(0, chapter_file.find_last_of('/')));
+                if (!save_novel(path, novel))
+                    throw std::runtime_error("Could not save novel index.");
+                const auto begin = request.all ? 0 : request.chapter, end = request.all ? novel.chapters.size() : request.chapter + 1;
+                std::size_t done = 0, total = 0;
+                for (auto i = begin; i < end; ++i)
+                    if (!novel.chapters[i].locked)
+                        ++total;
+                for (auto i = begin; i < end; ++i)
+                {
+                    if (canceled)
+                        throw std::runtime_error("Canceled. Completed chapters are kept.");
+                    const auto &chapter = novel.chapters[i];
+                    if (cached(path, chapter.url))
+                    {
+                        Book book;
+                        std::string error;
+                        if (load_book(chapter_path(path, chapter.url), book, error) && !book.text.empty())
+                        {
+                            if (!chapter.locked)
+                                ++done;
+                            continue;
+                        }
+                    }
+                    if (chapter.locked)
+                    {
+                        if (!request.all)
+                            throw std::runtime_error("This chapter requires login or purchase.");
+                        continue;
+                    }
+                    status(done, total, "Downloading " + std::to_string(done + 1) + " / " + std::to_string(total));
+                    auto page = adapt(request, "chapter", chapter.url);
+                    if (page.text.empty() || page.text.size() > max_chapter_bytes)
+                        throw std::runtime_error("Chapter text is empty or exceeds 2 MiB.");
+                    if (!atomic_write(chapter_path(path, chapter.url), page.text))
+                        throw std::runtime_error("Could not save chapter. Check free space.");
+                    ++done;
+                    status(done, total, "Saved " + std::to_string(done) + " / " + std::to_string(total));
+                    // Sequential requests with a short cancelable pause avoid flooding a source.
+                    if (request.all)
+                        for (int n = 0; n < 5 && !canceled; ++n)
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                result.novel = std::move(novel);
+                result.manifest = path;
+            }
             void work(Request request)
             {
                 Update result;
                 result.request = request;
                 try
                 {
-                    auto fetch = [&](const std::string &url)
-                    { return transport ? transport(url) : http(network, assets, request.source, url, canceled); };
-                    auto run = [&](const std::string &op, const std::string &url)
-                    { return run_adapter(assets, request.source, op, url, request.query, fetch, canceled); };
                     if (request.action == Action::CheckUpdates)
                     {
                         status(0, 0, "Checking GitHub for updates...");
@@ -239,7 +353,7 @@ namespace reader
                     else if (request.action == Action::Browse)
                     {
                         status(0, 0, "Loading catalog...");
-                        result.result = run("browse", request.url);
+                        result.result = adapt(request, "browse", request.url);
                     }
                     else if (request.action == Action::Remove)
                     {
@@ -249,116 +363,9 @@ namespace reader
                         result.manifest = request.manifest;
                     }
                     else if (request.action == Action::Chapters)
-                    {
-                        Novel novel;
-                        novel.source = request.source;
-                        novel.url = request.url;
-                        std::set<std::string> pages, chapters;
-                        auto url = request.url;
-                        while (!url.empty())
-                        {
-                            if (canceled)
-                                throw std::runtime_error("Canceled.");
-                            if (pages.size() >= 400 || !pages.insert(url).second)
-                                throw std::runtime_error("Chapter pagination is too large or repeats.");
-                            status(pages.size(), 0, "Loading chapter list, page " + std::to_string(pages.size()) + "...");
-                            auto page = run("chapters", url);
-                            if (novel.title.empty())
-                            {
-                                novel.title = page.title;
-                                novel.author = page.author;
-                                novel.description = page.description;
-                            }
-                            if (novel.cover.empty())
-                                novel.cover = page.cover;
-                            for (auto &c : page.items)
-                                if (chapters.insert(c.url).second)
-                                    novel.chapters.push_back(std::move(c));
-                            if (novel.chapters.size() > 20000)
-                                throw std::runtime_error("Novel exceeds 20,000 chapters.");
-                            url = page.next;
-                        }
-                        if (novel.title.empty() || novel.chapters.empty())
-                            throw std::runtime_error("Novel details or chapters unavailable. Source layout may have changed.");
-                        auto path = novel_path(directory, novel);
-                        directories(directory + '/' + novel.source);
-                        if (!save_novel(path, novel))
-                            throw std::runtime_error("Could not save novel index. Check free space.");
-                        if (!novel.cover.empty())
-                        {
-                            status(0, 0, "Loading cover artwork...");
-                            // Optional artwork is downloaded on this worker only. A
-                            // failed image must never prevent opening a novel.
-                            try
-                            {
-                                auto bytes = transport ? transport(novel.cover) : http(network, assets, request.source, novel.cover, canceled, true);
-                                ImageInfo info;
-                                std::string error;
-                                if (!canceled && bytes.size() <= max_response_bytes && inspect_image(bytes, info, error))
-                                    atomic_write(cover_path(path), bytes);
-                            }
-                            catch (const std::exception &)
-                            {
-                            }
-                            if (canceled)
-                                throw std::runtime_error("Canceled.");
-                        }
-                        result.novel = std::move(novel);
-                        result.manifest = path;
-                    }
+                        load_chapters(request, result);
                     else
-                    {
-                        auto novel = request.novel;
-                        if (novel.source != request.source || !allowed_url(novel.source, novel.url) || request.chapter >= novel.chapters.size())
-                            throw std::runtime_error("Invalid download request.");
-                        const auto path = novel_path(directory, novel);
-                        directories(directory + '/' + novel.source);
-                        directories(chapter_path(path, novel.url).substr(0, chapter_path(path, novel.url).find_last_of('/')));
-                        if (!save_novel(path, novel))
-                            throw std::runtime_error("Could not save novel index.");
-                        const auto begin = request.all ? 0 : request.chapter, end = request.all ? novel.chapters.size() : request.chapter + 1;
-                        std::size_t done = 0, total = 0;
-                        for (auto i = begin; i < end; ++i)
-                            if (!novel.chapters[i].locked)
-                                ++total;
-                        for (auto i = begin; i < end; ++i)
-                        {
-                            if (canceled)
-                                throw std::runtime_error("Canceled. Completed chapters are kept.");
-                            const auto &chapter = novel.chapters[i];
-                            if (cached(path, chapter.url))
-                            {
-                                Book book;
-                                std::string error;
-                                if (load_book(chapter_path(path, chapter.url), book, error) && !book.text.empty())
-                                {
-                                    if (!chapter.locked)
-                                        ++done;
-                                    continue;
-                                }
-                            }
-                            if (chapter.locked)
-                            {
-                                if (!request.all)
-                                    throw std::runtime_error("This chapter requires login or purchase.");
-                                continue;
-                            }
-                            status(done, total, "Downloading " + std::to_string(done + 1) + " / " + std::to_string(total));
-                            auto page = run("chapter", chapter.url);
-                            if (page.text.empty() || page.text.size() > max_chapter_bytes)
-                                throw std::runtime_error("Chapter text is empty or exceeds 2 MiB.");
-                            if (!atomic_write(chapter_path(path, chapter.url), page.text))
-                                throw std::runtime_error("Could not save chapter. Check free space.");
-                            ++done;
-                            status(done, total, "Saved " + std::to_string(done) + " / " + std::to_string(total));
-                            // Sequential requests with a short cancelable pause avoid flooding a source.
-                            if (request.all)
-                                for (int n = 0; n < 5 && !canceled; ++n)
-                                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                        }
-                        result.novel = std::move(novel);
-                        result.manifest = path;
-                    }
+                        download_chapters(request, result);
                     result.message = "Complete.";
                 }
                 catch (const std::exception &e)

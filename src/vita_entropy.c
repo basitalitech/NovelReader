@@ -2,8 +2,8 @@
 #include <mbedtls/platform_time.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/rng.h>
-#include <psp2/kernel/threadmgr.h>
 #include <stddef.h>
+
 mbedtls_ms_time_t mbedtls_ms_time(void) {
   return (mbedtls_ms_time_t)(sceKernelGetProcessTimeWide() / 1000);
 }

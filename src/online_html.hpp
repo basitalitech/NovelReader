@@ -8,7 +8,7 @@ namespace reader
     {
         struct HtmlNode
         {
-            std::string tag, html, text;
+            std::string html, text;
             std::map<std::string, std::string> attrs;
         };
         std::string html_text(const std::string &html);

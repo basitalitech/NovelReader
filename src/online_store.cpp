@@ -1,5 +1,6 @@
 #include "online.hpp"
 #include "performance.hpp"
+#include "file_io.hpp"
 #include <cstdio>
 #include <fstream>
 #include <iomanip>
@@ -90,12 +91,15 @@ namespace reader
             };
             const auto chapter = chapter_path(manifest, "");
             const auto folder = chapter.substr(0, chapter.find_last_of('/'));
-            if (auto *directory = opendir(folder.c_str()))
+            const auto close_directory = [](DIR *directory)
+            { closedir(directory); };
+            std::unique_ptr<DIR, decltype(close_directory)> directory(opendir(folder.c_str()), close_directory);
+            if (directory)
             {
                 while (true)
                 {
                     errno = 0;
-                    const auto *entry = readdir(directory);
+                    const auto *entry = readdir(directory.get());
                     if (!entry)
                     {
                         if (errno)
@@ -109,7 +113,7 @@ namespace reader
                     // other directories; remove its chapters and interrupted writes.
                     erase(folder + '/' + name);
                 }
-                if (closedir(directory) != 0)
+                if (closedir(directory.release()) != 0)
                     ok = false;
                 if (rmdir(folder.c_str()) != 0 && errno != ENOENT)
                     ok = false;
@@ -139,16 +143,7 @@ namespace reader
         }
         bool atomic_write(const std::string &path, const std::string &data)
         {
-            const auto tmp = path + ".tmp";
-            std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-            out.write(data.data(), static_cast<std::streamsize>(data.size()));
-            out.close();
-            if (!out || std::rename(tmp.c_str(), path.c_str()) != 0)
-            {
-                std::remove(tmp.c_str());
-                return false;
-            }
-            return true;
+            return detail::atomic_write(path, data);
         }
         std::string novel_path(const std::string &directory, const Novel &novel) { return directory + '/' + novel.source + '/' + stable_id(novel.url) + ".nvr"; }
         std::string chapter_path(const std::string &manifest, const std::string &url)
@@ -188,9 +183,10 @@ namespace reader
             }
             if (!novel.cover.empty() && allowed_cover_url(novel.cover))
                 out << "COVER " << std::quoted(novel.cover) << '\n';
-            if (out.str().size() > max_response_bytes)
+            const auto data = out.str();
+            if (data.size() > max_response_bytes)
                 return false;
-            return atomic_write(path, out.str());
+            return atomic_write(path, data);
         }
         bool load_novel(const std::string &path, Novel &novel, std::string &error)
         {

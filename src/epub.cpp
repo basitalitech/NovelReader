@@ -252,10 +252,12 @@ namespace reader
             // too, so malformed scalar values cannot reach font rendering.
             visit(document.RootElement(), [&](const XMLElement *element)
                   {
-        for (auto* a = element->FirstAttribute(); a; a = a->Next())
-            if (!valid_utf8(a->Value())) throw std::runtime_error(error);
-        for (auto* n = element->FirstChild(); n; n = n->NextSibling())
-            if (n->ToText() && !valid_utf8(n->Value())) throw std::runtime_error(error); });
+                      for (auto *attribute = element->FirstAttribute(); attribute; attribute = attribute->Next())
+                          if (!valid_utf8(attribute->Value()))
+                              throw std::runtime_error(error);
+                      for (auto *node = element->FirstChild(); node; node = node->NextSibling())
+                          if (node->ToText() && !valid_utf8(node->Value()))
+                              throw std::runtime_error(error); });
         }
 
         bool ignored(const std::string &tag)
@@ -436,23 +438,37 @@ namespace reader
                 parse(document, xhtml_entities(archive.read(path, metadata_limit)), "Invalid EPUB navigation.");
                 visit(document.RootElement(), [&](const XMLElement *element)
                       {
-            std::string href, label;
-            if (ncx && local(element->Name()) == "navPoint") {
-                href = attr(child(element, "content"), "src");
-                label = compact(node_text(child(element, "navLabel")));
-            } else if (!ncx && local(element->Name()) == "a") {
-                // Only use the table of contents, not page lists or landmarks.
-                const XMLNode* parent = element->Parent();
-                while (parent && (!parent->ToElement() || local(parent->Value()) != "nav")) parent = parent->Parent();
-                if (!parent || !token(attr(parent->ToElement(), "type"), "toc")) return;
-                href = attr(element, "href"); label = compact(node_text(element));
-            }
-            if (!href.empty() && !label.empty()) {
-                try { labels.emplace(resolve(path, href), label); } catch (const std::runtime_error&) { }
-            } });
+                          std::string href, label;
+                          if (ncx && local(element->Name()) == "navPoint")
+                          {
+                              href = attr(child(element, "content"), "src");
+                              label = compact(node_text(child(element, "navLabel")));
+                          }
+                          else if (!ncx && local(element->Name()) == "a")
+                          {
+                              // Only use the table of contents, not page lists or landmarks.
+                              const XMLNode *parent = element->Parent();
+                              while (parent && (!parent->ToElement() || local(parent->Value()) != "nav"))
+                                  parent = parent->Parent();
+                              if (!parent || !token(attr(parent->ToElement(), "type"), "toc"))
+                                  return;
+                              href = attr(element, "href");
+                              label = compact(node_text(element));
+                          }
+                          if (!href.empty() && !label.empty())
+                          {
+                              try
+                              {
+                                  labels.emplace(resolve(path, href), label);
+                              }
+                              catch (const std::runtime_error &)
+                              {
+                              }
+                          } });
             }
             catch (const std::runtime_error &)
-            { /* Navigation is optional; the spine is authoritative. */
+            {
+                // Navigation is optional; the spine is authoritative.
             }
         }
 
@@ -464,10 +480,12 @@ namespace reader
             parse(document, archive.read("META-INF/encryption.xml", metadata_limit), "Invalid EPUB encryption metadata.");
             visit(document.RootElement(), [&](const XMLElement *element)
                   {
-        if (local(element->Name()) != "CipherReference") return;
-        const auto uri = resolve("", attr(element, "URI"));
-        for (const auto& chapter : publication.chapters)
-            if (uri == chapter.path) throw std::runtime_error("DRM-encrypted EPUB chapters are not supported."); });
+                      if (local(element->Name()) != "CipherReference")
+                          return;
+                      const auto uri = resolve("", attr(element, "URI"));
+                      for (const auto &chapter : publication.chapters)
+                          if (uri == chapter.path)
+                              throw std::runtime_error("DRM-encrypted EPUB chapters are not supported."); });
         }
 
     } // namespace

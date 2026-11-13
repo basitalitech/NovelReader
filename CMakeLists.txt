@@ -50,7 +50,6 @@ target_include_directories(reader_online PUBLIC include)
 target_link_libraries(reader_online PUBLIC reader_core PRIVATE novel_lua CURL::libcurl)
 target_compile_options(reader_online PRIVATE -Wall -Wextra -Wpedantic)
 if(NOVELREADER_HOST_TESTS)
-    find_package(Threads REQUIRED)
     target_link_libraries(reader_online PRIVATE Threads::Threads)
 else()
     # libstdc++ uses weak pthread probes (including pthread_cancel and
@@ -84,7 +83,9 @@ if(NOVELREADER_HOST_TESTS)
     add_test(NAME button_geometry COMMAND vita_ui_tests)
     add_executable(online_tests tests/online_tests.cpp)
     target_link_libraries(online_tests PRIVATE reader_online)
-    target_compile_definitions(online_tests PRIVATE NOVELREADER_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets")
+    target_compile_definitions(online_tests PRIVATE
+        NOVELREADER_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/assets"
+        NOVELREADER_TEST_ICON="${CMAKE_CURRENT_SOURCE_DIR}/sce_sys/icon0.png")
     target_compile_options(online_tests PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME online_sources COMMAND online_tests)
     # Exercise the actual Vita initialization path without Vita hardware or HTTP.
@@ -143,8 +144,8 @@ else()
     target_compile_options(novelreader PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(novelreader PRIVATE reader_online reader_speech vita2d
         SceDisplay_stub SceGxm_stub SceSysmodule_stub SceCtrl_stub SceTouch_stub
-        ScePgf_stub ScePvf_stub SceCommonDialog_stub SceAppMgr_stub
-        SceIofilemgr_stub ScePower_stub SceProcessmgr_stub SceIme_stub SceAppUtil_stub
+        ScePgf_stub SceCommonDialog_stub SceAppMgr_stub
+        SceIofilemgr_stub SceProcessmgr_stub SceIme_stub SceAppUtil_stub
         freetype bz2 png turbojpeg jpeg z m)
     add_custom_command(TARGET novelreader POST_BUILD
         COMMAND ${CMAKE_COMMAND} "-DNM=${CMAKE_NM}" "-DELF=$<TARGET_FILE:novelreader>"

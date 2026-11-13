@@ -15,20 +15,16 @@
 #else
 #include <psp2/ctrl.h>
 #include <psp2/io/dirent.h>
-#include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
-#include <psp2/kernel/threadmgr.h>
 #include <psp2/touch.h>
 #include <psp2/ime_dialog.h>
 #include <psp2/apputil.h>
-#include <psp2/power.h>
 #include <psp2/display.h>
 #endif
 #include <vita2d.h>
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <exception>
 #include <cmath>
@@ -37,7 +33,6 @@
 #include <memory>
 #include <map>
 #include <string>
-#include <stdexcept>
 #include <vector>
 #include <tuple>
 #include <unordered_set>
@@ -612,243 +607,11 @@ namespace
             if (is_online_screen())
                 return input_online(pressed);
             if (screen_ == Screen::Library)
-            {
-                if (pressed & SCE_CTRL_CIRCLE)
-                {
-                    if (!importing_ && library_search_active_)
-                    {
-                        exit_library_search();
-                    }
-                    else if (importing_ && !current_folder_.empty())
-                    {
-                        const auto child = current_folder_;
-                        std::string parent;
-                        if (child.back() != '/')
-                        {
-                            const auto slash = child.find_last_of('/'), colon = child.find(':');
-                            parent = child.substr(0, slash == colon + 1 ? colon + 2 : slash);
-                        }
-                        browse_folder(parent, child);
-                    }
-                    else if (importing_)
-                    {
-                        browser_.cancel();
-                        browser_loading_ = false;
-                        importing_ = false;
-                        filter_ = import_filter_;
-                        library_query_ = import_query_;
-                        scan();
-                        selected_ = order_.empty() ? 0 : std::min(import_selected_, order_.size() - 1);
-                        focus_memory_[static_cast<int>(Screen::Library)] = 200;
-                        update_cover();
-                    }
-                    else
-                    {
-                        navigate(0);
-                        sidebar_focus_ = true;
-                    }
-                    return true;
-                }
-                if (!importing_)
-                {
-                    if ((pressed & SCE_CTRL_UP) && selected_ >= 4)
-                        selected_ -= 4;
-                    if ((pressed & SCE_CTRL_DOWN) && (selected_ / 4 + 1) * 4 < order_.size())
-                        selected_ = std::min(selected_ + 4, order_.size() - 1);
-                    if (pressed & SCE_CTRL_LEFT)
-                    {
-                        if (selected_ % 4 == 0)
-                            sidebar_focus_ = true;
-                        else
-                            --selected_;
-                    }
-                    if ((pressed & SCE_CTRL_RIGHT) && selected_ + 1 < order_.size())
-                        ++selected_;
-                }
-                else
-                {
-                    if ((pressed & SCE_CTRL_UP) && selected_ > 0)
-                        --selected_;
-                    if ((pressed & SCE_CTRL_DOWN) && selected_ + 1 < order_.size())
-                        ++selected_;
-                    if ((pressed & SCE_CTRL_LEFT) && !order_.empty())
-                        selected_ = selected_ > list_page ? selected_ - list_page : 0;
-                    if ((pressed & SCE_CTRL_RIGHT) && !order_.empty())
-                        selected_ = std::min(selected_ + list_page, order_.size() - 1);
-                }
-                ensure_library_visible();
-                if (pressed & SCE_CTRL_SQUARE)
-                {
-                    if (importing_)
-                        import_selection();
-                    else
-                        perform({"Search", 0, Command::Search});
-                    return true;
-                }
-                if (pressed & SCE_CTRL_TRIANGLE)
-                {
-                    if (!importing_)
-                    {
-                        importing_ = true;
-                        browse_folder("");
-                    }
-                    else
-                        scan({}, true);
-                }
-                update_cover();
-                if ((pressed & SCE_CTRL_CROSS) && !order_.empty())
-                {
-                    if (importing_)
-                        open();
-                    else
-                        perform({"Details", 0, Command::Details});
-                }
-            }
+                return input_library(pressed);
             else if (screen_ == Screen::Reader)
-            {
-                if (pressed & SCE_CTRL_CIRCLE)
-                {
-                    const reader::perf::Scope timing(reader::perf::Event::ReaderExit);
-                    speech_.stop();
-                    if (publication_.online)
-                        online_selected_ = chapter_;
-                    save();
-                    screen_ = publication_.online ? Screen::OnlineChapters : Screen::Library;
-                    if (screen_ == Screen::Library)
-                    {
-                        nav_active_ = nav_selected_ = 1;
-                        sidebar_focus_ = false;
-                    }
-                    // The open chapter and offline summary already describe this
-                    // book. Closing it must not probe every downloaded chapter.
-                    if (publication_.online)
-                    {
-                        online_saved_chapter_ = chapter_;
-                        online_started_ = true;
-                    }
-                    const auto keep = active_filename_;
-                    clear_reading();
-                    ensure_library_order(keep);
-                    if (screen_ == Screen::Library)
-                        update_cover();
-                }
-                else if (pressed & SCE_CTRL_CROSS)
-                {
-                    contents_from_details_ = false;
-                    contents_selected_ = chapter_;
-                    screen_ = Screen::Contents;
-                    message_.clear();
-                }
-                else
-                {
-                    if ((publication_.epub || publication_.online) && (pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER)))
-                    {
-                        if (((pressed & SCE_CTRL_RTRIGGER) && chapter_ + 1 < publication_.chapters.size()) ||
-                            ((pressed & SCE_CTRL_LTRIGGER) && chapter_ > 0))
-                            capture_turn_page();
-                        bool changed = false;
-                        if ((pressed & SCE_CTRL_RTRIGGER) && chapter_ + 1 < publication_.chapters.size())
-                        {
-                            changed = change_chapter(chapter_ + 1, 0);
-                        }
-                        else if ((pressed & SCE_CTRL_LTRIGGER) && chapter_ > 0)
-                        {
-                            changed = change_chapter(chapter_ - 1, 0);
-                        }
-                        if (changed)
-                        {
-                            start_page_turn(pressed & SCE_CTRL_RTRIGGER);
-                            save();
-                        }
-                        return true;
-                    }
-                    const auto previous = top_;
-                    const auto previous_chapter = chapter_;
-                    if (((pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER)) &&
-                         (visible_end() < lines_.size() || chapter_ + 1 < publication_.chapters.size())) ||
-                        ((pressed & (SCE_CTRL_LEFT | SCE_CTRL_LTRIGGER)) && (top_ || chapter_)))
-                        capture_turn_page();
-                    if (pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER))
-                    {
-                        if (visible_end() >= lines_.size() && chapter_ + 1 < publication_.chapters.size())
-                            change_chapter(chapter_ + 1, 0);
-                        else if (visible_end() < lines_.size())
-                            top_ = visible_end();
-                    }
-                    if (pressed & (SCE_CTRL_LEFT | SCE_CTRL_LTRIGGER))
-                    {
-                        if (top_ == 0 && chapter_ > 0)
-                            change_chapter(chapter_ - 1, 0, true);
-                        else
-                            top_ = reader::previous_page_start(pages_, top_);
-                    }
-                    if (pressed & SCE_CTRL_UP)
-                        step_reading(false);
-                    if (pressed & SCE_CTRL_DOWN)
-                        step_reading(true);
-                    bool changed = previous != top_ || previous_chapter != chapter_;
-                    if (changed && (pressed & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT | SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER)))
-                        start_page_turn(pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER));
-                    if (changed)
-                        message_.clear();
-                    if (pressed & SCE_CTRL_SELECT)
-                    {
-                        if (progress_.has_bookmark)
-                        {
-                            if (progress_.bookmark_chapter == chapter_)
-                            {
-                                top_ = reader::block_at_offset(lines_, progress_.bookmark);
-                                changed = true;
-                            }
-                            else
-                                changed = change_chapter(progress_.bookmark_chapter, progress_.bookmark) || changed;
-                        }
-                        else
-                            message_ = "Open Reading controls → Bookmarks to save a bookmark.";
-                    }
-                    if (changed)
-                        save();
-                }
-            }
+                return input_reader(pressed);
             else if (screen_ == Screen::Contents)
-            {
-                if (pressed & SCE_CTRL_TRIANGLE)
-                {
-                    jump_to_chapter();
-                    return true;
-                }
-                if ((pressed & SCE_CTRL_UP) && contents_selected_ > 0)
-                    --contents_selected_;
-                if ((pressed & SCE_CTRL_DOWN) && contents_selected_ + 1 < publication_.chapters.size())
-                    ++contents_selected_;
-                if (pressed & SCE_CTRL_LEFT)
-                    contents_selected_ = contents_selected_ >= 5 ? contents_selected_ - 5 : 0;
-                if ((pressed & SCE_CTRL_RIGHT) && !publication_.chapters.empty())
-                    contents_selected_ = std::min(contents_selected_ + 5, publication_.chapters.size() - 1);
-                if (pressed & SCE_CTRL_CIRCLE)
-                {
-                    if (contents_from_details_)
-                    {
-                        contents_from_details_ = false;
-                        screen_ = Screen::Book;
-                        clear_reading();
-                        update_cover();
-                    }
-                    else
-                        screen_ = Screen::Reader;
-                    message_.clear();
-                }
-                if (pressed & SCE_CTRL_CROSS)
-                {
-                    if ((!lines_.empty() && contents_selected_ == chapter_) ||
-                        change_chapter(contents_selected_, contents_selected_ == progress_.chapter ? progress_.offset : 0))
-                    {
-                        contents_from_details_ = false;
-                        screen_ = Screen::Reader;
-                        save();
-                    }
-                }
-            }
+                return input_contents(pressed);
             else if (screen_ == Screen::Illustrations)
             {
                 if ((pressed & SCE_CTRL_UP) && illustration_selected_ > 0)
@@ -868,39 +631,7 @@ namespace
                     show_illustration(illustration_selected_, Screen::Illustrations);
             }
             else if (screen_ == Screen::Image)
-            {
-                if (pressed & SCE_CTRL_CIRCLE)
-                {
-                    release_image();
-                    screen_ = image_return_;
-                    message_.clear();
-                }
-                else
-                {
-                    if ((pressed & SCE_CTRL_LTRIGGER) && illustration_selected_ > 0)
-                        show_illustration(illustration_selected_ - 1, image_return_);
-                    if ((pressed & SCE_CTRL_RTRIGGER) && illustration_selected_ + 1 < book_.illustrations.size())
-                        show_illustration(illustration_selected_ + 1, image_return_);
-                    if (pressed & SCE_CTRL_CROSS)
-                        zoom_ = std::min(4.0f, zoom_ * 1.25f);
-                    if (pressed & SCE_CTRL_SQUARE)
-                        zoom_ = std::max(1.0f, zoom_ / 1.25f);
-                    if (pressed & SCE_CTRL_TRIANGLE)
-                    {
-                        zoom_ = 1.0f;
-                        pan_x_ = pan_y_ = 0;
-                    }
-                    if (pressed & SCE_CTRL_LEFT)
-                        pan_x_ += 40;
-                    if (pressed & SCE_CTRL_RIGHT)
-                        pan_x_ -= 40;
-                    if (pressed & SCE_CTRL_UP)
-                        pan_y_ += 40;
-                    if (pressed & SCE_CTRL_DOWN)
-                        pan_y_ -= 40;
-                    clamp_pan();
-                }
-            }
+                return input_image(pressed);
             else if (screen_ == Screen::Settings)
             {
                 if (pressed & SCE_CTRL_SELECT)
@@ -1013,7 +744,6 @@ namespace
             }
             pan_image(-x * 480 * seconds, -y * 480 * seconds);
         }
-        std::size_t folder_revision() const { return folder_revision_; }
         void pan_image(float dx, float dy)
         {
             if (screen_ != Screen::Image && !inspecting_)
@@ -1263,7 +993,7 @@ namespace
                         focus_memory_[focus_key()] = 1000 + selected_;
                     }
                 }
-                else if (screen_ == Screen::Library || screen_ == Screen::Contents || screen_ == Screen::Illustrations ||
+                else if (screen_ == Screen::Contents || screen_ == Screen::Illustrations ||
                          screen_ == Screen::Catalog || screen_ == Screen::OnlineChapters || screen_ == Screen::Sources || screen_ == Screen::Bookmarks)
                 {
                     turn_collection_page(forward);
@@ -1324,6 +1054,286 @@ namespace
         }
 
     private:
+        bool input_library(unsigned pressed)
+        {
+            if (pressed & SCE_CTRL_CIRCLE)
+            {
+                if (!importing_ && library_search_active_)
+                {
+                    exit_library_search();
+                }
+                else if (importing_ && !current_folder_.empty())
+                {
+                    const auto child = current_folder_;
+                    std::string parent;
+                    if (child.back() != '/')
+                    {
+                        const auto slash = child.find_last_of('/'), colon = child.find(':');
+                        parent = child.substr(0, slash == colon + 1 ? colon + 2 : slash);
+                    }
+                    browse_folder(parent, child);
+                }
+                else if (importing_)
+                {
+                    browser_.cancel();
+                    browser_loading_ = false;
+                    importing_ = false;
+                    filter_ = import_filter_;
+                    library_query_ = import_query_;
+                    scan();
+                    selected_ = order_.empty() ? 0 : std::min(import_selected_, order_.size() - 1);
+                    focus_memory_[static_cast<int>(Screen::Library)] = 200;
+                    update_cover();
+                }
+                else
+                {
+                    navigate(0);
+                    sidebar_focus_ = true;
+                }
+                return true;
+            }
+            if (!importing_)
+            {
+                if ((pressed & SCE_CTRL_UP) && selected_ >= 4)
+                    selected_ -= 4;
+                if ((pressed & SCE_CTRL_DOWN) && (selected_ / 4 + 1) * 4 < order_.size())
+                    selected_ = std::min(selected_ + 4, order_.size() - 1);
+                if (pressed & SCE_CTRL_LEFT)
+                {
+                    if (selected_ % 4 == 0)
+                        sidebar_focus_ = true;
+                    else
+                        --selected_;
+                }
+                if ((pressed & SCE_CTRL_RIGHT) && selected_ + 1 < order_.size())
+                    ++selected_;
+            }
+            else
+            {
+                if ((pressed & SCE_CTRL_UP) && selected_ > 0)
+                    --selected_;
+                if ((pressed & SCE_CTRL_DOWN) && selected_ + 1 < order_.size())
+                    ++selected_;
+                if ((pressed & SCE_CTRL_LEFT) && !order_.empty())
+                    selected_ = selected_ > list_page ? selected_ - list_page : 0;
+                if ((pressed & SCE_CTRL_RIGHT) && !order_.empty())
+                    selected_ = std::min(selected_ + list_page, order_.size() - 1);
+            }
+            ensure_library_visible();
+            if (pressed & SCE_CTRL_SQUARE)
+            {
+                if (importing_)
+                    import_selection();
+                else
+                    perform({"Search", 0, Command::Search});
+                return true;
+            }
+            if (pressed & SCE_CTRL_TRIANGLE)
+            {
+                if (!importing_)
+                {
+                    importing_ = true;
+                    browse_folder("");
+                }
+                else
+                    scan({}, true);
+            }
+            update_cover();
+            if ((pressed & SCE_CTRL_CROSS) && !order_.empty())
+            {
+                if (importing_)
+                    open();
+                else
+                    perform({"Details", 0, Command::Details});
+            }
+            return true;
+        }
+
+        bool input_reader(unsigned pressed)
+        {
+            if (pressed & SCE_CTRL_CIRCLE)
+            {
+                const reader::perf::Scope timing(reader::perf::Event::ReaderExit);
+                speech_.stop();
+                if (publication_.online)
+                    online_selected_ = chapter_;
+                save();
+                screen_ = publication_.online ? Screen::OnlineChapters : Screen::Library;
+                if (screen_ == Screen::Library)
+                {
+                    nav_active_ = nav_selected_ = 1;
+                    sidebar_focus_ = false;
+                }
+                // The open chapter and offline summary already describe this
+                // book. Closing it must not probe every downloaded chapter.
+                if (publication_.online)
+                {
+                    online_saved_chapter_ = chapter_;
+                    online_started_ = true;
+                }
+                const auto keep = active_filename_;
+                clear_reading();
+                ensure_library_order(keep);
+                if (screen_ == Screen::Library)
+                    update_cover();
+            }
+            else if (pressed & SCE_CTRL_CROSS)
+            {
+                contents_from_details_ = false;
+                contents_selected_ = chapter_;
+                screen_ = Screen::Contents;
+                message_.clear();
+            }
+            else
+            {
+                if ((publication_.epub || publication_.online) && (pressed & (SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER)))
+                {
+                    if (((pressed & SCE_CTRL_RTRIGGER) && chapter_ + 1 < publication_.chapters.size()) ||
+                        ((pressed & SCE_CTRL_LTRIGGER) && chapter_ > 0))
+                        capture_turn_page();
+                    bool changed = false;
+                    if ((pressed & SCE_CTRL_RTRIGGER) && chapter_ + 1 < publication_.chapters.size())
+                    {
+                        changed = change_chapter(chapter_ + 1, 0);
+                    }
+                    else if ((pressed & SCE_CTRL_LTRIGGER) && chapter_ > 0)
+                    {
+                        changed = change_chapter(chapter_ - 1, 0);
+                    }
+                    if (changed)
+                    {
+                        start_page_turn(pressed & SCE_CTRL_RTRIGGER);
+                        save();
+                    }
+                    return true;
+                }
+                const auto previous = top_;
+                const auto previous_chapter = chapter_;
+                if (((pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER)) &&
+                     (visible_end() < lines_.size() || chapter_ + 1 < publication_.chapters.size())) ||
+                    ((pressed & (SCE_CTRL_LEFT | SCE_CTRL_LTRIGGER)) && (top_ || chapter_)))
+                    capture_turn_page();
+                if (pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER))
+                {
+                    if (visible_end() >= lines_.size() && chapter_ + 1 < publication_.chapters.size())
+                        change_chapter(chapter_ + 1, 0);
+                    else if (visible_end() < lines_.size())
+                        top_ = visible_end();
+                }
+                if (pressed & (SCE_CTRL_LEFT | SCE_CTRL_LTRIGGER))
+                {
+                    if (top_ == 0 && chapter_ > 0)
+                        change_chapter(chapter_ - 1, 0, true);
+                    else
+                        top_ = reader::previous_page_start(pages_, top_);
+                }
+                if (pressed & SCE_CTRL_UP)
+                    step_reading(false);
+                if (pressed & SCE_CTRL_DOWN)
+                    step_reading(true);
+                bool changed = previous != top_ || previous_chapter != chapter_;
+                if (changed && (pressed & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT | SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER)))
+                    start_page_turn(pressed & (SCE_CTRL_RIGHT | SCE_CTRL_RTRIGGER));
+                if (changed)
+                    message_.clear();
+                if (pressed & SCE_CTRL_SELECT)
+                {
+                    if (progress_.has_bookmark)
+                    {
+                        if (progress_.bookmark_chapter == chapter_)
+                        {
+                            top_ = reader::block_at_offset(lines_, progress_.bookmark);
+                            changed = true;
+                        }
+                        else
+                            changed = change_chapter(progress_.bookmark_chapter, progress_.bookmark) || changed;
+                    }
+                    else
+                        message_ = "Open Reading controls → Bookmarks to save a bookmark.";
+                }
+                if (changed)
+                    save();
+            }
+            return true;
+        }
+
+        bool input_contents(unsigned pressed)
+        {
+            if (pressed & SCE_CTRL_TRIANGLE)
+            {
+                jump_to_chapter();
+                return true;
+            }
+            if ((pressed & SCE_CTRL_UP) && contents_selected_ > 0)
+                --contents_selected_;
+            if ((pressed & SCE_CTRL_DOWN) && contents_selected_ + 1 < publication_.chapters.size())
+                ++contents_selected_;
+            if (pressed & SCE_CTRL_LEFT)
+                contents_selected_ = contents_selected_ >= 5 ? contents_selected_ - 5 : 0;
+            if ((pressed & SCE_CTRL_RIGHT) && !publication_.chapters.empty())
+                contents_selected_ = std::min(contents_selected_ + 5, publication_.chapters.size() - 1);
+            if (pressed & SCE_CTRL_CIRCLE)
+            {
+                if (contents_from_details_)
+                {
+                    contents_from_details_ = false;
+                    screen_ = Screen::Book;
+                    clear_reading();
+                    update_cover();
+                }
+                else
+                    screen_ = Screen::Reader;
+                message_.clear();
+            }
+            if (pressed & SCE_CTRL_CROSS)
+            {
+                if ((!lines_.empty() && contents_selected_ == chapter_) ||
+                    change_chapter(contents_selected_, contents_selected_ == progress_.chapter ? progress_.offset : 0))
+                {
+                    contents_from_details_ = false;
+                    screen_ = Screen::Reader;
+                    save();
+                }
+            }
+            return true;
+        }
+
+        bool input_image(unsigned pressed)
+        {
+            if (pressed & SCE_CTRL_CIRCLE)
+            {
+                release_image();
+                screen_ = image_return_;
+                message_.clear();
+            }
+            else
+            {
+                if ((pressed & SCE_CTRL_LTRIGGER) && illustration_selected_ > 0)
+                    show_illustration(illustration_selected_ - 1, image_return_);
+                if ((pressed & SCE_CTRL_RTRIGGER) && illustration_selected_ + 1 < book_.illustrations.size())
+                    show_illustration(illustration_selected_ + 1, image_return_);
+                if (pressed & SCE_CTRL_CROSS)
+                    zoom_ = std::min(4.0f, zoom_ * 1.25f);
+                if (pressed & SCE_CTRL_SQUARE)
+                    zoom_ = std::max(1.0f, zoom_ / 1.25f);
+                if (pressed & SCE_CTRL_TRIANGLE)
+                {
+                    zoom_ = 1.0f;
+                    pan_x_ = pan_y_ = 0;
+                }
+                if (pressed & SCE_CTRL_LEFT)
+                    pan_x_ += 40;
+                if (pressed & SCE_CTRL_RIGHT)
+                    pan_x_ -= 40;
+                if (pressed & SCE_CTRL_UP)
+                    pan_y_ += 40;
+                if (pressed & SCE_CTRL_DOWN)
+                    pan_y_ -= 40;
+                clamp_pan();
+            }
+            return true;
+        }
+
         enum class WidgetKind
         {
             Action,
@@ -3957,7 +3967,10 @@ namespace
                      box.width - 48);
                 if (!removal_busy_)
                     button(feedback_action(false), {"Cancel",
-                                                    retry_request_.action == reader::online::Action::CheckUpdates ? 0u : static_cast<unsigned>(SCE_CTRL_CIRCLE)});
+                                                    (retry_request_.action == reader::online::Action::CheckUpdates ||
+                                                     retry_request_.action == reader::online::Action::Browse)
+                                                        ? 0u
+                                                        : static_cast<unsigned>(SCE_CTRL_CIRCLE)});
             }
         }
 
@@ -4298,7 +4311,6 @@ namespace
             if (screen_ == Screen::Book && order_.empty())
             {
                 release_image();
-                cover_message_.clear();
                 return;
             }
             const reader::LibraryItem *item = nullptr;
@@ -4328,19 +4340,18 @@ namespace
                 return;
             release_image();
             cover_key_ = key;
-            cover_message_.clear();
             if (entry.cover_path.empty())
                 return;
             const reader::perf::Scope timing(reader::perf::Event::CoverDecode);
             try
             {
-                std::string bytes;
-                if (load_cover_bytes(entry, bytes, cover_message_))
-                    image_ = decode_texture(bytes, cover_message_);
+                std::string bytes, error;
+                if (load_cover_bytes(entry, bytes, error))
+                    image_ = decode_texture(bytes, error);
             }
             catch (const std::exception &)
             {
-                cover_message_ = "Cover could not be loaded.";
+                // Optional artwork failures leave the details placeholder visible.
             }
         }
         static bool load_cover_bytes(const reader::LibraryItem &item, std::string &bytes, std::string &error)
@@ -5587,7 +5598,7 @@ namespace
         reader::LibrarySort sort_ = reader::LibrarySort::Title;
         reader::LibraryFilter filter_ = reader::LibraryFilter::All;
         vita2d_texture *image_ = nullptr;
-        std::string cover_key_, cover_message_;
+        std::string cover_key_;
         float zoom_ = 1, pan_x_ = 0, pan_y_ = 0;
         bool inspecting_ = false;
         std::uint64_t inspection_hint_until_ = 0;

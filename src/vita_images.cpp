@@ -2,7 +2,6 @@
 #include "reader.hpp"
 #include <png.h>
 #include <turbojpeg.h>
-#include <algorithm>
 #include <cstdint>
 
 vita2d_texture *decode_texture(const std::string &bytes, std::string &error)

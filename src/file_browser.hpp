@@ -4,12 +4,13 @@
 #include "reader.hpp"
 #include <atomic>
 #include <condition_variable>
-#include <mutex>
-#include <thread>
+#include <cstdio>
+#include <exception>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <unordered_set>
-#include <cstdio>
 
 namespace
 {
@@ -27,8 +28,9 @@ namespace
             std::size_t skipped = 0, failed = 0;
         };
         FileBrowser(std::string directory, std::string index)
-            : directory_(std::move(directory)), index_(std::move(index)), worker_([this]
-                                                                                  { run(); }) {}
+            : directory_(std::move(directory)), index_(std::move(index)),
+              worker_([this]
+                      { run(); }) {}
         ~FileBrowser()
         {
             {
@@ -40,7 +42,8 @@ namespace
             worker_.join();
         }
         void list(const std::string &path, const std::string &restore,
-                  std::vector<std::string> books, std::function<void(reader::LibraryItem &)> metadata)
+                  std::vector<std::string> books,
+                  std::function<void(reader::LibraryItem &)> metadata)
         {
             std::lock_guard<std::mutex> lock(mutex_);
             ++generation_;
@@ -62,7 +65,8 @@ namespace
             has_pending_ = false;
             result_.reset();
         }
-        void import(std::vector<reader::LibraryItem> items, std::vector<std::string> books,
+        void import(std::vector<reader::LibraryItem> items,
+                    std::vector<std::string> books,
                     std::function<void(reader::LibraryItem &)> metadata)
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -87,7 +91,10 @@ namespace
         std::atomic<std::size_t> completed{0}, total{0};
 
     private:
-        bool canceled(unsigned generation) const { return generation_.load() != generation; }
+        bool canceled(unsigned generation) const
+        {
+            return generation_.load() != generation;
+        }
         void listing(Result &job, unsigned generation)
         {
             if (job.path.empty())
@@ -114,13 +121,15 @@ namespace
             }
             if (job.path.compare(0, 5, "ux0:/") != 0)
             {
-                job.error = "Cannot open this folder. Go Back or check storage and refresh.";
+                job.error =
+                    "Cannot open this folder. Go Back or check storage and refresh.";
                 return;
             }
             const auto handle = sceIoDopen(job.path.c_str());
             if (handle < 0)
             {
-                job.error = "Cannot open this folder. Go Back or check storage and refresh.";
+                job.error =
+                    "Cannot open this folder. Go Back or check storage and refresh.";
                 return;
             }
             // Close even when allocation or decoding fails.
@@ -143,26 +152,30 @@ namespace
                 if (!reader::valid_library_component(name))
                     continue;
                 const bool folder = SCE_S_ISDIR(entry.d_stat.st_mode);
-                if (!folder && !(SCE_S_ISREG(entry.d_stat.st_mode) && reader::is_supported_book(name)))
+                if (!folder && !(SCE_S_ISREG(entry.d_stat.st_mode) &&
+                                 reader::is_supported_book(name)))
                     continue;
                 const auto path = job.path + (job.path.back() == '/' ? "" : "/") + name;
                 if (!reader::valid_device_path(path))
                     continue;
                 if (job.items.size() >= 20000)
                 {
-                    job.error = "Folder limit reached (20,000 entries). Browse a smaller folder.";
+                    job.error =
+                        "Folder limit reached (20,000 entries). Browse a smaller folder.";
                     break;
                 }
                 reader::LibraryItem item;
                 item.path = path;
                 item.directory = folder;
-                item.filename = folder ? path : reader::library_identity(path, directory_);
+                item.filename =
+                    folder ? path : reader::library_identity(path, directory_);
                 item.title = name;
                 job.items.push_back(std::move(item));
             }
             if (read < 0)
                 job.error = "Folder read interrupted. Check storage and refresh.";
-            const std::unordered_set<std::string> known(job.books.begin(), job.books.end());
+            const std::unordered_set<std::string> known(job.books.begin(),
+                                                        job.books.end());
             for (auto &item : job.items)
             {
                 if (canceled(generation))
@@ -190,7 +203,8 @@ namespace
                 }
                 SceIoStat stat{};
                 if (item.directory || !reader::is_supported_book(item.path) ||
-                    sceIoGetstat(item.path.c_str(), &stat) < 0 || !SCE_S_ISREG(stat.st_mode))
+                    sceIoGetstat(item.path.c_str(), &stat) < 0 ||
+                    !SCE_S_ISREG(stat.st_mode))
                 {
                     ++job.failed;
                     ++completed;
@@ -230,7 +244,8 @@ namespace
             // whose chapter caches must remain beside their original files.
             job.saved = job.items.empty() || reader::save_library(index_, job.books);
             if (!job.saved)
-                job.error = "Could not save library. Check free storage; sources are unchanged.";
+                job.error =
+                    "Could not save library. Check free storage; sources are unchanged.";
         }
         void run()
         {
@@ -256,13 +271,16 @@ namespace
                     {
                         listing(job, generation);
                         if (!canceled(generation))
-                            job.order = reader::library_order(job.items, reader::LibrarySort::Title, reader::LibraryFilter::All);
+                            job.order =
+                                reader::library_order(job.items, reader::LibrarySort::Title,
+                                                      reader::LibraryFilter::All);
                     }
                 }
                 catch (const std::exception &)
                 {
                     job.saved = false;
-                    job.error = "Could not load files. Check storage or choose a smaller folder.";
+                    job.error =
+                        "Could not load files. Check storage or choose a smaller folder.";
                 }
                 {
                     std::lock_guard<std::mutex> lock(mutex_);
@@ -281,4 +299,4 @@ namespace
         std::unique_ptr<Result> result_;
         std::thread worker_;
     };
-}
+} // namespace

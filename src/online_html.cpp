@@ -1,7 +1,7 @@
 #include "online_html.hpp"
 #include "online.hpp"
-#include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <stdexcept>
 
 namespace reader
@@ -248,7 +248,6 @@ namespace reader
                 if (selected_bytes > 8 * 1024 * 1024)
                     throw std::runtime_error("Selected HTML exceeds memory limit.");
                 HtmlNode node;
-                node.tag = t.tag;
                 node.attrs = t.attrs;
                 node.html = html.substr(t.end, end - t.end);
                 node.text = html_text(node.html);

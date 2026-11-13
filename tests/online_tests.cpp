@@ -156,6 +156,8 @@ namespace
     void persistence()
     {
         const auto dir = scratch();
+        check(!atomic_write(dir, "bytes") && access((dir + ".tmp").c_str(), F_OK) != 0,
+              "Failed cache replacement left a temporary file");
         mkdir((dir + "/novgo").c_str(), 0777);
         Novel n{"novgo", "A \"novel\"", "Author", "https://novgo.net/book.html", "Description", {{"One", "https://novgo.net/book/one.html", false}, {"Two", "https://novgo.net/book/two.html", false}}};
         const auto path = novel_path(dir, n);
@@ -189,7 +191,7 @@ namespace
     }
     void artwork()
     {
-        const auto png = read_file(assets + "/ui/icon0.png", max_response_bytes);
+        const auto png = read_file(NOVELREADER_TEST_ICON, max_response_bytes);
         const auto dir = scratch();
         const std::string image_url = "https://cdn.example.org/cover.png";
         const std::string html = "<h1>Artwork fixture</h1><meta property='og:image' content='" + image_url + "'><div id='list-chapter'><a href='/art/1.html'>One</a></div>";
