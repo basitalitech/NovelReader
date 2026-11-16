@@ -8,7 +8,7 @@ if(NOT NOVELREADER_HOST_TESTS AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "$ENV{VITASDK}/share/vita.toolchain.cmake" CACHE PATH "Vita toolchain")
 endif()
 
-project(NovelReader VERSION 0.7.0 LANGUAGES C CXX)
+project(NovelReader VERSION 0.8.0 LANGUAGES C CXX)
 option(NOVELREADER_PROFILE "Aggregate performance timings (Vita: performance.csv on clean exit)" OFF)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -158,7 +158,7 @@ else()
     vita_create_self(eboot.bin novelreader UNSAFE)
     include(cmake/CheckLiveAreaAssets.cmake)
     vita_create_vpk(NovelReader.vpk NVRD00001 eboot.bin
-        VERSION "00.70" NAME "NovelReader"
+        VERSION "00.80" NAME "NovelReader"
         FILE third_party/flite/COPYING licenses/flite-COPYING.txt
         FILE third_party/flite/ACKNOWLEDGEMENTS licenses/flite-ACKNOWLEDGEMENTS.txt
         FILE third_party/tinyxml2/LICENSE.txt licenses/tinyxml2-LICENSE.txt

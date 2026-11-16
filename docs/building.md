@@ -30,14 +30,15 @@ Run from the repository root:
 export VITASDK=/usr/local/vitasdk  # Use your installation path.
 export PATH="$VITASDK/bin:$PATH"
 
-cmake -S . -B build/vita -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake -S . -B build/vita -DCMAKE_BUILD_TYPE=Release -DNOVELREADER_PROFILE=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build build/vita -j2
 ```
 
 [CMakeLists.txt](../CMakeLists.txt) selects `$VITASDK/share/vita.toolchain.cmake`
 when host tests are disabled. Keep Vita and host builds in separate directories.
 The result is `build/vita/NovelReader.vpk`, using title ID `NVRD00001` and package
-version `00.70` for source version `0.7.0`.
+version `00.80` for source version `0.8.0`. Passing `-DNOVELREADER_PROFILE=OFF`
+also disables profiling if the build directory was previously used for diagnostics.
 
 Configuration validates the packaged LiveArea PNGs. After linking, the build
 checks that the pthread implementation needed by the workers is present.

@@ -25,10 +25,21 @@ replacement.
 | EPUB directory | Shared immutable ZIP positions for the open publication, with up to 1 MiB of entry names and 20,000 entries |
 
 Cache keys include the relevant font/size/layout parameters. Explicit folder
-refresh invalidates affected book assets. Startup prepares the first Library
-covers, three bookmark passages, and sidebar screen resources in an offscreen
-target without presenting those frames. Failed target allocation leaves text
-resources to initialize on demand.
+refresh invalidates affected book assets. Startup loads membership, progress,
+and metadata, then prepares the sidebar screens in an offscreen texture. It
+loads existing thumbnails for the first Library page and Home and reads up to
+three bookmark previews. Missing thumbnails are generated after the screen is
+visible. The Library requests cover batches of up to
+four and prefetches an adjacent row when the texture cache has room. One worker
+decodes one cover at a time. The render thread uploads completed thumbnails, and
+title cards stay usable while artwork is loading.
+
+Imported books and saved online favorites queue versioned, compressed thumbnails
+in `ux0:data/NovelReader/thumbnails/`. Existing books populate the disk cache
+when first displayed. Cache hits read thumbnail-sized pixels without opening the
+EPUB archive or decoding the original image. PNG generation keeps only sampled
+rows and JPEG generation uses scaled decoding. The original cover stays available
+for Book Details.
 
 Unchanged screens keep the displayed frame while the main loop polls input and
 waits for VBlank. Input, timers, keyboard activity, downloads, narration, and
@@ -38,8 +49,8 @@ Allocation failure uses the existing transition fallbacks.
 
 ## Known synchronous work
 
-Cold library metadata loading, uncached bookmark previews, chapter/book reads,
-EPUB image decoding, and font-setting reflow can block the UI. Wrapping now uses
+Cold library metadata loading, chapter/book reads, full-size details artwork,
+inline EPUB image decoding, and font-setting reflow can block the UI. Wrapping now uses
 exponential probes and binary search rather than measuring every character
 prefix; font measurements cache metrics without filling a GPU atlas. Theme and
 page-effect changes skip text reflow. Narration
@@ -122,6 +133,23 @@ build adds these columns to each `# epub_load` sample:
 The timing calls around font measurements add some overhead. Use this build to
 identify expensive stages. Compare before-and-after latency using builds with
 the same instrumentation.
+
+### Compare startup and the first Library visit
+
+Install each startup profiling VPK in turn. Keep the library, storage, and
+settings the same. Launch the app, wait for Home, open Library once, and keep the
+first grid page visible until its covers settle. Save and exit from Library
+Options and copy `performance.csv` before running the other build.
+
+| Event | What it measures |
+| --- | --- |
+| `startup_home` | App entry through presentation of the first interactive Home frame. |
+| `first_library` | The action that opens Library through presentation of the first interactive grid frame. |
+| `first_library_covers` | The same Library action through the first frame with all visible cover requests resolved, including placeholders for unavailable artwork. |
+
+These events distinguish the time spent waiting to navigate from the time spent
+waiting for artwork. `scan` still includes the synchronous metadata pass, and
+`cover_decode` measures cover work wherever it occurred during the session.
 
 For the host benchmark, enable profiling in the host build and run from its fixture:
 

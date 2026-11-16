@@ -84,6 +84,7 @@ connection failures. Limits include 4 MiB per response, 2 MiB per chapter text,
 | `ux0:data/NovelReader/library.txt` | Imported membership and online favorites |
 | `ux0:data/NovelReader/settings.txt` | Reader and library preferences |
 | `ux0:data/NovelReader/progress/` | Per-book reading position and bookmark |
+| `ux0:data/NovelReader/thumbnails/` | Reusable Library and Home cover thumbnails. Missing or stale thumbnails rebuild from the originals |
 | `ux0:data/NovelReader/books/Online/` | Online indexes, cached covers, and hidden chapter directories |
 
 Local books can live elsewhere on `ux0:`; the library index refers to those paths.

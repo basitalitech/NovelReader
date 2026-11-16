@@ -42,6 +42,8 @@
 #include "file_browser.hpp"
 #include "book_search.hpp"
 #include "file_io.hpp"
+#include "library_assets.hpp"
+#include "thumbnail_store.hpp"
 
 extern "C"
 {
@@ -53,6 +55,7 @@ namespace
     const std::string root = "ux0:data/NovelReader";
     const std::string books_directory = root + "/books";
     const std::string progress_directory = root + "/progress";
+    const std::string thumbnails_directory = root + "/thumbnails";
     const std::string settings_path = root + "/settings.txt";
     const std::string library_path = root + "/library.txt";
 
@@ -214,11 +217,16 @@ namespace
 #endif
     public:
         explicit App(vita2d_pgf *font, reader::speech::Player::AudioFactory audio = reader::speech::platform_audio,
-                     reader::online::Fetch transport = {})
+                     reader::online::Fetch transport = {}, std::uint64_t launched_at = 0)
             : fonts_(font), speech_(std::move(audio)),
               online_("app0:", books_directory + "/Online", std::move(transport)),
               settings_(reader::load_settings(settings_path))
         {
+#ifdef NOVELREADER_PROFILE
+            startup_started_ = launched_at ? launched_at : reader::perf::now();
+#else
+            (void)launched_at;
+#endif
             sort_ = static_cast<reader::LibrarySort>(settings_.library_sort);
             filter_ = static_cast<reader::LibraryFilter>(settings_.library_filter);
             immersive_ = settings_.immersive != 0;
@@ -244,6 +252,7 @@ namespace
         {
             speech_.stop();
             online_.cancel();
+            library_assets_.stop();
             if (ime_active_)
             {
                 sceImeDialogAbort();
@@ -272,8 +281,10 @@ namespace
             else
                 pending_reader_load_ = {};
 #ifdef NOVELREADER_PROFILE
+            record_view_timing();
             reader::perf::sample_heap();
 #endif
+            schedule_library_assets();
         }
         void draw_loading()
         {
@@ -310,66 +321,85 @@ namespace
         }
         void prepare_startup_views()
         {
-            // Render once into a temporary target so glyph atlases, text layouts,
-            // thumbnails and bookmark excerpts are ready before first navigation.
-            // Never present these frames: the loading screen stays on the display.
             draw_startup(0.65f, "Preparing screen resources");
             std::unique_ptr<vita2d_texture, TextureDeleter> target(
                 vita2d_create_empty_texture_rendertarget(960, 544, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8));
             const auto saved_filter = filter_;
-            const auto keep = selected_filename();
+            const auto saved_selected = selected_;
+            const auto saved_scroll = library_scroll_;
             const auto saved_sidebar = sidebar_focus_;
+            auto saved_focus = std::move(focus_memory_);
+            std::vector<std::size_t> saved_order;
+            if (filter_ != reader::LibraryFilter::All)
+            {
+                saved_order = reader::library_order(entries_, sort_, reader::LibraryFilter::All);
+                saved_order.swap(order_);
+                filter_ = reader::LibraryFilter::All;
+            }
+            selected_ = 0;
+            library_scroll_ = library_scroll_drawn_ = 0;
             const Screen screens[] = {Screen::Library, Screen::Bookmarks, Screen::Settings, Screen::About, Screen::Home};
             const char *stages[] = {"Preparing library covers", "Preparing bookmark passages",
                                     "Preparing reader settings", "Preparing About", "Preparing Home"};
-            // The first Library visit opens All books at the top of the grid.
-            filter_ = reader::LibraryFilter::All;
-            ensure_library_order("");
-            selected_ = 0;
-            library_scroll_ = 0;
-            sidebar_focus_ = false;
             for (std::size_t i = 0; i < 5; ++i)
             {
                 draw_startup(0.65f + 0.065f * i, stages[i]);
                 screen_ = screens[i];
                 nav_active_ = nav_selected_ = i == 4 ? 0 : static_cast<int>(i) + 1;
-                sync_covers();
-                sync_bookmark_previews();
-                if (!target)
-                    continue; // Cache I/O even if GPU warm-up is unavailable.
-                vita2d_start_drawing_advanced(target.get(), 0);
-                vita2d_clear_screen();
-                draw_background();
-                draw_sidebar();
                 if (screen_ == Screen::Library)
-                    draw_library();
-                else if (screen_ == Screen::Bookmarks)
-                    draw_bookmarks();
-                else if (screen_ == Screen::Settings)
-                    draw_settings();
-                else if (screen_ == Screen::About)
-                    draw_about();
-                else
-                    draw_home();
-                interface_layer_ = true;
-                draw_chrome();
-                draw_toolbar();
-                interface_layer_ = false;
-                vita2d_end_drawing();
-                // Complete GPU use before reusing/freeing the target or its assets.
-                vita2d_wait_rendering_done();
-                fonts_.finish_frame();
+                    for (auto item = library_first(); item < library_end(); ++item)
+                        warm_cached_cover(entries_[order_[item]]);
+                if (screen_ == Screen::Bookmarks)
+                    warm_bookmark_previews();
+                if (screen_ == Screen::Home)
+                {
+                    const auto recent = reader::ui::recent_book(entries_);
+                    if (recent < entries_.size())
+                        warm_cached_cover(entries_[recent]);
+                }
+                if (target)
+                {
+                    draw_frame(target.get());
+                    vita2d_wait_rendering_done();
+                    fonts_.finish_frame();
+                }
             }
-            screen_ = Screen::Home;
-            nav_active_ = nav_selected_ = 0;
-            sidebar_focus_ = saved_sidebar;
+            if (filter_ != saved_filter)
+                order_.swap(saved_order);
             filter_ = saved_filter;
-            restore_library_selection(keep);
+            selected_ = saved_selected;
+            library_scroll_ = library_scroll_drawn_ = saved_scroll;
+            sidebar_focus_ = saved_sidebar;
+            focus_memory_ = std::move(saved_focus);
         }
         bool needs_redraw()
         {
             tick_browser();
+            if (auto asset = library_assets_.poll())
+            {
+                if (asset->kind != LibraryAsset::Kind::CacheOnly && !asset->discarded)
+                {
+                    if (asset->revision == library_assets_revision_)
+                        apply_library_asset(std::move(*asset));
+                    redraw_ = true;
+                }
+                if (!redraw_)
+                    schedule_library_assets();
+            }
             const auto now = sceKernelGetProcessTimeWide();
+            if (library_scroll_started_)
+            {
+                const auto elapsed = now >= library_scroll_started_ ? now - library_scroll_started_ : 0;
+                const auto fraction = std::min(1.0f, elapsed / 160000.0f);
+                const auto remaining = 1.0f - fraction;
+                library_scroll_drawn_ = library_scroll_ + static_cast<int>(std::lround((library_scroll_from_ - library_scroll_) * remaining * remaining * remaining));
+                if (fraction == 1.0f || screen_ != Screen::Library || importing_)
+                {
+                    library_scroll_started_ = 0;
+                    library_scroll_drawn_ = library_scroll_;
+                }
+                redraw_ = true;
+            }
             if (inspection_hint_until_ && now >= inspection_hint_until_)
             {
                 inspection_hint_until_ = 0;
@@ -417,8 +447,6 @@ namespace
             normalize_focus();
             if (screen_ == Screen::Novel || screen_ == Screen::OnlineChapters || screen_ == Screen::Contents)
                 update_cover();
-            sync_covers();
-            sync_bookmark_previews();
             const auto &color = palette();
             vita2d_set_clear_color(color.background);
             if (target)
@@ -495,6 +523,7 @@ namespace
                 return true;
             if (pressed)
             {
+                finish_library_drag();
                 cancel_reader_drag();
                 redraw_ = true;
                 page_turn_until_ = 0;
@@ -816,6 +845,10 @@ namespace
             clamp_pan();
         }
 
+        bool can_drag_library() const
+        {
+            return screen_ == Screen::Library && !importing_ && !ime_active_ && menu_.empty() && !feedback_active() && !online_busy_;
+        }
         bool gesture(const reader::controls::Gesture &gesture)
         {
             const reader::perf::InputTimer timing(input_started_, gesture.kind != reader::controls::GestureKind::None);
@@ -827,6 +860,7 @@ namespace
                 return true;
             if (gesture.kind == GestureKind::Cancel)
             {
+                finish_library_drag();
                 cancel_reader_drag();
                 return true;
             }
@@ -840,7 +874,9 @@ namespace
             }
             if (gesture.kind == GestureKind::Drag || gesture.kind == GestureKind::Release)
             {
-                if (screen_ == Screen::Reader && menu_.empty() && !feedback_active() && !online_busy_)
+                if (can_drag_library())
+                    drag_library(gesture);
+                else if (screen_ == Screen::Reader && menu_.empty() && !feedback_active() && !online_busy_)
                     reader_drag(gesture);
                 else
                     cancel_reader_drag();
@@ -916,8 +952,8 @@ namespace
                                         settings_.spacing = step;
                                 }
                             }
-                            else if (row == 5 ? x >= 784 : x >= 412)
-                                adjust_setting(row, x < (row == 5 ? 854 : 520) ? -1 : 1);
+                            else if (x >= 412)
+                                adjust_setting(row, x < 520 ? -1 : 1);
                             return true;
                         }
                         return activate(control);
@@ -1104,6 +1140,8 @@ namespace
     private:
         bool input_library(unsigned pressed)
         {
+            if (!pressed)
+                return true; // Idle controller polls must leave the touch viewport alone.
             if (pressed & SCE_CTRL_CIRCLE)
             {
                 if (!importing_ && library_search_active_)
@@ -1140,9 +1178,7 @@ namespace
                     selected_ = std::min(selected_ + 4, order_.size() - 1);
                 if (pressed & SCE_CTRL_LEFT)
                 {
-                    if (selected_ % 4 == 0)
-                        sidebar_focus_ = true;
-                    else
+                    if (selected_ > 0)
                         --selected_;
                 }
                 if ((pressed & SCE_CTRL_RIGHT) && selected_ + 1 < order_.size())
@@ -1159,7 +1195,8 @@ namespace
                 if ((pressed & SCE_CTRL_RIGHT) && !order_.empty())
                     selected_ = std::min(selected_ + list_page, order_.size() - 1);
             }
-            ensure_library_visible();
+            if (pressed & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT | SCE_CTRL_UP | SCE_CTRL_DOWN))
+                ensure_library_visible(true);
             if (pressed & SCE_CTRL_SQUARE)
             {
                 if (importing_)
@@ -1445,7 +1482,14 @@ namespace
             return screen_ == Screen::Library || screen_ == Screen::Contents || screen_ == Screen::Illustrations ||
                    screen_ == Screen::Bookmarks || (is_online_screen() && screen_ != Screen::Novel);
         }
-        void ensure_library_visible()
+        static constexpr int library_viewport = reader::ui::grid_bottom - reader::ui::grid_top;
+        int max_library_scroll() const
+        {
+            const auto columns = static_cast<std::size_t>(reader::ui::grid_columns);
+            const auto rows = (order_.size() + columns - 1) / columns;
+            return std::max(0, (static_cast<int>(rows) - 1) * reader::ui::grid_pitch + reader::ui::grid_height - library_viewport);
+        }
+        void ensure_library_visible(bool animate = false)
         {
             if (importing_)
             {
@@ -1457,23 +1501,74 @@ namespace
             }
             if (order_.empty())
             {
-                library_scroll_ = 0;
+                library_scroll_ = library_scroll_drawn_ = 0;
+                library_scroll_started_ = 0;
                 return;
             }
             const int top = static_cast<int>(selected_ / reader::ui::grid_columns) * reader::ui::grid_pitch;
-            const int height = reader::ui::grid_bottom - reader::ui::grid_top;
-            if (top < library_scroll_)
-                library_scroll_ = top;
-            if (top + reader::ui::grid_height > library_scroll_ + height)
-                library_scroll_ = top + reader::ui::grid_height - height;
-            const int content = static_cast<int>((order_.size() + reader::ui::grid_columns - 1) / reader::ui::grid_columns - 1) * reader::ui::grid_pitch + reader::ui::grid_height;
-            library_scroll_ = std::max(0, std::min(library_scroll_, content - height));
+            const int minimum = top + reader::ui::grid_height - library_viewport;
+            const int next = std::max(0, std::min(max_library_scroll(), std::max(minimum, std::min(top, library_scroll_))));
+            if (animate && next == library_scroll_)
+                return;
+            if (next != library_scroll_)
+            {
+                library_scrolling_down_ = next > library_scroll_;
+                if (screen_ == Screen::Library)
+                    library_assets_.discard_queued_covers();
+            }
+            library_scroll_ = next;
+            library_scroll_from_ = library_scroll_drawn_;
+            library_scroll_started_ = animate && library_scroll_drawn_ != next ? std::max<std::uint64_t>(1, sceKernelGetProcessTimeWide()) : 0;
+            if (!library_scroll_started_)
+                library_scroll_drawn_ = next;
         }
-        std::size_t library_first() const { return library_scroll_ / reader::ui::grid_pitch * reader::ui::grid_columns; }
+        std::size_t library_first() const
+        {
+            return (library_scroll_drawn_ + reader::ui::grid_pitch - reader::ui::grid_height) / reader::ui::grid_pitch * reader::ui::grid_columns;
+        }
         std::size_t library_end() const
         {
-            const auto rows = (library_scroll_ + reader::ui::grid_bottom - reader::ui::grid_top + reader::ui::grid_pitch - 1) / reader::ui::grid_pitch;
+            const auto rows = (library_scroll_drawn_ + library_viewport + reader::ui::grid_pitch - 1) / reader::ui::grid_pitch;
             return std::min(order_.size(), static_cast<std::size_t>(rows * reader::ui::grid_columns));
+        }
+        void finish_library_drag()
+        {
+            if (!library_dragging_)
+                return;
+            library_dragging_ = false;
+            if (order_.empty() || screen_ != Screen::Library || importing_)
+                return;
+            const auto columns = static_cast<std::size_t>(reader::ui::grid_columns);
+            const auto row = (library_scroll_drawn_ + library_viewport / 2) / reader::ui::grid_pitch;
+            selected_ = std::min(row * columns + selected_ % columns, order_.size() - 1);
+            focus_memory_[focus_key()] = 1000 + selected_;
+            redraw_ = true;
+        }
+        void drag_library(const reader::controls::Gesture &gesture)
+        {
+            if (gesture.kind == reader::controls::GestureKind::Release)
+            {
+                finish_library_drag();
+                return;
+            }
+            if (!library_dragging_)
+            {
+                if (!reader::ui::Rect{232, reader::ui::grid_top, 704, library_viewport}.contains(gesture.start_x, gesture.start_y) ||
+                    std::abs(gesture.dy) <= std::abs(gesture.dx) || !max_library_scroll())
+                    return;
+                library_dragging_ = true;
+                library_scroll_started_ = 0;
+                library_drag_origin_ = library_scroll_drawn_;
+            }
+            const auto position = std::max(0, std::min(max_library_scroll(), library_drag_origin_ - static_cast<int>(std::lround(gesture.dy))));
+            if (position != library_scroll_drawn_)
+            {
+                library_scrolling_down_ = position > library_scroll_drawn_;
+                if (position / reader::ui::grid_pitch != library_scroll_drawn_ / reader::ui::grid_pitch)
+                    library_assets_.discard_queued_covers();
+            }
+            library_scroll_drawn_ = library_scroll_ = position;
+            redraw_ = true;
         }
         void move_library_row(bool forward)
         {
@@ -1485,15 +1580,21 @@ namespace
                 next = std::min(selected_ + columns, order_.size() - 1);
             if (!forward && selected_ >= columns)
                 next = selected_ - columns;
-            set_item(next);
-            focus_memory_[static_cast<int>(Screen::Library)] = 1000 + selected_;
+            focus_library_book(next);
         }
-        void set_item(std::size_t index)
+        void focus_library_book(std::size_t index)
+        {
+            set_item(index, true);
+            focus_memory_[focus_key()] = 1000 + selected_;
+        }
+        void set_item(std::size_t index, bool animate = false)
         {
             if (screen_ == Screen::Library)
             {
+                if (selected_ == index && !importing_)
+                    return;
                 selected_ = index;
-                ensure_library_visible();
+                ensure_library_visible(animate);
                 update_cover();
             }
             else if (screen_ == Screen::Contents)
@@ -1566,7 +1667,7 @@ namespace
                 add(200, reader::ui::library_action(0), {"Add Book", 0, Command::AddBook});
                 for (auto i = library_first(); i < library_end(); ++i)
                 {
-                    auto box = reader::ui::grid_book(i, library_scroll_);
+                    auto box = reader::ui::grid_book(i, library_scroll_drawn_);
                     const auto bottom = std::min(box.y + box.height, reader::ui::grid_bottom);
                     box.y = std::max(box.y, reader::ui::grid_top);
                     box.height = bottom - box.y;
@@ -1617,8 +1718,10 @@ namespace
         void normalize_focus()
         {
             sidebar_focus_ = false;
-            const auto controls = widgets();
             auto &id = focus_memory_[focus_key()];
+            if (can_drag_library() && (library_scroll_started_ || library_dragging_) && !order_.empty() && id == 1000 + static_cast<int>(selected_))
+                return; // The focused card can be between viewports during a scroll.
+            const auto controls = widgets();
             for (const auto &control : controls)
                 if (control.target.id == id && control.target.enabled)
                 {
@@ -1833,10 +1936,35 @@ namespace
             if (!(pressed & mask))
                 return feedback_active();
             normalize_focus();
+            const int id = focus_memory_[focus_key()];
+            if (can_drag_library() && !order_.empty() && id == 1000 + static_cast<int>(selected_))
+            {
+                if (pressed & SCE_CTRL_CROSS)
+                {
+                    focus_result_ = perform({"Open", 0, Command::Details});
+                    return true;
+                }
+                if (pressed & SCE_CTRL_LEFT)
+                {
+                    if (selected_ > 0)
+                        focus_library_book(selected_ - 1);
+                    return true;
+                }
+                if (pressed & SCE_CTRL_RIGHT)
+                {
+                    if (selected_ + 1 < order_.size())
+                        focus_library_book(selected_ + 1);
+                    return true;
+                }
+                if ((pressed & SCE_CTRL_DOWN) || ((pressed & SCE_CTRL_UP) && selected_ >= reader::ui::grid_columns))
+                {
+                    move_library_row((pressed & SCE_CTRL_DOWN) != 0);
+                    return true;
+                }
+            }
             const auto controls = widgets();
             if (controls.empty())
                 return false; // Reader turns pages; viewer pans.
-            const int id = focus_memory_[focus_key()];
             const Widget *current = nullptr;
             std::vector<reader::ui::FocusTarget> targets;
             for (const auto &control : controls)
@@ -1877,7 +2005,7 @@ namespace
                                                                                        : pressed & SCE_CTRL_UP      ? reader::ui::Direction::Up
                                                                                                                     : reader::ui::Direction::Down;
             const int next = reader::ui::focus_neighbor(targets, id, direction);
-            if (current->kind == WidgetKind::Item && paged_screen())
+            if (current->kind == WidgetKind::Item && paged_screen() && !can_drag_library())
             {
                 if (screen_ == Screen::Library && importing_ &&
                     (((pressed & SCE_CTRL_UP) && selected_ > 0) || ((pressed & SCE_CTRL_DOWN) && selected_ + 1 < order_.size())))
@@ -1886,48 +2014,21 @@ namespace
                     focus_memory_[focus_key()] = 1000 + selected_;
                     return true;
                 }
-                const bool grid = screen_ == Screen::Library && !importing_;
-                if (grid)
-                {
-                    const auto column = selected_ % reader::ui::grid_columns;
-                    if (pressed & SCE_CTRL_DOWN)
-                    {
-                        move_library_row(true);
-                        return true;
-                    }
-                    if ((pressed & SCE_CTRL_UP) && selected_ >= reader::ui::grid_columns)
-                    {
-                        move_library_row(false);
-                        return true;
-                    }
-                    if (pressed & SCE_CTRL_LEFT)
-                    {
-                        if (column)
-                            set_focus(1000 + selected_ - 1);
-                        return true;
-                    }
-                    if (pressed & SCE_CTRL_RIGHT)
-                    {
-                        if (column + 1 < reader::ui::grid_columns && selected_ + 1 < order_.size())
-                            set_focus(1000 + selected_ + 1);
-                        return true;
-                    }
-                }
                 const auto first = screen_ == Screen::Library && importing_ ? browser_first_ : page_selection() / page_limit() * page_limit();
                 const auto end = std::min(first + page_limit(), page_count());
-                if ((pressed & SCE_CTRL_RIGHT) && (!grid || current->index + 1 == static_cast<int>(end)))
+                if (pressed & SCE_CTRL_RIGHT)
                 {
                     turn_collection_page(true);
                     normalize_focus();
                     return true;
                 }
-                if ((pressed & SCE_CTRL_LEFT) && (!grid || current->index == static_cast<int>(first)))
+                if (pressed & SCE_CTRL_LEFT)
                 {
                     turn_collection_page(false);
                     normalize_focus();
                     return true;
                 }
-                if (!grid && next == id && (pressed & (SCE_CTRL_UP | SCE_CTRL_DOWN)))
+                if (next == id && (pressed & (SCE_CTRL_UP | SCE_CTRL_DOWN)))
                 {
                     const bool forward = pressed & SCE_CTRL_DOWN;
                     if ((forward && end < page_count()) || (!forward && first > 0))
@@ -1951,6 +2052,8 @@ namespace
             for (const auto &control : widgets())
                 if (control.target.id == found->second && control.target.enabled)
                 {
+                    if (screen_ == Screen::Library && !importing_ && control.kind == WidgetKind::Item)
+                        return; // The grid draws its focus within the scrolling clip.
                     const auto &b = control.target.box;
                     if (b.y >= reader::ui::toolbar_top)
                         reader::visual::button_focus(b.x, reader::visual::hint_bar_top + 5, b.width, 38);
@@ -2032,7 +2135,14 @@ namespace
         }
         void navigate(int destination)
         {
+            finish_library_drag();
+            if (screen_ == Screen::Library && destination != 1)
+                library_assets_.discard_queued_covers();
             const reader::perf::Scope timing(reader::perf::Event::Navigation);
+#ifdef NOVELREADER_PROFILE
+            if (destination == 1 && !library_first_presented_)
+                library_started_ = input_started_ ? input_started_ : reader::perf::now();
+#endif
             redraw_ = true;
             const auto origin = screen_;
             const int origin_nav = nav_active_;
@@ -2190,7 +2300,7 @@ namespace
         {
             return item.path + ":" + std::to_string(mark.chapter) + ":" + std::to_string(mark.offset);
         }
-        std::string bookmark_quote(const reader::Book &book, std::size_t offset, const std::string &fallback) const
+        static std::string bookmark_quote(const reader::Book &book, std::size_t offset, const std::string &fallback)
         {
             auto at = std::min(offset, book.text.size());
             while (at < book.text.size() && (static_cast<unsigned char>(book.text[at]) & 0xc0) == 0x80)
@@ -2203,6 +2313,33 @@ namespace
                 if (c == '\n' || c == '\r' || c == '\t')
                     c = ' ';
             return quote.empty() ? fallback : "“" + quote + "”";
+        }
+        static std::string load_bookmark_preview(const std::string &path, const reader::BookmarkPosition &mark, const std::string &fallback)
+        {
+            const reader::perf::Scope timing(reader::perf::Event::BookmarkPreview);
+            reader::Publication publication;
+            reader::Book book;
+            std::string error;
+            if (reader::open_publication(path, publication, error) && mark.chapter < publication.chapters.size() &&
+                reader::load_chapter(publication, mark.chapter, book, error))
+                return bookmark_quote(book, mark.offset, fallback);
+            return fallback;
+        }
+        void warm_bookmark_previews()
+        {
+            const auto &marks = bookmarks();
+            for (std::size_t i = 0; i < std::min<std::size_t>(3, marks.size()); ++i)
+            {
+                const auto &item = entries_[marks[i].entry];
+                const auto mark = item.progress.bookmark_at(marks[i].index);
+                try
+                {
+                    bookmark_previews_.push_back({bookmark_key(item, mark), load_bookmark_preview(item.path, mark, item.title)});
+                }
+                catch (const std::exception &)
+                { /* Missing previews can still load on demand. */
+                }
+            }
         }
         void remember_bookmark(const reader::LibraryItem &item)
         {
@@ -2221,7 +2358,7 @@ namespace
         }
         void sync_bookmark_previews()
         {
-            if (screen_ != Screen::Bookmarks)
+            if (screen_ != Screen::Bookmarks || library_assets_.busy())
                 return;
             const auto &marks = bookmarks();
             const auto first = bookmark_selected_ / 3 * 3;
@@ -2230,81 +2367,207 @@ namespace
                 const auto &item = entries_[marks[i].entry];
                 const auto mark = item.progress.bookmark_at(marks[i].index);
                 const auto key = bookmark_key(item, mark);
-                auto found = std::find_if(bookmark_previews_.begin(), bookmark_previews_.end(), [&](const BookmarkPreview &p)
-                                          { return p.key == key; });
+                const auto found = std::find_if(bookmark_previews_.begin(), bookmark_previews_.end(), [&](const BookmarkPreview &preview)
+                                                { return preview.key == key; });
                 if (found != bookmark_previews_.end())
                 {
                     std::rotate(found, found + 1, bookmark_previews_.end());
                     continue;
                 }
-                BookmarkPreview preview{key, item.title};
-                const reader::perf::Scope timing(reader::perf::Event::BookmarkPreview);
-                try
-                {
-                    reader::Publication publication;
-                    reader::Book book;
-                    std::string error;
-                    if (reader::open_publication(item.path, publication, error))
-                    {
-                        if (mark.chapter < publication.chapters.size() && reader::load_chapter(publication, mark.chapter, book, error))
-                            preview.quote = bookmark_quote(book, mark.offset, item.title);
-                    }
-                }
-                catch (const std::exception &)
-                { /* A saved position is still navigable. */
-                }
-                if (bookmark_previews_.size() >= 24)
-                    bookmark_previews_.erase(bookmark_previews_.begin());
-                bookmark_previews_.push_back(std::move(preview));
+                queue_library_asset({LibraryAsset::Kind::Bookmark, key, library_assets_revision_, item.title},
+                                    [path = item.path, mark](LibraryAsset &asset)
+                                    {
+                                        asset.quote = load_bookmark_preview(path, mark, asset.quote);
+                                    });
+                return;
+            }
+        }
+        void schedule_library_assets()
+        {
+            if (library_assets_.busy())
+                return;
+            sync_covers();
+            sync_bookmark_previews();
+            if (!library_assets_.busy() && !thumbnail_generation_.empty())
+            {
+                const auto next = thumbnail_generation_.begin();
+                const auto task = next->second.empty()
+                                      ? LibraryAssets::Task{{LibraryAsset::Kind::CacheOnly, next->first, library_assets_revision_}, [](LibraryAsset &asset)
+                                                            { std::remove(reader::thumbnails::cache_path(thumbnails_directory, asset.key).c_str()); }}
+                                      : cover_task(next->first, next->second, LibraryAsset::Kind::CacheOnly);
+                thumbnail_generation_.erase(next);
+                queue_library_assets({task});
+            }
+        }
+        void defer_thumbnail(const reader::LibraryItem &item)
+        {
+            if (!item.cover_path.empty())
+                thumbnail_generation_[item.path] = item.cover_path;
+        }
+        void warm_cached_cover(const reader::LibraryItem &item)
+        {
+            if (item.cover_path.empty() || std::any_of(covers_.begin(), covers_.end(), [&](const CoverTexture &cover)
+                                                       { return cover.key == item.path; }))
+                return;
+            try
+            {
+                const auto &source = reader::is_online_book(item.path) ? item.cover_path : item.path;
+                const auto cache = reader::thumbnails::cache_path(thumbnails_directory, item.path);
+                const auto revision = reader::thumbnails::source_revision(source, item.cover_path);
+                auto pixels = reader::thumbnails::load(cache, revision);
+                if (auto *texture = upload_thumbnail(pixels))
+                    covers_.push_back({item.path, std::unique_ptr<vita2d_texture, TextureDeleter>(texture)});
+            }
+            catch (const std::exception &)
+            { /* A cold or damaged thumbnail is rebuilt after the screen opens. */
             }
         }
         void sync_covers()
         {
-            std::vector<const reader::LibraryItem *> wanted;
+            if (library_assets_.busy() || (screen_ != Screen::Home && (screen_ != Screen::Library || importing_)))
+                return;
+            std::vector<LibraryAssets::Task> tasks;
+            const auto add = [&](const reader::LibraryItem &entry)
+            {
+                if (entry.cover_path.empty() || tasks.size() >= LibraryAssets::batch_size)
+                    return;
+                const auto found = std::find_if(covers_.begin(), covers_.end(), [&](const CoverTexture &cover)
+                                                { return cover.key == entry.path; });
+                if (found != covers_.end())
+                {
+                    std::rotate(found, found + 1, covers_.end());
+                    return;
+                }
+                thumbnail_generation_.erase(entry.path);
+                tasks.push_back(cover_task(entry.path, entry.cover_path, LibraryAsset::Kind::Cover));
+            };
             if (screen_ == Screen::Home)
             {
                 const auto recent = reader::ui::recent_book(entries_);
                 if (recent < entries_.size())
-                    wanted.push_back(&entries_[recent]);
+                    add(entries_[recent]);
             }
-            else if (screen_ == Screen::Library && !importing_)
+            else
             {
-                for (auto i = library_first(); i < library_end(); ++i)
-                    wanted.push_back(&entries_[order_[i]]);
-            }
-            for (const auto *entry : wanted)
-            {
-                const auto found = std::find_if(covers_.begin(), covers_.end(), [&](const CoverTexture &cover)
-                                                { return cover.key == entry->path; });
-                if (found != covers_.end())
+                const auto first = library_first(), end = library_end();
+                for (auto i = first; i < end; ++i)
+                    add(entries_[order_[i]]);
+                // Warm at most one adjacent row without evicting the visible grid.
+                if (end - first <= 8)
                 {
-                    std::rotate(found, found + 1, covers_.end());
-                    continue;
+                    const auto columns = static_cast<std::size_t>(reader::ui::grid_columns);
+                    const auto ahead = library_scrolling_down_ ? end : first - std::min(columns, first);
+                    const auto limit = library_scrolling_down_ ? std::min(ahead + columns, order_.size()) : first;
+                    for (auto i = ahead; i < limit; ++i)
+                        add(entries_[order_[i]]);
                 }
-                CoverTexture cover{entry->path, {}};
-                if (!entry->cover_path.empty())
-                {
-                    const reader::perf::Scope timing(reader::perf::Event::CoverDecode);
-                    try
+            }
+            queue_library_assets(std::move(tasks));
+        }
+        LibraryAssets::Task cover_task(const std::string &path, const std::string &cover_path, LibraryAsset::Kind kind) const
+        {
+            return {{kind, path, library_assets_revision_}, [path, cover_path, kind](LibraryAsset &asset)
                     {
-                        std::string bytes, error;
-                        if (load_cover_bytes(*entry, bytes, error))
-                            cover.texture.reset(decode_thumbnail(bytes, 144, 200, error));
-                    }
-                    catch (const std::exception &)
-                    { /* A title card remains available. */
-                    }
-                }
+                        const auto stamp_source = reader::is_online_book(path) ? cover_path : path;
+                        const auto cache = reader::thumbnails::cache_path(thumbnails_directory, path);
+                        const auto revision = reader::thumbnails::source_revision(stamp_source, cover_path);
+                        auto pixels = reader::thumbnails::load(cache, revision);
+                        if (pixels.rgba.empty())
+                        {
+                            const reader::perf::Scope timing(reader::perf::Event::CoverDecode);
+                            std::string bytes, error;
+                            if (!load_cover_bytes(path, cover_path, bytes, error))
+                                return;
+                            pixels = decode_thumbnail_pixels(bytes, reader::thumbnails::width, reader::thumbnails::height, error);
+                            if (!pixels.rgba.empty() && !revision.empty() &&
+                                revision == reader::thumbnails::source_revision(stamp_source, cover_path))
+                                reader::thumbnails::save(cache, revision, pixels);
+                        }
+                        if (kind == LibraryAsset::Kind::Cover)
+                            asset.pixels = std::move(pixels);
+                    }};
+        }
+        void queue_library_asset(LibraryAsset asset, LibraryAssets::Load load)
+        {
+            queue_library_assets({{std::move(asset), std::move(load)}});
+        }
+        void queue_library_assets(std::vector<LibraryAssets::Task> tasks)
+        {
+            if (tasks.empty())
+                return;
+            try
+            {
+                library_assets_.start(tasks);
+            }
+            catch (const std::exception &)
+            {
+                for (auto &task : tasks)
+                    if (task.asset.kind != LibraryAsset::Kind::CacheOnly)
+                        apply_library_asset(std::move(task.asset));
+                redraw_ = true;
+            }
+        }
+        void apply_library_asset(LibraryAsset asset)
+        {
+            if (asset.kind == LibraryAsset::Kind::Cover)
+            {
                 // 12 RGBA thumbnails of at most 144x200: <= 1.4 MiB plus padding.
+                CoverTexture cover{std::move(asset.key), {}};
+                cover.texture.reset(upload_thumbnail(asset.pixels));
                 if (covers_.size() >= 12)
                     covers_.erase(covers_.begin());
                 covers_.push_back(std::move(cover));
+                return;
             }
+            if (std::any_of(bookmark_previews_.begin(), bookmark_previews_.end(), [&](const BookmarkPreview &preview)
+                            { return preview.key == asset.key; }))
+                return;
+            if (bookmark_previews_.size() >= 24)
+                bookmark_previews_.erase(bookmark_previews_.begin());
+            bookmark_previews_.push_back({std::move(asset.key), std::move(asset.quote)});
         }
+#ifdef NOVELREADER_PROFILE
+        void record_view_timing()
+        {
+            const auto now = reader::perf::now();
+            if (screen_ == Screen::Home && startup_started_)
+            {
+                reader::perf::record(reader::perf::Event::StartupHome, now - startup_started_);
+                startup_started_ = 0;
+            }
+            if (screen_ != Screen::Library || importing_)
+            {
+                library_started_ = 0;
+                return;
+            }
+            if (!library_started_)
+                return;
+            if (!library_first_presented_)
+            {
+                reader::perf::record(reader::perf::Event::FirstLibrary, now - library_started_);
+                library_first_presented_ = true;
+            }
+            for (auto i = library_first(); i < library_end(); ++i)
+            {
+                const auto &item = entries_[order_[i]];
+                if (!item.cover_path.empty() && std::none_of(covers_.begin(), covers_.end(), [&](const CoverTexture &cover)
+                                                             { return cover.key == item.path; }))
+                    return;
+            }
+            reader::perf::record(reader::perf::Event::FirstLibraryCovers, now - library_started_);
+            library_started_ = 0;
+        }
+#endif
         void draw_cover(const reader::LibraryItem &item, int x, int y, int width, int height, bool selected = false) const
         {
             using namespace reader::visual;
-            panel(x, y, width, height, selected);
+            const bool grid = screen_ == Screen::Library && !importing_;
+            if (grid && (y + height <= reader::ui::grid_top || y >= reader::ui::grid_bottom))
+                return;
+            if (grid)
+                reader::visual::panel(x, y, width, height, false);
+            else
+                panel(x, y, width, height, selected);
             vita2d_texture *texture = nullptr;
             for (const auto &cover : covers_)
                 if (cover.key == item.path)
@@ -2314,7 +2577,6 @@ namespace
                 }
             if ((screen_ == Screen::Book || screen_ == Screen::Novel || screen_ == Screen::Contents || screen_ == Screen::OnlineChapters) && image_)
                 texture = image_;
-            const bool grid = screen_ == Screen::Library && !importing_;
             vita2d_enable_clipping();
             vita2d_set_clip_rectangle(x + 3, grid ? std::max(y + 3, reader::ui::grid_top) : y + 3,
                                       x + width - 3, grid ? std::min(y + height - 3, reader::ui::grid_bottom) : y + height - 3);
@@ -3047,6 +3309,8 @@ namespace
                         navigate(1);
                         sidebar_focus_ = false;
                         scan();
+                        if (reader::is_epub_book(filename) || reader::is_online_book(filename))
+                            thumbnail_generation_[reader::library_book_path(filename, books_directory)] = "";
                         const auto progress = reader::progress_path(progress_directory, filename);
                         const bool progress_removed = std::remove(progress.c_str()) == 0 || errno == ENOENT;
                         if (!progress_removed)
@@ -3927,6 +4191,7 @@ namespace
                     invalidate_book_assets(item);
                     item.error.clear();
                     load_library_item(item);
+                    defer_thumbnail(item);
                     library_order_dirty_ = true;
                     bookmarks_dirty_ = true;
                     break;
@@ -4688,7 +4953,7 @@ namespace
             try
             {
                 std::string bytes, error;
-                if (load_cover_bytes(entry, bytes, error))
+                if (load_cover_bytes(entry.path, entry.cover_path, bytes, error))
                     image_ = decode_texture(bytes, error);
             }
             catch (const std::exception &)
@@ -4696,9 +4961,9 @@ namespace
                 // Optional artwork failures leave the details placeholder visible.
             }
         }
-        static bool load_cover_bytes(const reader::LibraryItem &item, std::string &bytes, std::string &error)
+        static bool load_cover_bytes(const std::string &path, const std::string &cover_path, std::string &bytes, std::string &error)
         {
-            return reader::is_online_book(item.path) ? reader::online::load_cover(item.path, bytes, error) : reader::load_epub_image(item.path, item.cover_path, bytes, error);
+            return reader::is_online_book(path) ? reader::online::load_cover(path, bytes, error) : reader::load_epub_image(path, cover_path, bytes, error);
         }
 
         float fit_scale(float width, float height) const
@@ -4989,7 +5254,10 @@ namespace
             const auto added = result->items.size();
             library_books_ = std::move(result->books);
             for (auto &item : result->items)
+            {
+                defer_thumbnail(item);
                 collection_entries_.push_back(std::move(item));
+            }
             const std::unordered_set<std::string> known(library_books_.begin(), library_books_.end());
             for (auto it = import_marks_.begin(); it != import_marks_.end();)
             {
@@ -5032,6 +5300,12 @@ namespace
             collection_dirty_ = true;
             if (!importing_)
                 scan();
+            for (const auto &item : entries_)
+                if (item.filename == filename)
+                {
+                    defer_thumbnail(item);
+                    break;
+                }
             notify("Added to library.");
             return true;
         }
@@ -5127,13 +5401,15 @@ namespace
             {
                 const auto recent = reader::ui::recent_book(entries_);
                 if (recent < entries_.size())
-                    refresh_library(entries_[recent].filename);
+                    restore_library_selection(entries_[recent].filename);
                 library_initialized_ = true;
             }
             update_cover();
         }
         void invalidate_book_assets(const reader::LibraryItem &item)
         {
+            ++library_assets_revision_;
+            thumbnail_generation_.erase(item.path);
             covers_.erase(std::remove_if(covers_.begin(), covers_.end(), [&](const CoverTexture &cover)
                                          { return cover.key == item.path; }),
                           covers_.end());
@@ -5357,8 +5633,7 @@ namespace
         bool change_chapter(std::size_t index, std::size_t offset, bool at_end = false, const std::string &fragment = {}, bool allow_fetch = true,
                             const reader::perf::ReaderLoad *book_load = nullptr)
         {
-            auto loading = book_load ? *book_load : reader::perf::ReaderLoad(publication_.epub,
-                                      lines_.empty() ? reader::perf::LoadKind::Book : reader::perf::LoadKind::Chapter, input_started_);
+            auto loading = book_load ? *book_load : reader::perf::ReaderLoad(publication_.epub, lines_.empty() ? reader::perf::LoadKind::Book : reader::perf::LoadKind::Chapter, input_started_);
             speech_.stop();
             speech_deadline_ = 0;
             if (publication_.online && index < online_novel_.chapters.size() && !reader::online::cached(online_manifest_, online_novel_.chapters[index].url))
@@ -5551,13 +5826,15 @@ namespace
             vita2d_draw_line(add.x + 17, add.y + 28, add.x + 33, add.y + 28, palette().text);
             vita2d_draw_line(add.x + 25, add.y + 20, add.x + 25, add.y + 36, palette().text);
             text(add.x + 45, add.y + 36, palette().text, 0.92f, "Add Book", add.width - 53);
+            const auto focus = focus_memory_.find(focus_key());
+            const int focused_book = can_drag_library() && focus != focus_memory_.end() ? focus->second - 1000 : -1;
             vita2d_enable_clipping();
             vita2d_set_clip_rectangle(232, reader::ui::grid_top, 936, reader::ui::grid_bottom);
             for (auto i = library_first(); i < library_end(); ++i)
             {
-                const auto box = reader::ui::grid_book(i, library_scroll_);
+                const auto box = reader::ui::grid_book(i, library_scroll_drawn_);
                 const auto &item = entries_[order_[i]];
-                panel(box.x, box.y, box.width, box.height);
+                reader::visual::panel(box.x, box.y, box.width, box.height, false);
                 draw_cover(item, box.x, box.y, box.width, reader::ui::grid_cover_height);
                 const auto title = ui_wrap(item.title, box.width - 16, 22, reader::FontRole::Heading);
                 for (std::size_t line = 0; line < std::min<std::size_t>(title.size(), 2); ++line)
@@ -5566,6 +5843,8 @@ namespace
                     text(box.x + 8, box.y + 232 + static_cast<int>(line) * 24, palette().text, 22.f / 26, label, box.width - 16, reader::FontRole::Heading);
                 }
                 text(box.x + 8, box.y + 288, palette().muted, 0.80f, item.progress.percent >= 0 ? std::to_string(item.progress.percent) + "% read" : "Not started", box.width - 16);
+                if (static_cast<int>(i) == focused_book)
+                    reader::visual::button_focus(box.x + 2, box.y + 2, box.width - 4, box.height - 4);
             }
             vita2d_disable_clipping();
             const int content_height = order_.empty() ? 0 : static_cast<int>((order_.size() + 3) / 4 - 1) * reader::ui::grid_pitch + reader::ui::grid_height;
@@ -5573,7 +5852,7 @@ namespace
             if (content_height > viewport)
             {
                 const int thumb = std::max(24, viewport * viewport / content_height);
-                const int offset = library_scroll_ * (viewport - thumb) / (content_height - viewport);
+                const int offset = library_scroll_drawn_ * (viewport - thumb) / (content_height - viewport);
                 reader::visual::rounded(946, reader::ui::grid_top, 3, viewport, reader::visual::border, 1);
                 reader::visual::rounded(946, reader::ui::grid_top + offset, 3, thumb, palette().accent, 1);
             }
@@ -5971,55 +6250,57 @@ namespace
             const char *spacing[] = {"1.2", "1.5", "1.8"};
             const char *themes[] = {"Night", "Paper", "Sepia", "OLED", "OLED Night"};
             const char *effects[] = {"Page Curl", "Slide and Fade", "None"};
-            const char *labels[] = {"Typeface", "Font size", "Line spacing", "Page theme", "Page effect"};
+            const char *margins[] = {"Narrow", "Normal", "Wide"};
+            const char *labels[] = {"Typeface", "Font size", "Line spacing", "Page theme", "Page effect", "Margins"};
             const char *help[] = {"Choose the typeface used for reading.", "Adjust the reading text size.",
                                   "Adjust the space between lines.", "Choose a page color for comfortable reading.",
                                   "Change the page-turn animation.", "Adjust the space on either side of the page."};
             const std::string values[] = {names[settings_.reading_font], std::to_string(reading_pixels()) + " px", spacing[settings_.spacing],
-                                          themes[settings_.theme], effects[settings_.page_effect]};
+                                          themes[settings_.theme], effects[settings_.page_effect], margins[settings_.margin]};
             rounded(232, 78, 400, 358, mix(surface, border, 0.42f), 12);
             rounded(233, 79, 398, 356, surface, 11);
-            for (int i = 0; i < reader::ui::settings_count - 1; ++i)
+            for (int i = 0; i < reader::ui::settings_count; ++i)
             {
                 const auto box = reader::ui::settings_row(i);
                 const bool focused = setting_row_ == i;
                 if (focused)
                     rounded(box.x, box.y, box.width, box.height, mix(surface, accent, 0.14f), 9);
-                if (i < reader::ui::settings_count - 2)
-                    vita2d_draw_rectangle(248, box.y + 69, 368, 1, mix(surface, border, 0.45f));
+                if (i + 1 < reader::ui::settings_count)
+                    vita2d_draw_rectangle(248, box.y + box.height + 1, 368, 1, mix(surface, border, 0.45f));
                 const auto tint = focused ? palette().text : palette().muted;
                 if (i < 2)
-                    text(245, box.y + 48, tint, 0.82f, "Aa", 28, reader::FontRole::Heading);
+                    text(245, box.y + 43, tint, 0.82f, "Aa", 28, reader::FontRole::Heading);
                 else if (i == 2)
                 {
                     for (int line = 0; line < 3; ++line)
                     {
-                        vita2d_draw_fill_circle(247, box.y + 32 + line * 8, 1.5f, tint);
-                        rounded(253, box.y + 31 + line * 8, 14, 2, tint, 1);
+                        vita2d_draw_fill_circle(247, box.y + 26 + line * 8, 1.5f, tint);
+                        rounded(253, box.y + 25 + line * 8, 14, 2, tint, 1);
                     }
                 }
                 else
-                    icon(i == 3 ? Icon::Moon : Icon::Settings, 256, box.y + 40, tint, 0.72f);
-                text(278, box.y + 28, tint, 0.78f, labels[i], 132);
+                    icon(i == 3 ? Icon::Moon : Icon::Settings, 256, box.y + 35, tint, 0.72f);
+                text(278, box.y + 22, tint, 0.78f, labels[i], 132);
                 if (i == 1 || i == 2)
                 {
                     const auto track = reader::ui::settings_slider(i);
                     const int steps = i == 1 ? 4 : 2;
                     const int step = i == 1 ? settings_.font * 2 + settings_.font_half_step : settings_.spacing;
-                    const int cy = track.y + 16, knob = track.x + track.width * step / steps;
+                    const int cy = track.y + track.height / 2, knob = track.x + track.width * step / steps;
                     progress(track.x, cy - 3, track.width, static_cast<float>(step) / steps, 6);
                     vita2d_draw_fill_circle(knob, cy, 10, mix(accent, background, 0.3f));
                     vita2d_draw_fill_circle(knob, cy, 8, accent);
                     vita2d_draw_fill_circle(knob - 2, cy - 2, 2, mix(accent, palette().text, 0.35f));
-                    text(540, box.y + 64, palette().text, 0.84f, values[i], 72, reader::FontRole::Heading);
+                    text(540, box.y + 51, palette().text, 0.84f, values[i], 72, reader::FontRole::Heading);
                 }
                 else
                 {
-                    const int value = i == 4 ? settings_.page_effect : i == 3 ? settings_.theme
-                                                                              : settings_.reading_font;
+                    const int value = i == 5 ? settings_.margin : i == 4 ? settings_.page_effect
+                                                              : i == 3   ? settings_.theme
+                                                                         : settings_.reading_font;
                     const auto chevron = [&](int cx, int direction, unsigned color)
                     {
-                        const int cy = box.y + 50;
+                        const int cy = box.y + 43;
                         for (int stroke = 0; stroke < 2; ++stroke)
                         {
                             vita2d_draw_line(cx - direction * 4, cy - 6 + stroke, cx + direction * 2, cy + stroke, color);
@@ -6030,7 +6311,7 @@ namespace
                     chevron(608, 1, value < (i == 3 ? reader::page_theme_count - 1 : 2) ? tint : mix(surface, border, 0.7f));
                     const unsigned pixels = 20;
                     const auto width = fonts_.width(reader::FontRole::Interface, pixels, values[i]);
-                    fonts_.draw(reader::FontRole::Interface, pixels, 516 - width / 2, box.y + 58, palette().text, values[i]);
+                    fonts_.draw(reader::FontRole::Interface, pixels, 516 - width / 2, box.y + 50, palette().text, values[i]);
                 }
             }
             const auto &paper = palettes[settings_.theme];
@@ -6052,13 +6333,6 @@ namespace
                 y += line_height();
             }
             vita2d_disable_clipping();
-            const auto margin = reader::ui::settings_row(5);
-            const char *margins[] = {"Narrow", "Normal", "Wide"};
-            rounded(margin.x, margin.y, margin.width, margin.height, setting_row_ == 5 ? mix(surface, accent, 0.14f) : surface, 9);
-            text(672, 460, palette().muted, 0.76f, "Margins", 100);
-            text(784, 460, settings_.margin > 0 ? palette().accent : palette().muted, 0.78f, "‹", 20);
-            text(811, 460, palette().text, 0.78f, margins[settings_.margin], 85);
-            text(911, 460, settings_.margin < 2 ? palette().accent : palette().muted, 0.78f, "›", 20);
             text(232, 456, palette().text, 0.78f, help[setting_row_], 400);
         }
 
@@ -6097,7 +6371,9 @@ namespace
         reader::BookSearch book_search_;
         std::size_t search_selected_ = 0;
         bool library_search_active_ = false, add_book_menu_ = false;
-        int library_scroll_ = 0;
+        int library_scroll_ = 0, library_scroll_drawn_ = 0, library_scroll_from_ = 0, library_drag_origin_ = 0;
+        std::uint64_t library_scroll_started_ = 0;
+        bool library_scrolling_down_ = true, library_dragging_ = false;
         std::string library_query_;
         Screen settings_return_ = Screen::Home, bookmarks_return_ = Screen::Home;
         bool interface_layer_ = false;
@@ -6191,6 +6467,13 @@ namespace
         int setting_row_ = 0;
         Screen screen_ = Screen::Home;
         std::uint64_t input_started_ = 0;
+        std::uint64_t library_assets_revision_ = 0;
+        LibraryAssets library_assets_;
+        std::map<std::string, std::string> thumbnail_generation_;
+#ifdef NOVELREADER_PROFILE
+        std::uint64_t startup_started_ = 0, library_started_ = 0;
+        bool library_first_presented_ = false;
+#endif
         reader::perf::ReaderLoad pending_reader_load_;
         Screen image_return_ = Screen::Illustrations;
     };
@@ -6199,6 +6482,11 @@ namespace
 #ifndef NOVELREADER_FRONTEND_TESTS
 int main()
 {
+#ifdef NOVELREADER_PROFILE
+    const auto launched_at = reader::perf::now();
+#else
+    constexpr std::uint64_t launched_at = 0;
+#endif
     SceAppUtilInitParam app_init{};
     SceAppUtilBootParam app_boot{};
     sceAppUtilInit(&app_init, &app_boot);
@@ -6208,6 +6496,7 @@ int main()
     sceIoMkdir(root.c_str(), 0777);
     sceIoMkdir(books_directory.c_str(), 0777);
     sceIoMkdir(progress_directory.c_str(), 0777);
+    sceIoMkdir(thumbnails_directory.c_str(), 0777);
     sceIoMkdir((root + "/fonts").c_str(), 0777);
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     const bool touch_enabled = sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START) >= 0;
@@ -6233,7 +6522,7 @@ int main()
     }
 
     {
-        App app(font);
+        App app(font, reader::speech::platform_audio, {}, launched_at);
         reader::controls::Repeat repeat;
         reader::controls::Stick left_stick, right_stick;
         reader::controls::Touch touch;
@@ -6278,12 +6567,12 @@ int main()
                                           reader::controls::display_coordinate(data.report[i].x, panel.minDispX, panel.maxDispX, 960),
                                           reader::controls::display_coordinate(data.report[i].y, panel.minDispY, panel.maxDispY, 544)});
                     gesture = touch.sample(points, now, before == Screen::Image || app.inspecting_image(),
-                                           before == Screen::Reader && !app.inspecting_image());
+                                           (before == Screen::Reader && !app.inspecting_image()) || app.can_drag_library());
                 }
                 else
                 {
                     touch.cancel_until_release();
-                    if (before == Screen::Reader)
+                    if (before == Screen::Reader || app.can_drag_library())
                         gesture.kind = reader::controls::GestureKind::Cancel;
                 }
             }

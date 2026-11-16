@@ -6,11 +6,19 @@
 NovelReader is a native PS Vita homebrew app for reading Unicode text, DRM-free EPUBs,
 and downloaded web novels. It supports offline reading, illustrations, saved
 progress, bookmarks, and English text-to-speech. The current source version is
-**0.7.0**.
+**0.8.0**.
 
 [Installation](#installation) · [Usage](#usage) · [Controls](#controls) ·
 [Formats](#supported-formats) · [Building](#building-from-source) ·
 [Documentation](#documentation) · [Credits](#credits)
+
+## What's new in 0.8.0
+
+- The Library saves smaller cover thumbnails in `ux0:data/NovelReader/thumbnails/` and loads them in batches as you scroll. Startup prepares the sidebar screens and reuses saved covers.
+- Drag the grid with front touch or move between rows with the D-pad or either joystick.
+- EPUB loading reuses an archive directory index and reads illustration dimensions from image headers when possible. Full image validation still runs before rendering.
+- **Find in book** searches local and downloaded text and shows previews you can jump to. Vita firmware fonts add Latin, Japanese, Chinese, and Korean glyph fallback.
+- **Margins** is now grouped with the other Reader Settings above the live preview.
 
 ## Features
 
@@ -33,26 +41,21 @@ progress, bookmarks, and English text-to-speech. The current source version is
 
 ### Requirements
 
-- A PS Vita configured to run homebrew, with
-  [VitaShell](https://github.com/TheOfficialFloW/VitaShell) installed.
-- Writable `ux0:` storage with space for the app, books, and downloads.
-- Wi-Fi for online browsing, chapter downloads, and update checks. Local reading
-  and narration work offline.
+- A PS Vita configured to run homebrew, with [VitaShell](https://github.com/TheOfficialFloW/VitaShell) installed.
+- Storage for the app, books, and downloads.
+- Wi-Fi for online browsing, chapter downloads, and update checks. Local reading and narration work offline.
 
 ### Install the app
 
-1. Obtain `NovelReader.vpk` by [building it from source](#building-from-source).
-   Packaged downloads, when published, are listed under
-   [Releases](https://github.com/basitalitech/NovelReader/releases).
+1. Obtain `NovelReader.vpk` by [building it from source](#building-from-source). Packaged downloads, when published, are listed under [Releases](https://github.com/basitalitech/NovelReader/releases).
 2. Transfer the VPK to the Vita using VitaShell's USB or FTP connection.
-3. Select the VPK in VitaShell and install it. The package requests extended
-   filesystem access for reading and saving on user storage.
-4. Launch **NovelReader** from LiveArea. First launch creates
-   `ux0:data/NovelReader/` and provides a bundled welcome guide.
+3. Select the VPK in VitaShell and install it. The package requests extended filesystem access for reading and saving on user storage.
+4. Launch **NovelReader** from LiveArea.
 
-To update, install a newer VPK with VitaShell. **About → Check for Updates** checks
-GitHub for a stable release and reports availability or an error, including when
-no release is published. It does not download or install updates.
+Go to **About → Check for Updates** for a stable GitHub release.
+Install available updates manually through VitaShell.
+
+See [library, downloads, and backups](docs/library-and-online.md#saved-data-and-removal).
 
 ## Usage
 
@@ -60,52 +63,30 @@ no release is published. It does not download or install updates.
 
 1. Copy supported books to `ux0:data/NovelReader/books/`, or another folder on `ux0:`.
 2. Open **Library → Add Book → Import books** to browse user storage.
-3. Open folders and select books with **Cross** or a tap. Press **Square / Import
-   selected** to add the selection.
+3. Open folders and select books with **Cross** or a tap. Press **Square** to add the selection.
 4. Open a library cover, then activate **Start Reading** or **Continue Reading**.
 
-Import saves references to files; it does not copy or move the originals. Files
-copied into the books folder must still be imported. The browser currently exposes
-**`ux0:` only** and does not scan directories recursively.
+Import saves references to files; it does not copy or move the originals. The browser currently exposes **`ux0:` only** and does not scan directories recursively.
 
-Library uses **Square** for title search and **Triangle** for Title/Recently
-read/Reading progress sorting and All books/Reading/Finished filtering. Home's
-Continue card resumes the most recently read available book, or opens Library
-when there is no reading history.
+Drag vertically to scroll the library. **Left/Right** moves between books across row boundaries, and **Up/Down** moves between rows. Use **Square** for title search and **Triangle** to sort by title, recency, or progress and filter by reading status.
+Home's Continue card resumes the most recently read available book, or opens Library when there is no reading history.
 
 ### Read and customize
 
-Progress saves as you navigate and leave the reader. Press **Square** to add or
-remove a bookmark at the current position. **Select** returns to the most recently
-saved bookmark. Open **Start → Find in book** for search results, passage previews,
-and next/previous matches. Searches include local and downloaded chapter text.
+Progress saves as you navigate and leave the reader. Press **Square** to add or remove a bookmark at the current position. **Select** returns to the most recently saved bookmark. Open **Start → Find in book** for search results, passage previews, and next/previous matches. Searches include local and downloaded chapter text.
 
-For EPUBs, press **Cross → Square** to switch from Chapters to Sections. Use
-**Start → Links on this page** to open an internal link and **Back to reading
-position** to return.
+For EPUBs, press **Cross → Square** to switch from Chapters to Sections. Use **Start → Links on this page** to open an internal link and **Back to reading position** to return.
 
-Press **Start → Reader Settings** while reading to change typeface, font size,
-line spacing, page margins, page theme, and page effect. **Cross / Apply** saves changes;
-**Circle / Cancel** discards the preview; **Select / Reset** previews defaults.
-Themes are Night, Paper, Sepia, OLED, and OLED Night. Tap the center of the reading
-area, or use **Show/Hide reading bar** in Reading controls, to toggle immersive mode.
+Press **Start → Reader Settings** while reading to change typeface, font size, line spacing, page margins, page theme, and page effect. **Cross / Apply** saves changes; **Circle / Cancel** discards the preview; **Select / Reset** previews defaults.
+Themes are Night, Paper, Sepia, OLED, and OLED Night. Tap the center of the reading area, or use **Show/Hide reading bar** in Reading controls, to toggle immersive mode.
 
-For narration, open **Start → Read aloud (TTS) → Start here**. The bundled US English
-voice reads from the visible position to the end of the current chapter. See
-[offline narration](docs/text-to-speech.md) for controls and limitations.
+For narration, open **Start → Read aloud (TTS) → Start here**. The bundled US English voice reads from the visible position to the end of the current chapter. See [offline narration](docs/text-to-speech.md) for controls and limitations.
 
 ### Browse online novels
 
-Open **Library → Add Book → Online novels**, then choose a source.
-Use **Square** to search its catalog. On novel details, **Square / Add to Library**
-saves a favorite; use **Start Reading / Continue Reading**, **Chapters**, or
-**Download all** as needed. Reading fetches a missing public chapter before opening
-it. Browsing or downloading alone does not add a favorite to Library.
+Open **Library → Add Book → Online novels**, then choose a source. Use **Square** to search its catalog. On novel details, **Square / Add to Library** saves a favorite; use **Start Reading / Continue Reading**, **Chapters**, or **Download all** as needed. Reading fetches a missing public chapter before opening it. Browsing or downloading alone does not add a favorite to Library.
 
-**Circle** cancels an active request. Completed chapter downloads are retained;
-retrying skips valid cached chapters. Sources can change or require browser
-verification. Login, purchased chapters, and remote inline illustrations are not
-supported. See [library, downloads, and backups](docs/library-and-online.md).
+**Circle** cancels an active request. Completed chapter downloads are retained; retrying skips valid cached chapters. Sources can change or require browser verification. Login, purchased chapters, and remote inline illustrations are not supported. See [library, downloads, and backups](docs/library-and-online.md).
 
 ## Controls
 
@@ -113,7 +94,7 @@ supported. See [library, downloads, and backups](docs/library-and-online.md).
 | --- | --- |
 | Menus and lists | D-pad or either stick moves content focus; Cross activates; Circle returns or cancels |
 | Sidebar screens | L/R switches Home, Library, Bookmarks, Settings, and About |
-| Library | Cross opens details; Square searches; Triangle sorts/filters; Circle clears an active search before returning Home |
+| Library | Left/Right moves across rows, Up/Down moves by row, Cross opens details or Add Book, Square searches, Triangle sorts or filters, and Circle clears an active search or returns Home |
 | Reader | Left/Right turns pages; Up/Down moves by line; Cross opens Chapters; Square toggles a bookmark; Select jumps to the newest bookmark |
 | Reader shoulders | L/R changes EPUB/online chapters; for TXT, turns pages |
 | Reader controls | Start opens Reading controls; Circle saves and returns to the originating collection |
@@ -134,22 +115,12 @@ for viewer, online, import, and gesture mappings. Rear touch is not used.
 | Downloaded web novels | App-generated `.nvr` index plus its chapter cache; up to 20,000 chapter entries per novel |
 | Illustrations and covers | PNG and JPEG; image bytes and dimensions are bounded before decoding |
 
-EPUB rendering supports chapter order/navigation, headings, emphasis, paragraphs,
-and inline images. It does not implement full publisher CSS layout, embedded
-fonts, or text flowing around images. PDF, encrypted EPUB chapter content, and TXT
-chapter detection are not supported. Glyph availability
-depends on the bundled, optional user, and firmware fonts. See
-[language coverage and custom fallback fonts](assets/fonts/README.md). Menus and
-offline narration remain English; Arabic shaping, bidirectional layout, and
-complex-script shaping are not implemented.
+EPUB rendering supports chapter order/navigation, headings, emphasis, paragraphs, and inline images. It does not implement full publisher CSS layout, embedded fonts, or text flowing around images. PDF, encrypted EPUB chapter content, and TXT chapter detection are not supported. Glyph availability depends on the bundled, optional user, and firmware fonts. See [language coverage and custom fallback fonts](assets/fonts/README.md). Menus and offline narration remain English; Arabic shaping, bidirectional layout, and complex-script shaping are not implemented.
 
 ## Building from source
 
-Use CMake **3.16 or newer**, a C++14-capable toolchain, and
-[VitaSDK](https://vitasdk.org/) with its library packages. Required SDK libraries
-are libvita2d, FreeType, bzip2, libpng with the simplified read API, libjpeg-turbo
-(JPEG and TurboJPEG), zlib, and pthread support. XML, ZIP, Lua, HTTPS, and speech
-sources are vendored; configuring and building the project does not fetch them.
+Use CMake **3.16 or newer**, a C++14-capable toolchain, and [VitaSDK](https://vitasdk.org/) with its library packages. Required SDK libraries
+are libvita2d, FreeType, bzip2, libpng with the simplified read API, libjpeg-turbo (JPEG and TurboJPEG), zlib, and pthread support. XML, ZIP, Lua, HTTPS, and speech sources are vendored; configuring and building the project does not fetch them.
 
 From a checkout of this repository, with the SDK installed:
 
@@ -157,13 +128,11 @@ From a checkout of this repository, with the SDK installed:
 export VITASDK=/usr/local/vitasdk  # Adjust to your SDK installation.
 export PATH="$VITASDK/bin:$PATH"
 
-cmake -S . -B build/vita -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake -S . -B build/vita -DCMAKE_BUILD_TYPE=Release -DNOVELREADER_PROFILE=OFF -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build build/vita -j2
 ```
 
-Output: **`build/vita/NovelReader.vpk`**, title ID **`NVRD00001`**. Install it with
-VitaShell as described above. The build checks LiveArea artwork and Vita thread
-linkage before packaging.
+The package is **`build/vita/NovelReader.vpk`**, with title ID **`NVRD00001`** and package version **`00.80`**. The build checks LiveArea artwork and Vita thread linkage before packaging.
 
 Portable tests require a desktop C/C++ toolchain, CMake, and zlib development files:
 
@@ -173,31 +142,20 @@ cmake --build build/host -j2
 ctest --test-dir build/host --output-on-failure
 ```
 
-The host target is a test harness, not a desktop reader app. See the
-[build and development guide](docs/building.md) for SDK setup, IntelliSense,
-troubleshooting, profiling, and the source layout.
+The host target is a test harness, not a desktop reader app. See the [build and development guide](docs/building.md) for SDK setup, IntelliSense, troubleshooting, profiling, and the source layout.
 
 ## Documentation
 
 - [Controls](docs/controls.md) — buttons, analog sticks, touch, and modal behavior.
-- [Library and online novels](docs/library-and-online.md) — imports, downloads, saves,
-  removal, backups, and source limits.
+- [Library and online novels](docs/library-and-online.md) — imports, downloads, saves, removal, backups, and source limits.
 - [Interface reference](docs/interface.md) — current screens and reading preferences.
 - [Offline narration](docs/text-to-speech.md) — Flite SLT usage and implementation.
 - [Building and development](docs/building.md) — toolchains, tests, and editor setup.
-- [Performance and validation](docs/performance.md) — resource lifetimes, profiling,
-  and hardware checks.
+- [Performance and validation](docs/performance.md) — resource lifetimes, profiling, and hardware checks.
 - [Bundled fonts](assets/fonts/README.md) and [third-party notices](third_party/README.md).
 
 ## Credits
 
-NovelReader is developed by **basitalitech**, using VitaSDK and vita2d, with
-FreeType and the Vita system font for text rendering. Thanks to the Vita homebrew
-community and the upstream contributors to TinyXML-2, minizip/zlib, Lua, curl,
-Mbed TLS, Flite and the CMU SLT voice, and Mozilla's CA certificates.
+NovelReader is developed by **basitalitech**, using VitaSDK and vita2d, with FreeType and the Vita system font for text rendering. Thanks to the Vita homebrew community and the upstream contributors to TinyXML-2, minizip/zlib, Lua, curl, Mbed TLS, Flite and the CMU SLT voice, and Mozilla's CA certificates.
 
-Interface fonts are Source Sans 3 by Adobe. Reading fonts are Literata and
-Atkinson Hyperlegible Next. Dependency licenses and font notices are documented
-in [third-party notices](third_party/README.md) and [bundled fonts](assets/fonts/README.md),
-and packaged under `app0:/licenses/` and `app0:/fonts/`. About provides Credits and
-License summaries. Books and artwork retain their respective copyrights.
+Interface fonts are Source Sans 3 by Adobe. Reading fonts are Literata and Atkinson Hyperlegible Next. Dependency licenses and font notices are documented in [third-party notices](third_party/README.md) and [bundled fonts](assets/fonts/README.md), and packaged under `app0:/licenses/` and `app0:/fonts/`. About provides Credits and License summaries. Books and artwork retain their respective copyrights.

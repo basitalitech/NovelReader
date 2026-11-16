@@ -40,9 +40,16 @@ namespace reader
             FontInit,
             Resources,
             OfflineProbe,
+            StartupHome,
+            FirstLibrary,
+            FirstLibraryCovers,
             Count
         };
-        enum class LoadKind { Book, Chapter };
+        enum class LoadKind
+        {
+            Book,
+            Chapter
+        };
         struct ZipWork
         {
             std::uint64_t opens = 0, entries = 0, probe_bytes = 0;
@@ -51,7 +58,11 @@ namespace reader
         {
             std::uint64_t total_us = 0, wrap_us = 0, measure_us = 0, measure_calls = 0, measured_bytes = 0;
         };
-        enum class FrameStage { Draw, Present };
+        enum class FrameStage
+        {
+            Draw,
+            Present
+        };
 #ifdef NOVELREADER_PROFILE
         struct Sample
         {
@@ -194,8 +205,7 @@ namespace reader
                 auto &samples = load_samples();
                 const auto &after = zip_work();
                 samples.items[samples.count++ % samples.items.size()] = {
-                    kind, elapsed, {after.opens - before.opens, after.entries - before.entries, after.probe_bytes - before.probe_bytes},
-                    layout, frame_draw_us, frame_present_us};
+                    kind, elapsed, {after.opens - before.opens, after.entries - before.entries, after.probe_bytes - before.probe_bytes}, layout, frame_draw_us, frame_present_us};
                 pending = false;
             }
         };
@@ -222,7 +232,8 @@ namespace reader
             const std::lock_guard<std::mutex> lock(mutex());
             const char *names[] = {"navigation", "reader_exit", "cleanup", "scan", "metadata", "chapter", "text_read",
                                    "bookmark_preview", "cover_decode", "library_order", "progress_write", "settings_write", "layout",
-                                   "frame_work", "frame_present", "frame_interval", "idle_wait", "font_init", "resources", "offline_probe"};
+                                   "frame_work", "frame_present", "frame_interval", "idle_wait", "font_init", "resources", "offline_probe",
+                                   "startup_home", "first_library", "first_library_covers"};
             std::fprintf(out, "event,calls,total_us,max_us\n");
             for (unsigned i = 0; i < samples().size(); ++i)
             {
@@ -266,8 +277,14 @@ namespace reader
         };
 #else
         inline void add_zip_work(ZipWork) {}
-        struct InputTimer { InputTimer(std::uint64_t &, bool) {} };
-        struct Duration { explicit Duration(std::uint64_t *) {} };
+        struct InputTimer
+        {
+            InputTimer(std::uint64_t &, bool) {}
+        };
+        struct Duration
+        {
+            explicit Duration(std::uint64_t *) {}
+        };
         struct ReaderLoad
         {
             ReaderLoad() = default;

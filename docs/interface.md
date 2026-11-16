@@ -21,8 +21,9 @@ targets without joining D-pad focus. Disabled controls are skipped. Popups isola
 input and restore the underlying screen when dismissed.
 
 Startup displays packaged artwork, the logo, and a progress bar with task labels.
-It loads collection metadata and prepares the first covers, bookmark excerpts,
-and sidebar screen resources before showing Home.
+It loads collection metadata and prepares the sidebar screens before showing Home.
+Preloading uses saved cover thumbnails. Missing thumbnails and further bookmark
+excerpts continue loading when their screens become visible.
 
 ## Screens
 

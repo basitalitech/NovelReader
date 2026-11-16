@@ -24,7 +24,7 @@ reader. Home and About have no Options menu.
 | Screen | Controls |
 | --- | --- |
 | Home | Cross resumes the recent available book, or opens Library if none exists |
-| Library | Cross opens a cover or Add Book; Square searches titles; Triangle sorts/filters; Circle clears an active search before returning Home |
+| Library | Left/Right moves through books across row boundaries. Up/Down moves one row. Cross opens a cover or Add Book. Square searches titles, Triangle sorts or filters, and Circle clears an active search before returning Home |
 | Import browser | Cross opens a folder or toggles a book; Square imports the selection; Triangle refreshes; Circle goes to parent, storage list, then Library |
 | Local book details | Cross opens the selected action. Locate file appears when an imported TXT or EPUB is missing. Circle returns to Library |
 | Bookmarks | Cross opens the saved passage; Start → Remove asks for confirmation; Circle returns to the caller |
@@ -66,7 +66,7 @@ shoulders together have no shortcut.
 | Area | Gesture |
 | --- | --- |
 | Sidebar, footer, buttons, lists | Tap an enabled target to activate its labeled action |
-| Library | Tap a cover for details; swipe vertically to scroll rows |
+| Library | Tap a cover for details. Drag vertically to scroll the grid |
 | Paged lists and Bookmarks | Tap an entry; swipe to browse pages |
 | Reader body | Tap left/right zones to turn pages; tap center to show/hide reading bars |
 | Reader body | Drag horizontally to preview a page turn, then release to complete or settle back; drag vertically to scroll and settle onto a line |
