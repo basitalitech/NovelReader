@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -34,6 +36,21 @@ namespace reader
         unsigned width = 0, height = 0; // Probed once per chapter; zero means unavailable.
         std::string error = {};
     };
+    struct DocumentTarget
+    {
+        std::string path, fragment;
+    };
+    struct InternalLink
+    {
+        std::size_t begin, end;
+        DocumentTarget target;
+    };
+    struct ContentsEntry
+    {
+        std::string title;
+        DocumentTarget target;
+        unsigned depth;
+    };
 
     struct Book
     {
@@ -41,12 +58,15 @@ namespace reader
         std::string text; // Normalized UTF-8; positions always refer to these bytes.
         std::vector<StyleSpan> styles;
         std::vector<Illustration> illustrations;
+        std::map<std::string, std::size_t> anchors = {};
+        std::vector<InternalLink> links = {};
     };
 
     struct Chapter
     {
         std::string title, path;
     };
+    struct EpubDirectory;
     struct Publication
     {
         std::string title, author, path;
@@ -54,6 +74,8 @@ namespace reader
         std::vector<Chapter> chapters; // OPF spine order; chapter contents load on demand.
         std::string cover_path;
         bool online = false;
+        std::vector<ContentsEntry> contents = {};
+        std::shared_ptr<const EpubDirectory> epub_directory;
     };
 
     struct Line
@@ -96,8 +118,23 @@ namespace reader
         int reading_font = 0;  // Literata, Atkinson Hyperlegible Next, Vita system.
         int immersive = 0;     // Show the reading chrome by default; immersive remains optional.
         int speech_rate = 175; // Offline narration, words per minute (100–350).
-        int page_effect = static_cast<int>(PageEffect::SlideAndFade);
+        int page_effect = static_cast<int>(PageEffect::PageCurl);
+        int font_half_step = 0; // Adds two pixels between the legacy 22/26/30 px sizes.
+        int margin = 1;         // Narrow, normal, wide.
+        bool speech_auto_advance = false;
     };
+
+    struct BookmarkPosition
+    {
+        std::size_t chapter = 0, offset = 0;
+        std::string chapter_id;
+
+        bool operator==(const BookmarkPosition &other) const
+        {
+            return chapter == other.chapter && offset == other.offset && chapter_id == other.chapter_id;
+        }
+    };
+    constexpr std::size_t max_bookmarks = 128;
 
     struct Progress
     {
@@ -109,6 +146,12 @@ namespace reader
         int percent = -1;                              // Unknown for legacy saves; EPUB estimate weights chapters equally.
         std::uint64_t last_read = 0;                   // Unix time, updated by the frontend on reading actions.
         std::string chapter_id = {}, bookmark_id = {}; // Stable paths for downloaded chapters.
+        std::vector<BookmarkPosition> other_bookmarks = {};
+
+        std::size_t bookmark_count() const { return has_bookmark ? 1 + other_bookmarks.size() : 0; }
+        BookmarkPosition bookmark_at(std::size_t index) const;
+        bool add_bookmark(const BookmarkPosition &position);
+        void remove_bookmark(std::size_t index);
     };
 
     enum class LibrarySort
@@ -130,6 +173,7 @@ namespace reader
         Progress progress;
         bool guide = false;
         bool directory = false;
+        bool missing = false;
     };
     bool valid_library_component(const std::string &name);
     bool load_library(const std::string &path, std::vector<std::string> &books);
@@ -155,10 +199,18 @@ namespace reader
     bool inspect_image(const std::string &bytes, ImageInfo &image, std::string &error);
     bool load_epub_image(const std::string &archive_path, const std::string &image_path,
                          std::string &bytes, std::string &error);
+    bool load_epub_image(const Publication &publication, const std::string &image_path,
+                         std::string &bytes, std::string &error);
 
     using Measure = std::function<int(const std::string &)>;
+    // Measures [begin, end) within a line. first is true for its first width probe.
+    using LineMeasure = std::function<int(const std::string &, std::size_t begin, std::size_t end, bool first)>;
 
-    ChapterLayout layout_book(const Book &book, int width, int page_height, int line_height, const Measure &measure);
+    namespace perf { struct LayoutWork; }
+    ChapterLayout layout_book(const Book &book, int width, int page_height, int line_height, const Measure &measure,
+                              perf::LayoutWork *work = nullptr);
+    ChapterLayout layout_book(const Book &book, int width, int page_height, int line_height, const LineMeasure &measure,
+                              perf::LayoutWork *work = nullptr);
     std::size_t layout_page_end(const std::vector<LayoutBlock> &blocks, std::size_t start, int page_height);
     std::size_t block_at_offset(const std::vector<LayoutBlock> &blocks, std::size_t offset);
     std::size_t previous_page_start(const std::vector<std::size_t> &pages, std::size_t start);
@@ -173,10 +225,12 @@ namespace reader
     std::string library_book_path(const std::string &identity, const std::string &books_directory);
     bool valid_utf8(const std::string &text);
     bool open_publication(const std::string &path, Publication &publication, std::string &error);
-    bool load_chapter(const Publication &publication, std::size_t index, Book &chapter, std::string &error);
+    bool load_chapter(const Publication &publication, std::size_t index, Book &chapter, std::string &error,
+                      bool probe_illustrations = false);
     std::string title_from_filename(const std::string &name);
     bool load_book(const std::string &path, Book &book, std::string &error);
     std::vector<Line> wrap_text(const std::string &text, int width, const Measure &measure);
+    std::vector<Line> wrap_text(const std::string &text, int width, const LineMeasure &measure);
     std::size_t line_at_offset(const std::vector<Line> &lines, std::size_t offset);
     std::string progress_path(const std::string &directory, const std::string &filename);
     Progress load_progress(const std::string &path);

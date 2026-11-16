@@ -53,6 +53,7 @@ namespace reader
         std::string cover_path(const std::string &manifest);
         bool load_cover(const std::string &manifest, std::string &bytes, std::string &error);
         bool remove_downloads(const std::string &manifest, std::string &error);
+        bool clear_cached_chapters(const std::string &manifest, std::string &error);
         std::string chapter_path(const std::string &manifest, const std::string &url);
         bool cached(const std::string &manifest, const std::string &url);
         bool open_cached(const std::string &path, Publication &publication, std::string &error);
@@ -66,6 +67,7 @@ namespace reader
             Read,
             Download,
             Remove,
+            ClearCache,
             CheckUpdates
         };
         struct Request
@@ -75,6 +77,7 @@ namespace reader
             Novel novel;
             std::size_t chapter = 0;
             bool all = false;
+            std::size_t count = 0; // For a chapter range starting at chapter.
         };
         struct Update
         {

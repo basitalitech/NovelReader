@@ -16,9 +16,10 @@ does not copy or relocate its chapter cache.
 
 Import records file references and leaves originals in place. Copying files into
 `ux0:data/NovelReader/books/` does not automatically add them to Library. Same-named
-books in different folders have separate identities. Renaming or moving an
-imported file changes its save identity; restore missing files to their original
-locations to use the existing reference.
+books in different folders have separate identities. If you move or rename an
+imported TXT or EPUB, open its library details, choose **Locate file**, and select
+the moved book. This transfers its reading position and bookmarks. The replacement
+must have the same format and be outside the current library.
 
 Metadata is retained across screen visits. **Triangle / Refresh folder** in the
 import browser rereads that directory and refreshes metadata for imported books
@@ -34,9 +35,9 @@ Going back to earlier pages changes the status. EPUB percentages weight chapters
 equally; TXT progress uses normalized text offsets. The bundled guide appears
 last under All books and is excluded from Reading/Finished.
 
-Each book has one reading position and one bookmark. Saving another bookmark
-replaces that book's previous bookmark. Font or spacing changes reflow around
-the reading anchor. The Bookmarks screen shows a passage when its chapter is
+Each book has one reading position and up to 128 bookmarks. Existing single
+bookmarks carry over. The reader's Select shortcut opens the newest bookmark.
+Layout changes reflow around the reading anchor. The Bookmarks screen shows a passage when its chapter is
 locally available and uses the normal download/retry flow for missing online
 chapters.
 
@@ -52,6 +53,11 @@ Online novels**, or Library's **Start → Add a new book → Online novels** sub
    do not automatically add one.
 4. Read a chapter, download the selected chapter with Square in the chapter list,
    or use Select / Download all for public chapters.
+
+Under **Options → Download chapter range**, choose 5, 10, or 25 chapters starting
+at the selected chapter or your saved chapter on the novel screen. Locked
+chapters are skipped. **Clear downloaded chapters** removes chapter files and
+keeps the favorite, artwork, reading position, and bookmarks.
 
 Reading fetches a missing chapter before opening it. Successfully cached chapters
 work offline. Requests run on one background worker. Downloads are sequential;
@@ -78,6 +84,7 @@ connection failures. Limits include 4 MiB per response, 2 MiB per chapter text,
 | `ux0:data/NovelReader/library.txt` | Imported membership and online favorites |
 | `ux0:data/NovelReader/settings.txt` | Reader and library preferences |
 | `ux0:data/NovelReader/progress/` | Per-book reading position and bookmark |
+| `ux0:data/NovelReader/thumbnails/` | Reusable Library and Home cover thumbnails. Missing or stale thumbnails rebuild from the originals |
 | `ux0:data/NovelReader/books/Online/` | Online indexes, cached covers, and hidden chapter directories |
 
 Local books can live elsewhere on `ux0:`; the library index refers to those paths.

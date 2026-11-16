@@ -1,6 +1,7 @@
 #include "online.hpp"
 #include "performance.hpp"
 #include "file_io.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <iomanip>
@@ -76,7 +77,7 @@ namespace reader
                 return false;
             }
         }
-        bool remove_downloads(const std::string &manifest, std::string &error)
+        bool clear_cached_chapters(const std::string &manifest, std::string &error)
         {
             if (!is_online_book(manifest))
             {
@@ -120,6 +121,22 @@ namespace reader
             }
             else if (errno != ENOENT)
                 ok = false;
+            error = ok ? "" : "Some downloaded chapters could not be deleted. Retry cleanup.";
+            return ok;
+        }
+        bool remove_downloads(const std::string &manifest, std::string &error)
+        {
+            if (!is_online_book(manifest))
+            {
+                error = "Invalid online book index.";
+                return false;
+            }
+            bool ok = clear_cached_chapters(manifest, error);
+            const auto erase = [&](const std::string &path)
+            {
+                if (std::remove(path.c_str()) != 0 && errno != ENOENT)
+                    ok = false;
+            };
             erase(cover_path(manifest));
             erase(cover_path(manifest) + ".tmp");
             erase(manifest + ".tmp");
@@ -257,15 +274,21 @@ namespace reader
                 progress.chapter = 0;
                 progress.offset = 0;
             }
-            if (!progress.bookmark_id.empty() && !find(progress.bookmark_id, progress.bookmark_chapter))
-                progress.has_bookmark = false;
             if (progress.chapter >= publication.chapters.size())
             {
                 progress.chapter = 0;
                 progress.offset = 0;
             }
-            if (progress.bookmark_chapter >= publication.chapters.size())
-                progress.has_bookmark = false;
+            auto available = [&](const std::string &id, std::size_t &chapter)
+            {
+                return (id.empty() || find(id, chapter)) && chapter < publication.chapters.size();
+            };
+            auto &marks = progress.other_bookmarks;
+            marks.erase(std::remove_if(marks.begin(), marks.end(), [&](BookmarkPosition &mark)
+                                       { return !available(mark.chapter_id, mark.chapter); }),
+                        marks.end());
+            if (progress.has_bookmark && !available(progress.bookmark_id, progress.bookmark_chapter))
+                progress.remove_bookmark(0);
         }
     }
 }

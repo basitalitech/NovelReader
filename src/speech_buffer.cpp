@@ -19,6 +19,7 @@ namespace reader
                 {
                     std::array<short, frames> pcm{};
                     std::size_t count = 0;
+                    std::size_t offset = unknown_playback_offset;
                 };
                 std::unique_ptr<Audio> device_;
                 std::array<Block, capacity> queue_;
@@ -26,6 +27,7 @@ namespace reader
                 mutable std::mutex mutex_;
                 std::condition_variable changed_;
                 std::size_t read_ = 0, count_ = 0;
+                std::size_t segment_ = unknown_playback_offset, played_ = unknown_playback_offset;
                 bool paused_ = false, canceled_ = false, ending_ = false, failed_ = false;
                 bool worker_started_ = false;
                 pthread_t worker_{};
@@ -55,6 +57,7 @@ namespace reader
                     try
                     {
                         bool primed = false;
+                        std::size_t previous_offset = unknown_playback_offset;
                         for (;;)
                         {
                             Block block;
@@ -80,6 +83,13 @@ namespace reader
                                 changed_.notify_all();
                                 break;
                             }
+                            {
+                                // The Vita output waits for the previous buffer before submitting this one.
+                                std::lock_guard<std::mutex> lock(mutex_);
+                                if (previous_offset != unknown_playback_offset)
+                                    played_ = previous_offset;
+                            }
+                            previous_offset = block.offset;
                         }
                     }
                     catch (...)
@@ -105,6 +115,7 @@ namespace reader
                         std::lock_guard<std::mutex> lock(mutex_);
                         paused_ = canceled_ = ending_ = failed_ = false;
                         read_ = count_ = 0;
+                        segment_ = played_ = unknown_playback_offset;
                     }
                     pending_.count = 0;
                     if (!device_->open(sample_rate))
@@ -136,6 +147,7 @@ namespace reader
                         const auto take = std::min(count, frames - pending_.count);
                         std::copy(samples, samples + take, pending_.pcm.begin() + pending_.count);
                         pending_.count += take;
+                        pending_.offset = segment_;
                         samples += take;
                         count -= take;
                         if (pending_.count == frames && !enqueue())
@@ -176,6 +188,12 @@ namespace reader
                 {
                     std::lock_guard<std::mutex> lock(mutex_);
                     return !failed_ && !canceled_;
+                }
+                void begin_segment(std::size_t offset) override { segment_ = offset; }
+                std::size_t playback_offset() const override
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    return played_;
                 }
             };
         }

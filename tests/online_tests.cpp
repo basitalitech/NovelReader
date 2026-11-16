@@ -293,6 +293,18 @@ namespace
         service.cancel();
         result = finish(service);
         check(!result.error.empty() && cached(manifest, n.chapters[0].url), "Cancellation retains completed chapters");
+        request.action = Action::ClearCache;
+        request.manifest = manifest;
+        check(service.start(request) && finish(service).error.empty() && open_publication(manifest, p, error) &&
+                  !cached(manifest, n.chapters[0].url) && !cached(manifest, n.chapters[1].url),
+              "Clear cache removed the index or left chapters behind");
+        request.action = Action::Download;
+        request.all = false;
+        request.chapter = 1;
+        request.count = 2;
+        check(service.start(request) && finish(service).error.empty() && requests == 4 && !cached(manifest, n.chapters[0].url) &&
+                  cached(manifest, n.chapters[1].url) && !cached(manifest, n.chapters[2].url),
+              "Range download fetched outside its range or failed on a locked chapter");
     }
 }
 int main(int argc, char **argv)

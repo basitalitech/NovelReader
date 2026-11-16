@@ -5,8 +5,8 @@
 ## Use read aloud
 
 In Reader, open **Start → Read aloud (TTS) → Start here**. The bundled Flite SLT
-US English voice reads from the visible text position to the end of the current
-chapter. The same menu offers Pause/Resume, Stop narration, and Slower/Faster.
+US English voice reads from the visible text position. The same menu offers
+Pause/Resume, Stop narration, Slower/Faster, **Next chapter**, and **Sleep timer**.
 
 Speed is saved, defaults to **175 words per minute**, and changes in 25 WPM steps
 between **100 and 350 WPM**. It is approximate: Flite scales voice duration and
@@ -15,9 +15,10 @@ actual pace depends on the text. Changes apply to the next text chunk.
 Narration follows source text offsets on screen and skips illustration markers.
 The visible text may lead audible speech by the playback lookahead. Normal progress
 saves retain the visible reading position. Leaving Reader or changing chapter
-stops narration. Completion drains queued audio and leaves the book open; Start
-here can replay from the visible position. Playback does not automatically
-continue into the next chapter.
+stops narration. Enable **Next chapter** to continue into the next local or
+downloaded chapter. The 15-, 30-, and 60-minute sleep timers stop playback and save
+the line containing the most recently played speech chunk. A subsequent Start
+here can replay part of that line.
 
 The voice is linked into the executable. Narration needs no network connection,
 account, voice download, or runtime speech-data directory. This is an English

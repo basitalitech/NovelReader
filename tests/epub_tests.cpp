@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "performance.hpp"
 #include <zlib.h>
 
 #include <algorithm>
@@ -122,12 +123,14 @@ namespace
 <item id="extra" href="extra.xhtml" media-type="application/xhtml+xml"/>
 </manifest><spine toc="ncx"><itemref idref="first"/><itemref idref="extra" linear="no"/><itemref idref="second"/></spine></package>)";
     const std::string first = R"(<?xml version="1.0"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Hidden title</title><style>Hidden style</style></head>
-<body><h1>First chapter</h1><p>Hello <em>quiet <strong>world</strong></em> &amp; welcome&nbsp;home.</p>
-<p>Next paragraph.<br/>Another line. &#x65E5;&#26412;</p><script>Hidden script</script><!-- Hidden comment -->
+<body><h1 id="start">First chapter</h1><p>Hello <em>quiet <strong>world</strong></em> &amp; welcome&nbsp;home.</p>
+<p id="second-section">Next paragraph.<br/>Another line. &#x65E5;&#26412; <a href="#caf%C3%A9">[1]</a></p><script>Hidden script</script><!-- Hidden comment -->
+<p id="café">Footnote text. <a href="https://example.com">External text</a></p>
 <p><ruby>Base<rt>Hidden ruby</rt></ruby></p><img alt="A moonlit lake" src="../Images/cover.jpg"/></body></html>)";
     const std::string second = R"(<html xmlns="http://www.w3.org/1999/xhtml"><body><h2>Second chapter</h2><p>The end.</p></body></html>)";
     const std::string nav = R"(<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>
 <nav epub:type="toc"><ol><li><a href="../Text/one%20chapter.xhtml#start">The beginning</a><ol>
+<li><a href="../Text/one%20chapter.xhtml#second-section">A section in the same chapter</a></li>
 <li><a href="../Text/two.xhtml">The ending</a></li></ol></li></ol></nav>
 <nav epub:type="landmarks"><a href="../Text/one%20chapter.xhtml">Wrong label</a></nav></body></html>)";
     const std::string ncx = R"(<ncx><navMap><navPoint><navLabel><text>NCX beginning</text></navLabel><content src="Text/one%20chapter.xhtml#start"/>
@@ -148,6 +151,139 @@ namespace
         const auto begin = book.text.find(text);
         return begin != std::string::npos && std::any_of(book.styles.begin(), book.styles.end(), [&](const reader::StyleSpan &span)
                                                          { return span.begin <= begin && span.end >= begin + text.size() && (span.style & style) == style; });
+    }
+
+    void directory_regressions(const std::string &path)
+    {
+        constexpr std::size_t chapters = 1024;
+        std::vector<Entry> entries = {{"mimetype", "application/epub+zip", false}, {"META-INF/container.xml", container}};
+        std::string manifest, spine;
+        const std::string final_path = "OPS/Text/chapter-1023.xhtml";
+        entries.push_back({"OPS/Text/Chapter-1023.xhtml", "Wrong case", false});
+        for (std::size_t i = 0; i < chapters; ++i)
+        {
+            const auto number = std::to_string(i);
+            const auto filename = "Text/chapter-" + number + ".xhtml";
+            manifest += "<item id=\"c" + number + "\" href=\"" + filename + "\" media-type=\"application/xhtml+xml\"/>";
+            spine += "<itemref idref=\"c" + number + "\"/>";
+            entries.push_back({"OPS/" + filename, second, false});
+        }
+        const auto package_xml = "<package><manifest>" + manifest + "</manifest><spine>" + spine + "</spine></package>";
+        entries.push_back({"OPS/package.opf", package_xml});
+        entries.push_back({final_path, "<html><body>Wrong duplicate</body></html>", false});
+        zip(path, entries);
+        reader::Publication publication;
+        reader::Book book;
+        std::string error;
+#ifdef NOVELREADER_PROFILE
+        const auto before_open = reader::perf::zip_snapshot();
+#endif
+        check(reader::open_publication(path, publication, error) && publication.epub_directory &&
+                  publication.chapters.size() == chapters, "Large EPUB spine or ZIP directory index failed: " + error);
+#ifdef NOVELREADER_PROFILE
+        const auto after_open = reader::perf::zip_snapshot();
+        check(after_open.opens - before_open.opens == 1 && after_open.entries - before_open.entries == entries.size(),
+              "Opening a large spine rescanned the ZIP directory");
+#endif
+        const auto copy = publication;
+        check(reader::load_chapter(copy, chapters - 1, book, error) && book.text.find("The end.") != std::string::npos,
+              "Shared index lost case-sensitive or first-duplicate lookup");
+#ifdef NOVELREADER_PROFILE
+        const auto after_chapter = reader::perf::zip_snapshot();
+        check(after_chapter.opens - after_open.opens == 1 && after_chapter.entries == after_open.entries,
+              "An indexed chapter read rescanned the ZIP directory");
+#endif
+
+        entries[chapters + 2].text = "<html><body><p>Replacement chapter with a different ZIP offset.</p></body></html>";
+        std::rotate(entries.begin() + 3, entries.begin() + chapters + 2, entries.begin() + chapters + 3);
+        const auto replacement = path + ".replacement";
+        zip(replacement, entries);
+        check(std::rename(replacement.c_str(), path.c_str()) == 0, "Could not replace the EPUB fixture");
+        check(reader::load_chapter(publication, chapters - 1, book, error) &&
+                  book.text.find("Replacement chapter") != std::string::npos, "A stale index read the wrong chapter after replacement");
+#ifdef NOVELREADER_PROFILE
+        check(reader::perf::zip_snapshot().entries > after_chapter.entries, "Replaced archives must use the fallback scan");
+#endif
+
+        entries = fixture();
+        for (int i = 0; i < 4500; ++i)
+            entries.push_back({"Unused/" + std::to_string(i) + std::string(235, 'x'), "", false});
+        zip(path, entries);
+        check(reader::open_publication(path, publication, error) && !publication.epub_directory &&
+                  reader::load_chapter(publication, 1, book, error) && book.text.find("The end.") != std::string::npos,
+              "A ZIP that exceeds the filename budget did not fall back to legacy lookup");
+    }
+
+    std::string jpeg_image(bool late)
+    {
+        std::string jpeg("\xff\xd8", 2);
+        if (late)
+        {
+            jpeg.append("\xff\xe1\xff\xff", 4);
+            jpeg.append(65533, 'x');
+        }
+        jpeg.append("\xff\xc0\0\x08\x08\0\x03\0\x05\x01", 10);
+        jpeg.append(128 * 1024, 'x');
+        return jpeg;
+    }
+
+    void illustration_probe_regressions(const std::string &path, const std::string &save, std::string png)
+    {
+        auto entries = fixture();
+        png.append(128 * 1024, 'x');
+        const auto early_jpeg = jpeg_image(false), late_jpeg = jpeg_image(true);
+        replace(entries[4].text, "../Images/cover.jpg", "../Images/early.png");
+        replace(entries[4].text, "</body>", "<img src=\"../Images/early.jpg\"/><img src=\"../Images/late.jpg\"/></body>");
+        entries.push_back({"OPS/Images/early.png", png});
+        entries.push_back({"OPS/Images/early.jpg", early_jpeg});
+        entries.push_back({"OPS/Images/late.jpg", late_jpeg});
+        zip(path, entries);
+        reader::Publication publication;
+        reader::Book full, probed;
+        std::string error;
+        check(reader::open_publication(path, publication, error) && reader::load_chapter(publication, 0, full, error), "Image fixture did not open");
+#ifdef NOVELREADER_PROFILE
+        const auto before = reader::perf::zip_snapshot();
+#endif
+        check(reader::load_chapter(publication, 0, probed, error, true) && probed.illustrations.size() == 3, "Could not probe chapter images");
+#ifdef NOVELREADER_PROFILE
+        const auto after = reader::perf::zip_snapshot();
+        check(after.opens - before.opens == 1 && after.entries == before.entries &&
+                  after.probe_bytes - before.probe_bytes == 66 + late_jpeg.size(),
+              "PNG and early JPEG dimensions must use the shared handle and a 33-byte prefix, with a full fallback only for the late JPEG");
+#endif
+        for (std::size_t i = 0; i < full.illustrations.size(); ++i)
+        {
+            auto &image = full.illustrations[i];
+            reader::ImageInfo info;
+            std::string bytes;
+            check(reader::load_epub_image(publication, image.path, bytes, error) && reader::inspect_image(bytes, info, error), "Full illustration read failed");
+            image.width = info.width;
+            image.height = info.height;
+            const auto &probe = probed.illustrations[i];
+            check(probe.width == info.width && probe.height == info.height && probe.error.empty(), "Partial probe changed valid illustration dimensions");
+        }
+        const auto measure = [](const std::string &text) { return static_cast<int>(text.size()) * 6; };
+        const auto a = reader::layout_book(full, 180, 100, 20, measure), b = reader::layout_book(probed, 180, 100, 20, measure);
+        check(full.text == probed.text && full.anchors == probed.anchors && a.pages == b.pages && a.blocks.size() == b.blocks.size(),
+              "Probing altered normalized text, EPUB anchors, or pagination");
+        for (std::size_t i = 0; i < a.blocks.size(); ++i)
+            check(a.blocks[i].offset == b.blocks[i].offset && a.blocks[i].height == b.blocks[i].height &&
+                      a.blocks[i].image_width == b.blocks[i].image_width && a.blocks[i].image_height == b.blocks[i].image_height,
+                  "Probing changed reading or illustration geometry");
+        check(reader::save_progress(save, {full.anchors.at("café"), true, full.anchors.at("second-section")}), "Could not save anchor fixture");
+        const auto saved = reader::load_progress(save);
+        check(reader::block_at_offset(a.blocks, saved.offset) == reader::block_at_offset(b.blocks, saved.offset) &&
+                  reader::block_at_offset(a.blocks, saved.bookmark) == reader::block_at_offset(b.blocks, saved.bookmark),
+              "Probing relocated a saved position or bookmark");
+
+        entries[entries.size() - 3].bad_crc = true;
+        zip(path, entries);
+        check(reader::open_publication(path, publication, error) && reader::load_chapter(publication, 0, probed, error, true) &&
+                  probed.illustrations[0].width == 2, "The corrupt image fixture did not pass the header probe");
+        std::string bytes;
+        check(!reader::load_epub_image(publication, probed.illustrations[0].path, bytes, error) && error.find("checksum") != std::string::npos,
+              "An image that passed its prefix probe bypassed the full CRC check");
     }
 }
 
@@ -177,11 +313,18 @@ int main()
                   publication.chapters[1].path == "OPS/Text/two.xhtml",
               "Spine order, relative paths or linear=no");
         check(publication.chapters[0].title == "The beginning" && publication.chapters[1].title == "The ending", "EPUB3 labels");
+        check(publication.contents.size() == 3 && publication.contents[1].depth == 1 &&
+                  publication.contents[1].target.path == publication.chapters[0].path && publication.contents[1].target.fragment == "second-section",
+              "Nested sections sharing one XHTML file lost their target");
         check(reader::load_chapter(publication, 0, book, error), "Load EPUB chapter: " + error);
         check(book.title == "First chapter" && book.text.find("Hello quiet world & welcome home.") != std::string::npos,
               "Inline whitespace or entities");
         check(book.text.find("\n\nNext paragraph.\nAnother line.") != std::string::npos, "Paragraphs and line breaks");
         check(book.text.find("\xe6\x97\xa5\xe6\x9c\xac") != std::string::npos, "Numeric UTF-8 entities");
+        check(book.anchors.at("second-section") == book.text.find("Next paragraph.") &&
+                  book.anchors.at("café") == book.text.find("Footnote text.") && book.links.size() == 1 &&
+                  book.links[0].target.fragment == "café" && book.links[0].target.path == publication.chapters[0].path,
+              "Footnote offsets or encoded internal link were lost");
         check(book.text.find("Hidden") == std::string::npos && book.text.find("Base") != std::string::npos, "Hidden content filtering");
         check(book.text.find("[Illustration: A moonlit lake]") != std::string::npos, "Image placeholder");
         check(book.illustrations.size() == 1 && book.illustrations[0].path == "OPS/Images/cover.jpg" &&
@@ -341,6 +484,8 @@ int main()
         check(reader::open_publication(path, publication, error) && reader::load_chapter(publication, 0, book, error) &&
                   book.illustrations.size() == 1 && book.illustrations[0].path == "OPS/Images/scene one.png",
               "Raster image in SVG wrapper");
+        directory_regressions(path);
+        illustration_probe_regressions(path, save, image);
         {
             std::ofstream file(path);
             file << "not a zip";
@@ -354,6 +499,7 @@ int main()
         result = 1;
     }
     std::remove(path.c_str());
+    std::remove((path + ".replacement").c_str());
     std::remove(save.c_str());
     rmdir(directory.c_str());
     return result;

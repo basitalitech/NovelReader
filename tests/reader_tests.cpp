@@ -68,6 +68,41 @@ int main()
             check(reader::load_book(fixture, book, error), "Valid UTF-8 book rejected");
             check(book.text == "Chapter 1\n\nCaf\xc3\xa9    story\nEnd", "BOM or line endings not normalized");
 
+            // Both byte orders, non-Latin scripts, CRLF, and a surrogate pair.
+            const unsigned units[] = {'A', '\r', '\n', 0x4e2d, 0x65e5, 0xd55c, 0x0416, 0x03a9, 0x1f600};
+            const std::string multilingual = "A\n中日한ЖΩ😀";
+            for (bool little : {false, true})
+            {
+                  std::string encoded = little ? "\xff\xfe" : "\xfe\xff";
+                  const auto append = [&](unsigned unit)
+                  {
+                        encoded += static_cast<char>(little ? unit & 255 : unit >> 8);
+                        encoded += static_cast<char>(little ? unit >> 8 : unit & 255);
+                  };
+                  for (auto code : units)
+                  {
+                        if (code > 0xffff)
+                        {
+                              code -= 0x10000;
+                              append(0xd800 | (code >> 10));
+                              append(0xdc00 | (code & 0x3ff));
+                        }
+                        else
+                              append(code);
+                  }
+                  write(fixture, encoded);
+                  check(reader::load_book(fixture, book, error) && book.text == multilingual, "UTF-16 multilingual decoding failed");
+                  write(fixture, multilingual);
+                  reader::Book utf8;
+                  check(reader::load_book(fixture, utf8, error) && utf8.text == book.text, "Encoding changed normalized progress offsets");
+            }
+            for (const auto &invalid : {std::string("\xff\xfe\x00", 3), std::string("\xff\xfe\x00\xd8", 4),
+                                        std::string("\xff\xfe\x00\xdc", 4), std::string("\xfe\xff\xd8\x00\x00\x41", 6)})
+            {
+                  write(fixture, invalid);
+                  check(!reader::load_book(fixture, book, error), "Malformed UTF-16 accepted");
+            }
+
             write(fixture, "\xc0\xaf");
             check(!reader::load_book(fixture, book, error), "Overlong UTF-8 accepted");
             write(fixture, "\xed\xa0\x80");
@@ -90,9 +125,34 @@ int main()
             lines = reader::wrap_text("\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e", 1, columns);
             check(lines.size() == 3 && lines[0].text.size() == 3 && lines[2].offset == 6,
                   "UTF-8 characters split during wrapping");
+            lines = reader::wrap_text(u8"e\u0301🙂‍↔️x", 1, columns);
+            check(lines.size() == 3 && lines[0].text == u8"e\u0301" && lines[1].text == u8"🙂‍↔️",
+                  "Forced wrapping split a combining or joined emoji sequence");
+            lines = reader::wrap_text(u8"あいう、え「お」", 3, columns);
+            check(lines.size() == 3 && lines.front().text == u8"あい" && lines.back().text == u8"「お」",
+                  "Japanese punctuation did not stay with its adjacent text");
             lines = reader::wrap_text("ab", 0, [](const std::string &)
                                       { return 100; });
             check(lines.size() == 2, "Layout did not advance with oversized glyphs");
+
+            // Operation counts catch the slow prefix-per-character algorithm
+            // without depending on desktop speed or a mocked Vita clock.
+            std::string large;
+            for (int i = 0; i < 6000; ++i)
+                  large += "A multilingual story with words and sentences. ";
+            std::size_t measured_bytes = 0, calls = 0;
+            const auto large_lines = reader::wrap_text(large, 72, [&](const std::string &value)
+                                                       {
+                  measured_bytes += value.size();
+                  ++calls;
+                  return columns(value); });
+            check(measured_bytes < large.size() * 12 && calls < large.size() / 4,
+                  "Large text wrapping regressed to measuring every character prefix");
+            for (const auto &line : large_lines)
+                  check(columns(line.text) <= 72 && large.compare(line.offset, line.text.size(), line.text) == 0,
+                        "Fast wrapping changed source anchors or overflowed the line");
+            const auto unbroken = reader::wrap_text(std::string(150000, 'x'), 72, columns);
+            check(unbroken.size() == 2084 && unbroken.back().offset == 149976, "Long paragraph or unbroken word wrapping failed");
 
             const std::string story = "One evening the rain stopped and a new chapter began.";
             const auto narrow = reader::wrap_text(story, 10, columns);
@@ -120,6 +180,15 @@ int main()
             auto progress = reader::load_progress(state);
             check(progress.offset == anchor && progress.has_bookmark && progress.bookmark == 7,
                   "Progress or bookmark failed round trip");
+            check(progress.add_bookmark({2, 31, "chapter-2"}) && progress.add_bookmark({3, 44, "chapter-3"}) &&
+                      reader::save_progress(state, progress),
+                  "Multiple bookmark save failed");
+            progress = reader::load_progress(state);
+            check(progress.bookmark_count() == 3 && progress.bookmark_at(2).offset == 7 &&
+                      progress.bookmark_at(1) == reader::BookmarkPosition{2, 31, "chapter-2"},
+                  "Saved bookmarks did not round-trip");
+            progress.remove_bookmark(0);
+            check(progress.bookmark_count() == 2 && progress.bookmark_at(0).offset == 31, "Removing the newest bookmark discarded the previous one");
             check(reader::save_progress(state, {4, true, 8}), "Replacing an existing save failed");
             check(reader::load_progress(state).offset == 4, "Save replacement was not persisted");
             write(state, "NRP1\n-1 1 5\n");
@@ -137,7 +206,7 @@ int main()
             check(reader::save_settings(settings_path, {2, 0, 1}), "Settings save failed");
             auto settings = reader::load_settings(settings_path);
             check(settings.speech_rate == 175, "Old settings lost the default speech speed");
-            check(settings.page_effect == static_cast<int>(reader::PageEffect::SlideAndFade), "Default page effect changed");
+            check(settings.page_effect == static_cast<int>(reader::PageEffect::PageCurl), "Default page effect changed");
             for (int effect = 0; effect < 3; ++effect)
             {
                   settings.page_effect = effect;
@@ -148,6 +217,15 @@ int main()
             check(reader::save_settings(settings_path, settings) && reader::load_settings(settings_path).speech_rate == 225,
                   "Speech speed failed round trip");
             check(settings.font == 2 && settings.spacing == 0 && settings.theme == 1, "Settings failed round trip");
+            auto appearance = settings;
+            appearance.font = 1;
+            appearance.font_half_step = 1;
+            appearance.margin = 2;
+            appearance.speech_auto_advance = true;
+            check(reader::save_settings(settings_path, appearance), "Could not save extended settings");
+            appearance = reader::load_settings(settings_path);
+            check(appearance.font == 1 && appearance.font_half_step == 1 && appearance.margin == 2 && appearance.speech_auto_advance,
+                  "Extended settings did not round-trip");
             for (int theme = 0; theme < reader::page_theme_count; ++theme)
             {
                   auto themed = settings;
@@ -180,9 +258,9 @@ int main()
             check(reader::load_settings(settings_path).immersive == 1, "Reading-view preference was not bounded");
             write(settings_path, "NRS4\n1 1 0 0 0 0\n");
             check(reader::load_settings(settings_path).immersive == 0, "New defaults should show reading controls");
-            check(reader::load_settings(settings_path).page_effect == 1, "Legacy view settings lost Slide and Fade");
+            check(reader::load_settings(settings_path).page_effect == 0, "Legacy view settings lost default Page Curl");
             write(settings_path, "NRS4\n1 1 0 0 0 0 0 225\n");
-            check(reader::load_settings(settings_path).page_effect == 1 && reader::load_settings(settings_path).speech_rate == 225,
+            check(reader::load_settings(settings_path).page_effect == 0 && reader::load_settings(settings_path).speech_rate == 225,
                   "Legacy narration settings were changed by effect migration");
             write(settings_path, "NRS4\n1 1 0 0 0 0 0 225 -99\n");
             check(reader::load_settings(settings_path).page_effect == 0, "Negative page effect not bounded");

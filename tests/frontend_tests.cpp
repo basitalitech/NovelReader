@@ -26,7 +26,13 @@ namespace reader
     };
     VitaFonts::VitaFonts(vita2d_pgf *) : impl_(new Impl) {}
     VitaFonts::~VitaFonts() = default;
+    void VitaFonts::finish_frame() const {}
     int VitaFonts::width(FontRole role, unsigned pixels, const std::string &text) const { return text.size() * pixels / (role == FontRole::Sans ? 3 : 2); }
+    LineMeasure VitaFonts::line_measure(FontRole role, unsigned pixels) const
+    {
+        return [this, role, pixels](const std::string &source, std::size_t begin, std::size_t end, bool)
+        { return width(role, pixels, source.substr(begin, end - begin)); };
+    }
     void VitaFonts::draw(FontRole role, unsigned pixels, int x, int y, unsigned color, const std::string &text) const
     {
         if (capture_font_draws)
@@ -38,6 +44,16 @@ namespace reader
 }
 vita2d_texture *decode_texture(const std::string &, std::string &) { return nullptr; }
 vita2d_texture *decode_thumbnail(const std::string &, unsigned, unsigned, std::string &) { return nullptr; }
+ThumbnailPixels decode_thumbnail_pixels(const std::string &bytes, unsigned, unsigned, std::string &error)
+{
+    reader::ImageInfo info;
+    return reader::inspect_image(bytes, info, error) ? ThumbnailPixels{1, 1, {12, 34, 56, 255}} : ThumbnailPixels{};
+}
+vita2d_texture *upload_thumbnail(const ThumbnailPixels &pixels)
+{
+    static vita2d_texture texture{};
+    return pixels.rgba.empty() ? nullptr : &texture;
+}
 
 namespace
 {
@@ -48,6 +64,45 @@ namespace
     }
     struct FrontendTest
     {
+        static void large_text_settings()
+        {
+            const auto filename = books_directory + "/large-unicode.txt";
+            {
+                std::ofstream output(filename, std::ios::binary);
+                for (int i = 0; i < 4000; ++i)
+                    output << "A story in English, français, Ελληνικά, Русский, 日本語, 中文, 한국어.\n";
+            }
+            vita2d_pgf font;
+            App app(&font);
+            const auto original_settings = app.settings_;
+            std::string error;
+            check(reader::open_publication(filename, app.publication_, error) && app.change_chapter(0, 0),
+                  "Large multilingual TXT did not open");
+            check(app.book_.text.size() > 100000 && app.lines_.size() > 200, "Large TXT regression fixture is too small");
+            app.top_ = 200;
+            const auto anchor = app.lines_[app.top_].offset;
+            app.previous_settings_ = app.settings_;
+            auto *blocks = app.lines_.data();
+            app.settings_.theme = (app.settings_.theme + 1) % reader::page_theme_count;
+            check(app.apply_settings() && app.lines_.data() == blocks && app.lines_[app.top_].offset == anchor,
+                  "Theme-only change rewrapped the book or changed the anchor");
+            app.previous_settings_ = app.settings_;
+            app.settings_.page_effect = (app.settings_.page_effect + 1) % 3;
+            check(app.apply_settings() && app.lines_.data() == blocks, "Page-effect change rewrapped the book");
+            for (int family = 0; family < 3; ++family)
+            {
+                const auto current_anchor = app.lines_[app.top_].offset;
+                app.previous_settings_ = app.settings_;
+                app.settings_.reading_font = family;
+                check(app.apply_settings(), "Large TXT font switch failed");
+                const auto at = reader::block_at_offset(app.lines_, current_anchor);
+                check(app.top_ == at && app.lines_[at].offset <= current_anchor &&
+                          (at + 1 == app.lines_.size() || app.lines_[at + 1].offset > current_anchor),
+                      "Font switch lost the source-byte reading position");
+            }
+            std::remove(filename.c_str());
+            check(reader::save_settings(settings_path, original_settings), "Settings fixture restore failed");
+        }
         static void wait_browser(App &app)
         {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -58,6 +113,108 @@ namespace
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
+        static void settle_visible_assets(App &app)
+        {
+            app.draw();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (app.library_assets_.busy())
+            {
+                if (app.needs_redraw())
+                    app.draw();
+                check(std::chrono::steady_clock::now() < deadline, "Visible library assets did not finish loading");
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
+        static void thumbnail_cache()
+        {
+            const auto source = books_directory + "/thumbnail-source.epub";
+            const std::string member = "Images/cover.jpg";
+            const auto cache = reader::thumbnails::cache_path(thumbnails_directory, source);
+            std::ofstream(source) << "Archive revision one";
+            const auto revision = reader::thumbnails::source_revision(source, member);
+            const ThumbnailPixels pixels{1, 2, {1, 2, 3, 255, 10, 20, 30, 255}};
+            check(reader::thumbnails::save(cache, revision, pixels), "Cannot persist a cover thumbnail");
+            vita2d_pgf font;
+            App app(&font);
+            auto task = app.cover_task(source, member, LibraryAsset::Kind::Cover);
+            task.load(task.asset); // Original file is deliberately not a valid EPUB.
+            check(task.asset.pixels.rgba == pixels.rgba, "A fresh app did not load the saved thumbnail before opening the source");
+            std::ofstream(source, std::ios::app) << " plus a replacement cover";
+            check(reader::thumbnails::load(cache, reader::thumbnails::source_revision(source, member)).rgba.empty(),
+                  "Thumbnail survived an original-file revision");
+            std::ofstream(cache) << "NRTH1 " << revision << " 144 200\nbad compressed pixels";
+            check(reader::thumbnails::load(cache, revision).rgba.empty(), "Corrupt thumbnail was accepted");
+            std::remove(cache.c_str());
+            std::remove(source.c_str());
+        }
+        static void reading_storage_and_search()
+        {
+            mkdir("ux0:", 0777);
+            const std::string original = "ux0:/missing-reader-book.txt";
+            const std::string renamed = "ux0:/renamed-reader-book.txt";
+            const auto original_save = reader::progress_path(progress_directory, original);
+            const auto renamed_save = reader::progress_path(progress_directory, renamed);
+            std::remove(original.c_str());
+            std::remove(renamed_save.c_str());
+            {
+                std::ofstream book(renamed);
+                for (int i = 0; i < 30; ++i)
+                    book << "Reading line " << i << ".\n";
+                book << "A rare phrase to find in the book.\n";
+            }
+            reader::Progress saved;
+            check(saved.add_bookmark({0, 0, {}}) && reader::save_progress(original_save, saved) &&
+                      reader::save_library(library_path, {original}) && reader::save_settings(settings_path, {}),
+                  "Relink fixture failed");
+            vita2d_pgf font;
+            App app(&font);
+            app.navigate(1);
+            app.refresh_library(original);
+            app.perform({"Book details", 0, Command::Details});
+            app.input(SCE_CTRL_CROSS);
+            check(app.importing_ && app.relink_filename_ == original, "Locate file did not open the native browser");
+            app.browse_folder("ux0:/");
+            wait_browser(app);
+            app.refresh_library(renamed);
+            check(app.selected_filename() == renamed, "Relink fixture was hidden in the importer");
+            app.set_focus(1000 + app.selected_);
+            app.input(SCE_CTRL_CROSS);
+            check(!app.importing_ && app.library_books_ == std::vector<std::string>{renamed} &&
+                      reader::load_progress(renamed_save).has_bookmark,
+                  "Relinking lost membership or the saved bookmark");
+            app.open();
+            check(app.screen_ == Screen::Reader && app.progress_.has_bookmark, "Cannot open and resume relinked book");
+            app.top_ = 2;
+            const auto temporary = renamed_save + ".tmp";
+            check(mkdir(temporary.c_str(), 0777) == 0, "Could not block bookmark write");
+            const auto blocker = temporary + "/blocker";
+            std::ofstream(blocker) << "Prevent removing the temporary directory";
+            app.perform({"Bookmark", SCE_CTRL_SQUARE, Command::SaveBookmark});
+            const bool save_failed = app.message_.find("Could not save progress") != std::string::npos &&
+                                     app.progress_.bookmark_count() == 1 && app.progress_.bookmark == 0 &&
+                                     reader::load_progress(renamed_save).bookmark_count() == 1;
+            std::remove(blocker.c_str());
+            rmdir(temporary.c_str());
+            check(save_failed, "Failed write falsely confirmed or changed the bookmark");
+            app.perform({"Bookmark", SCE_CTRL_SQUARE, Command::SaveBookmark});
+            check(reader::load_progress(renamed_save).bookmark_count() == 2, "Bookmark retry lost one of the marks");
+            app.perform({"Bookmark", SCE_CTRL_SQUARE, Command::SaveBookmark});
+            check(reader::load_progress(renamed_save).bookmark_count() == 1, "Square did not remove the mark at the current position");
+
+            app.begin_book_search("RARE PHRASE");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (app.book_search_.pending())
+            {
+                check(std::chrono::steady_clock::now() < deadline, "Offline book search did not complete");
+                app.input(0);
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            check(app.book_search_.matches.size() == 1 && app.menu_[0].label.find("rare phrase") != std::string::npos,
+                  "Offline search did not show a passage preview");
+            app.input(SCE_CTRL_CROSS);
+            check(app.lines_[app.top_].text.find("rare phrase") != std::string::npos, "Search result did not jump to the passage");
+        }
+
         static void browser_regressions()
         {
             mkdir("uma0:", 0777);
@@ -424,7 +581,7 @@ namespace
             check(app.menu_title_ == title, "Touch Filter does not share filter state");
             footer(SCE_CTRL_CIRCLE);
             app.input(SCE_CTRL_SQUARE);
-            check(app.ime_active_ && app.ime_library_, "Square duplicates filters instead of searching");
+            check(app.ime_active_ && app.ime_purpose_ == KeyboardPurpose::LibrarySearch, "Square duplicates filters instead of searching");
             test_ime_status() = SCE_COMMON_DIALOG_STATUS_FINISHED;
             test_ime_button() = 0;
             app.input(SCE_CTRL_CROSS | SCE_CTRL_CIRCLE);
@@ -463,6 +620,8 @@ namespace
             check(app.screen_ == Screen::Library && app.selected_ == 4, "Library scrolling opened a book or lost focus");
             app.gesture(touch.sample({}, 202000, false));
             check(app.selected_ == 4, "A released scroll repeated");
+            test_process_time() += 200000;
+            app.needs_redraw();
             tap(300, 300);
             check(app.screen_ == Screen::Book && app.selected_ == 4, "Touch opened wrong scrolled card");
             app.normalize_focus();
@@ -521,6 +680,7 @@ namespace
             check(app.top_ == original_top, "Right joystick does not move up through text");
             tap(322, 220, 319, 220);
             check(app.menu_.empty() && app.top_ == original_top, "Reading tap crossed action zones");
+            app.settings_.page_effect = static_cast<int>(reader::PageEffect::SlideAndFade);
             const auto next_page = app.visible_end();
             app.input(SCE_CTRL_RIGHT | SCE_CTRL_DOWN);
             check(app.top_ == next_page, "One diagonal D-pad sample ran two reading actions");
@@ -756,7 +916,7 @@ namespace
             for (const auto &draw : reader::font_draws)
                 if (draw.text == "Typeface")
                     typeface_above = draw.y < reader::ui::settings_row(0).y + 58;
-            check(typeface_above && reader::ui::settings_row(1).y - reader::ui::settings_row(0).y == 70,
+            check(typeface_above && reader::ui::settings_row(1).y - reader::ui::settings_row(0).y == reader::ui::settings_pitch,
                   "Typeface label is not above its selector in the shared settings panel");
             const auto size_row = reader::ui::settings_row(1);
             tap(300, size_row.y + 14);
@@ -775,7 +935,7 @@ namespace
                 for (const auto &draw : reader::font_draws)
                     check(draw.text.find("Touch sliders or arrows") == std::string::npos, "Settings retains the removed instruction");
             }
-            check(app.widgets().size() == 5, "Settings missing Page effect");
+            check(app.widgets().size() == 6, "Settings missing Page effect or Margins");
             app.set_focus(1003);
             app.input(SCE_CTRL_DOWN);
             check(app.setting_row_ == 4, "Page effect cannot be reached from Page theme");
@@ -787,9 +947,18 @@ namespace
             tap(590, effect_row.y + 50);
             check(app.settings_.page_effect == 2, "Touch cannot select None");
             app.input(SCE_CTRL_DOWN);
-            check(app.setting_row_ == 4, "Focus moved below Page effect");
+            check(app.setting_row_ == 5, "Margins cannot be reached from Page effect");
+            app.input(SCE_CTRL_RIGHT);
+            check(app.settings_.margin == 2, "Right did not widen the reading margins");
+            const auto margin_row = reader::ui::settings_row(5);
+            check(margin_row.x == effect_row.x && margin_row.y - effect_row.y == reader::ui::settings_pitch,
+                  "Margins is outside the main settings group");
+            tap(424, margin_row.y + 43);
+            check(app.settings_.margin == 1 && app.setting_row_ == 5, "Touch cannot change Margins in the main settings group");
+            app.input(SCE_CTRL_DOWN);
+            check(app.setting_row_ == 5, "Focus moved below Margins");
             footer(SCE_CTRL_SELECT);
-            check(app.settings_.reading_font == 0 && app.settings_.page_effect == 1, "Touch Settings reset failed");
+            check(app.settings_.reading_font == 0 && app.settings_.page_effect == 0, "Touch Settings reset failed");
             footer(SCE_CTRL_CIRCLE);
             check(app.settings_.reading_font == 1, "Touch Settings cancel did not discard reset");
             check(app.settings_.page_effect == 1, "Cancel applied the preview page effect");
@@ -949,22 +1118,45 @@ namespace
             vita2d_pgf font;
             App app(&font);
             app.message_.clear();
-            check(app.bookmark_previews_.size() == 3, "Startup did not prepare the initial bookmark passages");
-            check(app.covers_.size() >= 4 && app.covers_.size() <= 12, "Startup did not prepare bounded Library covers");
+            check(app.bookmark_previews_.size() == 3 && app.covers_.empty() && !app.library_assets_.busy(),
+                  "Startup did not prepare only the first bookmark page and saved thumbnails");
             check(app.focus_memory_.empty() && app.library_views_.empty(), "Startup changed navigation history");
 #ifdef NOVELREADER_PROFILE
             reader::perf::reset();
 #endif
+            std::atomic<bool> release_cover{false};
+            auto &first_item = app.entries_[app.order_.front()];
+            first_item.cover_path = "pending.png";
+            app.queue_library_asset({LibraryAsset::Kind::Cover, first_item.path, app.library_assets_revision_},
+                                    [&](LibraryAsset &)
+                                    {
+                                        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                                        while (!release_cover && std::chrono::steady_clock::now() < deadline)
+                                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                                    });
             app.navigate(1);
             app.draw();
+            const bool grid_presented_while_busy = app.screen_ == Screen::Library && app.library_assets_.busy();
+#ifdef NOVELREADER_PROFILE
+            const bool art_still_pending = reader::perf::samples()[static_cast<unsigned>(reader::perf::Event::FirstLibrary)].calls == 1 &&
+                                           reader::perf::samples()[static_cast<unsigned>(reader::perf::Event::FirstLibraryCovers)].calls == 0;
+#endif
+            app.invalidate_book_assets(first_item);
+            first_item.cover_path.clear();
+            release_cover = true;
+            settle_visible_assets(app);
+            check(grid_presented_while_busy && app.covers_.empty(), "An in-flight thumbnail blocked Library or survived invalidation");
+#ifdef NOVELREADER_PROFILE
+            check(art_still_pending, "The first grid and settled artwork timings were not separated");
+#endif
             app.navigate(2);
-            app.draw();
+            settle_visible_assets(app);
             check(app.bookmark_previews_.size() == 3, "Visible bookmark previews were not cached");
 #ifdef NOVELREADER_PROFILE
-            for (const auto event : {reader::perf::Event::Metadata, reader::perf::Event::Chapter,
-                                     reader::perf::Event::CoverDecode, reader::perf::Event::BookmarkPreview,
-                                     reader::perf::Event::LibraryOrder})
-                check(reader::perf::samples()[static_cast<unsigned>(event)].calls == 0, "First navigation repeated startup preparation");
+            check(reader::perf::samples()[static_cast<unsigned>(reader::perf::Event::BookmarkPreview)].calls == 1,
+                  "First Bookmarks visit should reload only the passage explicitly invalidated by the test");
+            for (const auto event : {reader::perf::Event::FirstLibrary, reader::perf::Event::FirstLibraryCovers})
+                check(reader::perf::samples()[static_cast<unsigned>(event)].calls == 1, "First Library visit did not record a presentation");
 #endif
             const auto first_preview = app.bookmark_previews_.front().quote;
 #ifdef NOVELREADER_PROFILE
@@ -988,7 +1180,7 @@ namespace
             for (std::size_t page = 0; page < 10; ++page)
             {
                 app.bookmark_selected_ = page * 3;
-                app.sync_bookmark_previews();
+                settle_visible_assets(app);
             }
             check(app.bookmark_previews_.size() == 24, "Bookmark preview cache is not bounded");
             app.bookmark_selected_ = 0;
@@ -1046,7 +1238,7 @@ namespace
             app.message_.clear();
             app.navigate(2);
             app.bookmark_selected_ = 0;
-            app.sync_bookmark_previews();
+            settle_visible_assets(app);
             bool replacement = false;
             for (const auto &preview : app.bookmark_previews_)
                 replacement = replacement || preview.quote.find("Replacement passage") != std::string::npos;
@@ -1068,7 +1260,7 @@ namespace
             {
                 app.selected_ = i;
                 app.ensure_library_visible();
-                app.sync_covers();
+                settle_visible_assets(app);
             }
             check(app.covers_.size() == 12, "Cover cache is not bounded");
             const auto count = app.covers_.size();
@@ -1144,10 +1336,28 @@ namespace
             const auto &artwork_item = online.entries_[online.order_[online.selected_]];
             std::string artwork_bytes, artwork_error;
             check(artwork_item.cover_path == reader::online::cover_path(manifest) &&
-                      App::load_cover_bytes(artwork_item, artwork_bytes, artwork_error) && artwork_bytes == png,
+                      App::load_cover_bytes(artwork_item.path, artwork_item.cover_path, artwork_bytes, artwork_error) && artwork_bytes == png,
                   "Library artwork was sent to the EPUB loader or lost from metadata");
             for (const auto &cached : online.covers_)
                 check(cached.key != manifest, "Cover refresh retained a missing-artwork cache entry");
+            settle_visible_assets(online);
+            const auto thumbnail = reader::thumbnails::cache_path(thumbnails_directory, manifest);
+            const auto artwork_revision = reader::thumbnails::source_revision(artwork_item.cover_path, artwork_item.cover_path);
+            check(reader::thumbnails::load(thumbnail, artwork_revision).rgba.size() == 4,
+                  "An updated online favorite did not persist its cover thumbnail");
+            {
+#ifdef NOVELREADER_PROFILE
+                const auto before = reader::perf::samples()[static_cast<unsigned>(reader::perf::Event::CoverDecode)].calls;
+#endif
+                App reopened(&font);
+                check(std::any_of(reopened.covers_.begin(), reopened.covers_.end(), [&](const CoverTexture &cover)
+                                  { return cover.key == manifest && bool(cover.texture); }),
+                      "Startup did not warm the persisted Library cover");
+#ifdef NOVELREADER_PROFILE
+                check(reader::perf::samples()[static_cast<unsigned>(reader::perf::Event::CoverDecode)].calls == before,
+                      "Startup decoded an original cover instead of loading its thumbnail");
+#endif
+            }
             online.open();
             check(online.screen_ == Screen::Novel && online.offline_count_ == 1, "Online summary fixture");
             online.normalize_focus();
@@ -1384,6 +1594,7 @@ namespace
         }
         static void run()
         {
+            mkdir(thumbnails_directory.c_str(), 0777);
             check(reader::save_settings(settings_path, reader::Settings{}), "Cannot initialize fixture preferences");
             check(reader::save_library(library_path, {}), "Cannot reset fixture library");
             check(reader::save_progress(reader::progress_path(progress_directory, "@welcome"), {}), "Cannot reset guide history");
@@ -1415,15 +1626,8 @@ namespace
             }
             check(startup_titles == 9 && startup_subtitles == 9 && startup_statuses == 9,
                   "Startup stages must show branding and a task below the progress bar");
-            check(prepared_views > 0 && !test_offscreen_presents(), "Startup did not keep prepared views offscreen");
+            check(prepared_views > 0 && !test_offscreen_presents(), "Startup preloaded a screen to the main display");
             check(app.screen_ == Screen::Home && app.needs_redraw(), "Startup did not hand off to Home");
-            test_render_target_failure() = true;
-            {
-                App fallback(&pgf);
-                check(fallback.screen_ == Screen::Home && fallback.needs_redraw(),
-                      "Startup target failure prevented Home from opening");
-            }
-            test_render_target_failure() = false;
             app.message_.clear();
             app.sidebar_focus_ = false;
             app.focus_memory_.clear();
@@ -1527,7 +1731,7 @@ namespace
             app.input(SCE_CTRL_RIGHT);
             check(focus(app) == 200, "Removed Search target is still focusable");
             app.input(SCE_CTRL_SQUARE);
-            check(app.ime_active_ && app.ime_library_, "Square Search cannot be activated");
+            check(app.ime_active_ && app.ime_purpose_ == KeyboardPurpose::LibrarySearch, "Square Search cannot be activated");
             app.ime_active_ = false;
             app.input(SCE_CTRL_DOWN);
             check(focus(app) >= 1000, "Search cannot enter the book row");
@@ -1690,9 +1894,47 @@ namespace
             app.selected_ = 0;
             app.refresh_library("");
             verify_graph(app);
+            const auto check_book_focus = [&]
+            {
+                static std::vector<reader::ui::Rect> card_meshes;
+                card_meshes.clear();
+                draw_array_observer() = [](const vita2d_color_vertex *vertices, std::size_t count)
+                {
+                    float left = vertices[0].x, right = left, top = vertices[0].y, bottom = top;
+                    for (std::size_t i = 1; i < count; ++i)
+                    {
+                        left = std::min(left, vertices[i].x);
+                        right = std::max(right, vertices[i].x);
+                        top = std::min(top, vertices[i].y);
+                        bottom = std::max(bottom, vertices[i].y);
+                    }
+                    if (bottom - top > reader::ui::grid_cover_height)
+                        card_meshes.push_back({static_cast<int>(std::lround(left)), static_cast<int>(std::lround(top)),
+                                               static_cast<int>(std::lround(right - left)), static_cast<int>(std::lround(bottom - top))});
+                };
+                app.draw_library();
+                app.draw_focus();
+                draw_array_observer() = nullptr;
+                const auto box = reader::ui::grid_book(app.selected_, app.library_scroll_drawn_);
+                check(card_meshes.size() == 1, "Library submitted focus or button styling for more than one card");
+                const auto &focus = card_meshes.front();
+                check(focus.x == box.x && focus.y == box.y && focus.width == box.width && focus.height == box.height,
+                      "Library focus did not follow the selected card's bounds");
+            };
             app.set_focus(1003);
+            app.pressed_action_ = "Open";
+            app.pressed_until_ = test_process_time() + 160000;
+            check_book_focus();
+            app.pressed_until_ = 0;
             app.input(SCE_CTRL_RIGHT);
-            check(app.selected_ == 3 && app.library_scroll_ == 0, "Right crossed the grid row boundary");
+            check(app.selected_ == 4 && app.library_scroll_ > 0 && app.library_scroll_drawn_ == 0,
+                  "Right did not animate onto the next grid row");
+            test_process_time() += 50000;
+            app.needs_redraw();
+            check(app.library_scroll_drawn_ > 0 && app.library_scroll_drawn_ < app.library_scroll_, "Grid scroll jumped to its destination");
+            check_book_focus();
+            app.input(app.navigation_sticks(reader::controls::Left, 0));
+            check(app.selected_ == 3, "Stick Left did not cross to the previous row");
             app.input(SCE_CTRL_DOWN);
             check(app.selected_ == 7 && app.library_scroll_ > 0, "Down did not scroll to the next grid row");
             check(app.library_first() == 0, "Scrolling discarded the partially visible previous row");
@@ -1706,6 +1948,22 @@ namespace
             check(app.selected_ == 4, "Up did not preserve the grid column");
             app.input(SCE_CTRL_UP);
             check(app.selected_ == 0 && app.library_scroll_ == 0, "Up did not restore the grid top");
+            test_process_time() += 200000;
+            app.needs_redraw();
+            const int cover_height_scroll = reader::ui::grid_top + reader::ui::grid_pitch + reader::ui::grid_cover_height - reader::ui::grid_bottom;
+            app.gesture({reader::controls::GestureKind::Drag, 300, 380 - cover_height_scroll, 0, -cover_height_scroll, 1, 300, 380});
+            check(app.library_scroll_drawn_ == cover_height_scroll, "Drag did not align clipped card targets with their covers");
+            check_book_focus();
+            app.gesture({reader::controls::GestureKind::Drag, 300, 210, 0, -170, 1, 300, 380});
+            check(app.library_scroll_drawn_ == 170 && app.library_dragging_, "Library grid did not follow the finger");
+            app.input(0);
+            app.draw();
+            check(app.library_scroll_drawn_ == 170 && app.library_dragging_, "An idle controller poll interrupted the drag");
+            app.gesture({reader::controls::GestureKind::Release, 300, 210, 0, -170, 1, 300, 380});
+            app.input(0);
+            app.draw();
+            check(app.library_scroll_drawn_ == 170 && app.selected_ == 4, "Library snapped back after touch release");
+            app.set_focus(1000);
             tap.kind = reader::controls::GestureKind::Swipe;
             tap.x = 300;
             tap.y = 220;
@@ -1716,6 +1974,9 @@ namespace
             tap.dy = -100;
             app.gesture(tap);
             check(app.selected_ == 8, "Swipe cannot reach the final grid row");
+            test_process_time() += 200000;
+            app.needs_redraw();
+            check(app.library_scroll_drawn_ == app.library_scroll_, "Grid scroll did not settle at its target");
             tap.kind = reader::controls::GestureKind::Tap;
             tap.x = 300;
             tap.y = 300;
@@ -2061,9 +2322,12 @@ namespace
             }
             control_regressions();
             cache_regressions();
+            thumbnail_cache();
             illustration_controls();
             sidebar_settings_apply();
             browser_regressions();
+            reading_storage_and_search();
+            large_text_settings();
         }
     };
 }

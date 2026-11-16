@@ -20,7 +20,9 @@ namespace
         std::string text;
     };
     std::vector<Draw> draws;
-    int font_loads = 0;
+    int font_loads = 0, font_frees = 0;
+    int metrics_loads = 0, raster_loads = 0, active_face = -1;
+    std::vector<int> rendered_faces;
     int texture_loads = 0, texture_frees = 0;
     struct TextureDraw
     {
@@ -43,6 +45,8 @@ namespace
             return 2;
         if (name.find("Atkinson") != std::string::npos)
             return 3;
+        if (name.find("fallback.ttf") != std::string::npos)
+            return 5;
         return 0;
     }
 }
@@ -60,16 +64,27 @@ int FT_New_Face(FT_Library, const char *path, long, FT_Face *face)
     return 0;
 }
 int FT_Select_Charmap(FT_Face, int) { return 0; }
-unsigned FT_Get_Char_Index(FT_Face, unsigned long code) { return code < 128 ? code : 0; }
+unsigned FT_Get_Char_Index(FT_Face face, unsigned long code)
+{
+    return code < 128 || (face->id == 0 && code == 0x416) ||
+                   (face->id == 3 && code >= 0x400 && code <= 0x4ff) || (face->id == 5 && code == 0x4e2d)
+               ? code
+               : 0;
+}
 int FT_Set_Pixel_Sizes(FT_Face face, unsigned, unsigned pixels)
 {
     face->pixels = pixels;
     return 0;
 }
-int FT_Load_Glyph(FT_Face face, unsigned glyph, int)
+int FT_Load_Glyph(FT_Face face, unsigned glyph, int flags)
 {
+    if (flags & FT_LOAD_RENDER)
+        ++raster_loads;
+    else
+        ++metrics_loads;
+    active_face = face->id;
     static unsigned char bitmap[] = {255, 128, 0, 0, 64, 32, 0, 0, 16, 8, 0, 0};
-    face->storage.advance.x = (face->pixels / 2) * 64;
+    face->storage.advance.x = (face->pixels / 2 + (face->id == 1 ? 0 : face->id)) * 64;
     face->storage.bitmap_left = glyph == 'A' ? -1 : 0;
     face->storage.bitmap_top = glyph == 'g' ? -1 : static_cast<int>(face->pixels) - 5;
     face->storage.bitmap = {3, 2, glyph == 'N' ? -4 : 4, bitmap + (glyph == 'N' ? 8 : 0), FT_PIXEL_MODE_GRAY};
@@ -84,7 +99,7 @@ vita2d_texture *vita2d_create_empty_texture_format(unsigned w, unsigned h, int)
 {
     ++texture_loads;
     const auto stride = (w + 7) & ~7u;
-    return new vita2d_texture{w, h, stride, false, std::vector<unsigned char>(stride * h, 0xcc)};
+    return new vita2d_texture{w, h, stride, false, std::vector<unsigned char>(stride * h, 0xcc), active_face};
 }
 void vita2d_free_texture(vita2d_texture *texture)
 {
@@ -92,9 +107,14 @@ void vita2d_free_texture(vita2d_texture *texture)
     delete texture;
 }
 unsigned vita2d_texture_get_stride(const vita2d_texture *texture) { return texture->stride; }
+unsigned vita2d_texture_get_height(const vita2d_texture *texture) { return texture->height; }
 void *vita2d_texture_get_datap(const vita2d_texture *texture) { return const_cast<unsigned char *>(texture->data.data()); }
 void vita2d_texture_set_filters(vita2d_texture *texture, int, int) { texture->point = true; }
-void vita2d_draw_texture_tint(const vita2d_texture *texture, float x, float y, unsigned) { texture_draws.push_back({texture, static_cast<int>(x), static_cast<int>(y)}); }
+void vita2d_draw_texture_tint(const vita2d_texture *texture, float x, float y, unsigned)
+{
+    texture_draws.push_back({texture, static_cast<int>(x), static_cast<int>(y)});
+    rendered_faces.push_back(texture->face);
+}
 void FT_Done_Face(FT_Face face) { delete face; }
 void FT_Done_FreeType(FT_Library library) { delete library; }
 vita2d_font *vita2d_load_font_file(const char *path)
@@ -102,20 +122,30 @@ vita2d_font *vita2d_load_font_file(const char *path)
     ++font_loads;
     return new vita2d_font{face_id(path)};
 }
-void vita2d_free_font(vita2d_font *font) { delete font; }
+void vita2d_free_font(vita2d_font *font)
+{
+    ++font_frees;
+    delete font;
+}
 int vita2d_font_text_width(vita2d_font *font, unsigned pixels, const char *text)
 {
     check_size(font, pixels);
-    return (font->id + 1) * pixels * std::strlen(text);
+    int advance = 0;
+    for (const auto *at = reinterpret_cast<const unsigned char *>(text); *at; ++at)
+        if ((*at & 0xc0) != 0x80)
+            advance += pixels / 2 + (font->id == 1 ? 0 : font->id);
+    return advance;
 }
 void vita2d_font_draw_text(vita2d_font *font, int x, int, unsigned, unsigned pixels, const char *text)
 {
     draws.push_back({font->id, x, vita2d_font_text_width(font, pixels, text), text});
+    rendered_faces.push_back(font->id);
 }
 int vita2d_pgf_text_width(vita2d_pgf *, float scale, const char *text) { return static_cast<int>(7 * scale * std::strlen(text)); }
 void vita2d_pgf_draw_text(vita2d_pgf *font, int x, int, unsigned, float scale, const char *text)
 {
     draws.push_back({4, x, vita2d_pgf_text_width(font, scale, text), text});
+    rendered_faces.push_back(4);
 }
 int main()
 {
@@ -126,30 +156,91 @@ int main()
         check(fonts.complete(), "Bundled reading fonts are not loaded");
         const reader::FontRole roles[] = {reader::FontRole::Interface, reader::FontRole::Heading,
                                           reader::FontRole::Serif, reader::FontRole::Sans, reader::FontRole::System};
-        const int widths[] = {60, 120, 180, 240, 21};
+        const int widths[] = {30, 30, 36, 39, 21};
+        for (const auto role : roles)
+        {
+            auto probe = fonts.line_measure(role, 26);
+            const std::string text = "AΩB中文 Café";
+            const std::size_t first_line[] = {1, 3, 10, 4, 3, text.size()};
+            const auto rasterized = raster_loads;
+            for (std::size_t i = 0; i < sizeof(first_line) / sizeof(*first_line); ++i)
+            {
+                const auto end = first_line[i];
+                check(probe(text, 0, end, i == 0) == fonts.width(role, 26, text.substr(0, end)),
+                      "Line probes changed widths when extending or revisiting a prefix");
+            }
+            check(probe(text, 3, 7, true) == fonts.width(role, 26, text.substr(3, 4)),
+                  "A new line reused the previous line's measurements");
+            const std::string long_line(5000, 'A');
+            check(probe(long_line, 0, long_line.size(), true) == fonts.width(role, 26, long_line) &&
+                  probe(long_line, 0, 32, false) == fonts.width(role, 26, long_line.substr(0, 32)),
+                  "A line over the cache limit changed widths when bisected");
+            check(raster_loads == rasterized, "Line probes rasterized glyphs");
+        }
         for (int i = 0; i < 5; ++i)
         {
+            const int before_fonts = font_loads, before_textures = texture_loads, before_rasters = raster_loads;
             check(fonts.width(roles[i], 20, "ABC") == widths[i], "Font role uses the wrong face");
+            if (i < 4)
+                check(font_loads == before_fonts && texture_loads == before_textures && raster_loads == before_rasters,
+                      "Measurement allocated a glyph atlas or rasterized text");
             draws.clear();
+            rendered_faces.clear();
             fonts.draw(roles[i], 20, 42, 80, 0, "ABC");
-            check(draws.size() == 1 && draws[0].face == i, "Drawing differs from the selected face");
-            check(draws[0].x == 42 && draws[0].width == widths[i], "Measurement and rendering disagree");
+            check(rendered_faces == std::vector<int>{i}, "Drawing differs from the selected face");
+            check(draws.size() == 1 && draws[0].width == widths[i], "Atlas drawing and metric measurement disagree");
             draws.clear();
+            rendered_faces.clear();
+            texture_draws.clear();
             const std::string mixed = "AΩB";
             const auto width = fonts.width(roles[i], 26, mixed);
             fonts.draw(roles[i], 26, 19, 80, 0, mixed);
-            int end = 19;
-            for (const auto &draw : draws)
-            {
-                check(draw.x == end, "Fallback glyph changed run positions");
-                end += draw.width;
-            }
-            check(end - 19 == width, "Mixed glyph fallback has inconsistent measurement");
             if (i < 4)
-                check(draws.size() == 3 && draws[1].face == 4, "Missing glyph does not use PGF fallback");
+            {
+                check(rendered_faces == std::vector<int>({i, 4, i}), "Missing glyph does not use PGF fallback");
+                const auto a = fonts.width(roles[i], 26, "A");
+                const auto omega = fonts.width(roles[i], 26, "Ω");
+                check(draws[1].x == 19 + a && draws[2].x == 19 + a + omega,
+                      "Mixed glyph fallback has inconsistent positions");
+                check(width == a + omega + fonts.width(roles[i], 26, "B"), "Fallback width differs from glyph advances");
+            }
+            fonts.finish_frame();
+        }
+        const int measured = metrics_loads, rasterized = raster_loads;
+        for (int i = 0; i < 100; ++i)
+            fonts.width(reader::FontRole::Serif, 26, "ABCABCABCABC");
+        check(metrics_loads - measured <= 1 && raster_loads == rasterized, "Repeated text does not reuse glyph metrics");
+        rendered_faces.clear();
+        fonts.draw(reader::FontRole::Serif, 26, 0, 80, 0, "Ж中");
+        check(rendered_faces == std::vector<int>({0, 5}), "Bundled and user fallback coverage is ignored");
+        // New text lines must reuse glyph atlases, including cold page turns.
+        // A test of identical strings would miss whole-line texture churn.
+        {
+            reader::VitaFonts pages(&pgf);
+            const auto before_fonts = font_loads, before_textures = texture_loads, before_rasters = raster_loads;
+            for (int page = 0; page < 100; ++page)
+            {
+                for (int line = 0; line < 20; ++line)
+                    pages.draw(reader::FontRole::Serif, 26, 48, 80 + line * 20, 0,
+                               "A different story line " + std::to_string(page * 20 + line));
+                pages.finish_frame();
+            }
+            check(font_loads == before_fonts + 1 && texture_loads == before_textures && raster_loads == before_rasters,
+                  "Page turns allocate line textures or rerasterize complete text");
+
+            std::string diverse;
+            for (unsigned code = 0x400; code < 0x4c8; ++code)
+            {
+                diverse += static_cast<char>(0xc0 | (code >> 6));
+                diverse += static_cast<char>(0x80 | (code & 0x3f));
+            }
+            const auto freed = font_frees, loaded = font_loads;
+            pages.draw(reader::FontRole::Sans, 26, 48, 80, 0, diverse);
+            check(font_loads == loaded + 2 && font_frees == freed, "Atlas rotation frees in-flight glyphs or creates too many atlases");
+            pages.finish_frame();
+            check(font_frees == freed + 1, "Rotated glyph atlas was not released after the GPU frame");
         }
         // Reproduce Home's mix of title, subtitle, chapter and percentage sizes.
-        // Measurement also populates vita2d's atlas, so exercise both paths.
         fonts.width(reader::FontRole::Interface, 34, "Welcome Back 24");
         fonts.width(reader::FontRole::Interface, 22, "Pick up your story 2");
         fonts.draw(reader::FontRole::Interface, 21, 42, 80, 0, "Chapter 1 of 243");
@@ -164,6 +255,7 @@ int main()
         }
         check(font_loads == cached_loads, "Font atlases are being recreated during repeated rendering");
         {
+            const auto retained = texture_loads - texture_frees;
             reader::VitaFonts title_fonts(&pgf);
             check(title_fonts.title_width(25, "AV") == 23, "Title measurement ignored native-size kerning");
             draws.clear();
@@ -185,18 +277,20 @@ int main()
             title_fonts.draw_title(25, 42, 80, 0, "N");
             check(texture_draws.back().texture->data[2 * texture_draws.back().texture->stride + 2] == 16, "Negative bitmap pitch is mishandled");
             draws.clear();
+            rendered_faces.clear();
             title_fonts.draw_title(25, 42, 80, 0, "AΩB");
-            check(draws.size() == 3 && draws[1].face == 4, "Title path broke missing-glyph fallback");
+            check(rendered_faces == std::vector<int>({1, 4, 1}), "Title path broke missing-glyph fallback");
             for (int i = 0; i < 20; ++i)
                 title_fonts.draw_title(25, 42, 80, 0, "Title " + std::to_string(i));
-            check(texture_loads - texture_frees == 8, "Title texture cache is not bounded");
+            title_fonts.finish_frame();
+            check(texture_loads - texture_frees == retained + 8, "Title texture cache is not bounded");
         }
-        check(texture_loads == texture_frees, "Title textures leaked after font shutdown");
+        fonts.finish_frame();
         failed_face = 2;
         reader::VitaFonts missing(&pgf);
         check(!missing.complete(), "Missing reader font is not reported");
-        check(missing.width(reader::FontRole::Serif, 20, "ABC") == 21, "Missing reader font does not fall back safely");
-        check(missing.width(reader::FontRole::Sans, 20, "ABC") == 240, "A missing font breaks other reading faces");
+        check(missing.width(reader::FontRole::Serif, 20, "ABC") == 30, "Missing reader font does not fall back safely");
+        check(missing.width(reader::FontRole::Sans, 20, "ABC") == 39, "A missing font breaks other reading faces");
         std::cout << "Vita font routing and fallback tests passed\n";
         return 0;
     }

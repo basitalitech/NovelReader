@@ -12,6 +12,7 @@ namespace reader
         // Match the SLT stack budget verified by the standalone Vita probe.
         constexpr std::size_t worker_stack_bytes = 512 * 1024;
         constexpr std::size_t max_segment_bytes = 180;
+        constexpr std::size_t unknown_playback_offset = static_cast<std::size_t>(-1);
 
         struct Segment
         {
@@ -34,6 +35,7 @@ namespace reader
             State state;
             std::size_t offset;
             std::string error;
+            std::size_t playback_offset = 0;
         };
 
         class Audio
@@ -46,6 +48,8 @@ namespace reader
             virtual void pause(bool) {}
             virtual void cancel() {}
             virtual bool healthy() const { return true; }
+            virtual void begin_segment(std::size_t) {}
+            virtual std::size_t playback_offset() const { return unknown_playback_offset; }
         };
 
         class Player

@@ -1,4 +1,5 @@
 #include "reader.hpp"
+#include "performance.hpp"
 #include "ui.hpp"
 #include <algorithm>
 #include <iostream>
@@ -54,6 +55,30 @@ int main()
             auto book = illustrated(160, 60);
             auto layout = reader::layout_book(book, 200, 200, 20, columns);
             verify_pages(layout, 200);
+#ifdef NOVELREADER_PROFILE
+            reader::perf::ReaderLoad load(true, reader::perf::LoadKind::Chapter, 0);
+            std::uint64_t calls = 0, bytes = 0;
+            const auto profiled = reader::layout_book(book, 200, 200, 20, [&](const std::string &text)
+            {
+                  ++calls;
+                  bytes += text.size();
+                  return columns(text);
+            }, load.layout_work());
+            check(profiled.pages == layout.pages && profiled.blocks.size() == layout.blocks.size(), "Profiling changed pagination");
+            for (std::size_t i = 0; i < layout.blocks.size(); ++i)
+                  check(profiled.blocks[i].offset == layout.blocks[i].offset && profiled.blocks[i].text == layout.blocks[i].text,
+                        "Profiling changed a line or reading offset");
+            check(calls > 0 && load.layout.measure_calls == calls && load.layout.measured_bytes == bytes &&
+                        load.layout.total_us >= load.layout.wrap_us && load.layout.wrap_us >= load.layout.measure_us,
+                  "Layout profile counters do not match the measured work");
+            check(load.frame_time(reader::perf::FrameStage::Draw, false) == nullptr, "Offscreen rendering was included in the first-page sample");
+            *load.frame_time(reader::perf::FrameStage::Draw, true) = 3;
+            *load.frame_time(reader::perf::FrameStage::Present, true) = 7;
+            load.presented();
+            const auto &sample = reader::perf::load_samples().items[0];
+            check(sample.kind == reader::perf::LoadKind::Chapter && sample.layout.measure_calls == calls &&
+                        sample.frame_draw_us == 3 && sample.frame_present_us == 7, "Presented load lost its stage timings");
+#endif
             check(layout.blocks.size() == 3 && layout.pages.size() == 1, "Small image did not share page with text");
             check(layout.blocks[0].text == "Before." && layout.blocks[1].illustration == 0 &&
                       layout.blocks[2].text == "After.",

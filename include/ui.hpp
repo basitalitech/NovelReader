@@ -50,9 +50,10 @@ namespace reader
         {
             return {232 + index % grid_columns * 180, grid_top + index / grid_columns * grid_pitch - scroll, 164, grid_height};
         }
-        constexpr int settings_count = 5;
-        inline Rect settings_row(int index) { return {236, 82 + index * 70, 392, 68}; }
-        inline Rect settings_slider(int index) { return {278, settings_row(index).y + 40, 242, 32}; }
+        constexpr int settings_count = 6;
+        constexpr int settings_pitch = 59;
+        inline Rect settings_row(int index) { return {236, 82 + index * settings_pitch, 392, settings_pitch - 2}; }
+        inline Rect settings_slider(int index) { return {278, settings_row(index).y + 31, 242, 26}; }
         inline Rect bookmark_row(int index) { return {232, 100 + index * 104, 704, 96}; }
         inline Rect about_action(int index)
         {

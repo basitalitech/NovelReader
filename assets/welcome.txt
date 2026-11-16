@@ -1,77 +1,111 @@
 Welcome to NovelReader
 
-A little library for your Vita
+A little reading space on your PS Vita.
 
-Home welcomes you with a moonlit reading scene and Continue Reading. If there is no recent book, the card opens your collection. Add Book belongs in Library. Use the sidebar for Home, Library, Bookmarks, Settings, and About. The application bar shows NovelReader without a status strip.
 
-Copy UTF-8 .txt novels or DRM-free .epub books into ux0:data/NovelReader/books/ using VitaShell. Choose Add Book in Library, or press START there and choose Import books. Browse to a book and press CROSS to add it to your collection. Import keeps the original file in place; repeated imports do not create duplicates.
+Welcome! NovelReader lets you enjoy TXT and EPUB books, discover online novels, and read comfortably on your Vita.
 
-Your library
+Whether you're starting a new story or continuing an old favorite, your next chapter is just a button away.
 
-Library shows four columns of cover cards, with readable titles and progress. The D-pad or either stick moves between covers. UP and DOWN scroll between rows; UP from the first row reaches Add Book and Search. L and R switch sidebar destinations; you can also tap them. The footer shows physical shortcuts and accepts taps on the visible hints. Swipe vertically to scroll one row at a time without opening a book.
 
-CROSS or a cover tap opens book details. CROSS activates the highlighted reading or Chapters button. Details show the cover, author, format, chapter count, and saved progress. Options → Save bookmark saves the current position. Options → Remove from library asks for confirmation and deletes saved progress and bookmarks. For online books it also deletes downloaded chapters, artwork, and the novel index. Original local TXT/EPUB files remain available to import again. The bundled guide is always available.
 
-SQUARE or Search opens the system keyboard to search book titles. CIRCLE exits and clears an active search before returning Home, keeping sorting and filtering. TRIANGLE or the Filter hint opens Title, Recent, and Progress sorting and All, Reading, and Finished filtering. L and R switch sidebar destinations. Sort and filter preferences survive restarts. Continue Reading on Home resumes the most recently read available book.
+Getting Started
 
-The Import browser shows folders inside ux0:data/NovelReader/books/. CROSS opens a folder or imports a book. CIRCLE goes up a folder, or returns to Library at the import root. Choose Refresh after copying files. Local books and favorite online novels appear together in Library.
+To add your own books:
 
-Each book keeps its relative path for progress and bookmarks. Identically named books in different folders have independent saves. Moving or renaming a book changes its save identity; restore missing files to their imported locations. The collection is saved in ux0:data/NovelReader/library.txt.
+1. Copy your .txt or DRM-free .epub files to your Vita.
+2. Open Library → Add Book → Import books.
+3. Browse your folders and select your books.
+4. Press SQUARE to import your selections.
 
-Progress estimates weight EPUB chapters equally. Finished means the final page was displayed. Returning to an earlier page updates that status. Home and cover progress use your actual saved reading position.
+Your books will appear in Library, ready to read. Original files stay where they are.
+You can also explore online novels through Library → Add Book → Online novels.
 
-Getting comfortable
 
-Reading shows the title bar, chapter and page information, a purple progress bar, and controller hints. Existing saved reading-view preferences are kept. START or a center tap opens Reading controls. CROSS opens Contents directly. The panel overlays the same page without reflowing.
 
-Reading controls provides Contents, Illustrations, Reader Settings, Save bookmark, Go to bookmark, All bookmarks, Back to library, and Show/Hide reading bar. Page-only mode gives more space to text and illustrations. Changing the view preserves your reading anchor and bookmark; the choice is saved across restarts.
+Your Library
 
-SQUARE while reading opens Reader Settings. The interface uses Source Sans 3. Choose Literata, Atkinson Hyperlegible Next, or the Vita system font for your book. UP and DOWN select a row; LEFT and RIGHT adjust typeface, size, spacing, theme, and reading view. Tap the left or right half of a setting row to decrease or increase it. The wrapped live sample uses your selected font and spacing. CROSS or a tap on Apply saves; Cancel or CIRCLE discards changes. Reset or SELECT restores reading defaults in the preview until you apply them. Home also provides Reader Settings before you open a book. Size and spacing changes preserve your position when text reflows. Menus keep their purple colors independently of the reading theme.
+Library keeps all your books in one place, including your favorite online novels.
 
-LEFT and RIGHT turn pages. UP and DOWN move one text line or illustration at a time. Hold a direction to keep moving. In TXT books, the shoulders also turn pages. In EPUB books, L and R open the previous or next chapter. Normal page turning also crosses chapter boundaries.
+- CROSS — Open a book.
+- SQUARE — Search your library.
+- TRIANGLE — Sort or filter books.
+- L / R — Switch between main sections.
+- CIRCLE — Go back or clear a search.
 
-Press CROSS while reading, or choose Contents in Reading controls, for the chapter list beside the book cover. UP and DOWN select a chapter; LEFT and RIGHT browse five chapters. CROSS opens the selection. TRIANGLE or Options → Jump opens the numeric system keyboard to focus a chapter number. CIRCLE returns to reading.
+Select a book to see its details, chapters, and reading progress.
+Continue Reading on Home takes you straight back to your latest book.
+Your reading progress is saved automatically.
 
-Choose Save bookmark in Reading controls, or hold and release on the reading area, to bookmark your place. SELECT jumps back to it, including across EPUB chapters. Each book has one bookmark in addition to its automatically saved position.
 
-TRIANGLE while reading opens Bookmarks. The sidebar also opens this collection of saved passages. A bookmark shows an excerpt when its local chapter is available, plus the title and chapter. CROSS or a tap opens the saved position. START Options contains only Open and Remove. Remove opens a confirmation submenu that defaults to Keep; SQUARE has no delete action. CIRCLE returns to the previous screen.
 
-CIRCLE from Reader returns to Library, or to chapters for an online novel. START opens the current screen's controls or Options. Choose Save and exit to close the application. Reading positions save as you move. TRIANGLE is reserved for contextual actions such as Library filters, Contents Jump, and Viewer Fit. Use the D-pad or sticks to choose a tile, CROSS to confirm, and CIRCLE to close. Only the active panel receives input.
+Enjoying Your Books
 
-Using the touchscreen
+Once you open a book, you can read using buttons or the touchscreen.
 
-Tap sidebar destinations, cover cards, and visible footer hints. Swipe Library vertically to scroll four covers at a time. Other lists browse four entries, except Contents which browses five chapters and Bookmarks which browses three passages. Tap the Reader or viewer's named footer action to activate it; the gaps do nothing. Options panels have touchable Close and, on longer menus, Previous and Next hints. A swipe never opens the entry beneath your finger.
+- LEFT / RIGHT — Turn pages.
+- UP / DOWN — Scroll through text.
+- CROSS — Open the chapter list.
+- SQUARE — Add or remove a bookmark.
+- SELECT — Jump to your latest bookmark.
+- START — Open reading controls.
+- CIRCLE — Leave the reader.
 
-While reading, swipe left for the next page and right for the previous page. Swipe vertically to move through the text. Tap an inline illustration to open its zoom viewer. Other left and right body taps turn pages; center taps open Reading controls. Hold and release on the reading area to save a bookmark. Rear touch is not used.
+For EPUB books, L / R switches chapters.
+You can also swipe left or right to turn pages, scroll by dragging, or tap the center to hide or show the reading bars.
 
-Brief confirmations disappear automatically. Errors show a modal with D-pad-focusable Retry and Dismiss actions. Disabled actions are dimmed and skipped by controller focus. D-pad focus stays within content or the active panel; use physical shortcuts or touch for the footer, and L/R or touch for the sidebar. Circle returns to the parent screen; closing a panel restores its invoking focus. Both sticks support the same menu and reading actions as the D-pad; return a stick to center after changing screens. Held buttons and gestures must be released after a screen or dialog transition. In the image viewer, either stick pans smoothly.
 
-Preparing your books
 
-This version reads plain UTF-8 text, with or without a byte order mark. Windows, Unix, and classic Mac line endings are supported. TXT files may be up to 8 MiB. Use Add Book or Import books after copying files. The application starts on Home.
+Make Reading Your Own
 
-EPUB chapters load one at a time in the book's reading order. Paragraphs, headings, bold text, and underlined emphasis are preserved. Chapter documents must be well-formed UTF-8 XHTML and at most 2 MiB. Vertical writing, publisher CSS layouts, and ruby annotations are not implemented. Missing characters fall back to the Vita system font; complex-script shaping is not supported.
+Open START → Reader Settings to customize your reading experience.
+Choose your favorite font, adjust text size and spacing, change themes, or try different page-turn effects.
+You can preview your changes before applying them.
+NovelReader remembers your preferences, so every book feels just right.
 
-Viewing illustrations
 
-Illustrations appear between the surrounding paragraphs. Small images share the page with text; large images get their own page. Images fit without cropping or stretching. Missing or damaged images show a labeled placeholder. Text and illustration anchors remain compatible with existing saves.
 
-Choose Illustrations in Reading controls, or choose Contents then press SQUARE for the current chapter's illustrations. CROSS opens the selected image. CROSS zooms in, SQUARE zooms out, TRIANGLE fits, and the D-pad pans. START or a tap on Options opens Viewer controls. L and R show the previous and next image in the chapter. CIRCLE returns to the screen that opened the viewer. Every action in the panel supports touch and D-pad focus.
+Bookmarks & Chapters
 
-Drag an image to pan or pinch to zoom. Tap it to toggle between fit and 2x zoom. Back returns directly to reading if you tapped an inline image, or to the illustration list if you opened it there. The reading position and bookmark stay unchanged.
+Found a passage you love? Press SQUARE while reading to bookmark it.
+Visit Bookmarks from the sidebar to see your saved places, or press SELECT while reading to return to your latest bookmark.
+To jump between chapters, press CROSS while reading and choose where you'd like to go.
+You can also use START → Find in book to search for a word or passage.
 
-PNG and JPEG are supported, up to 8 MiB encoded, 4096 pixels per side, and 4 megapixels total.
 
-Online novels
 
-Connect Wi-Fi in Vita Settings. Choose Add Book → Browse Online, or Online novels from Options, to browse Novgo, Asura Novels, and Beast Novels. SELECT has no Library shortcut. Asura uses its novels catalog.
+Pictures & Read Aloud
 
-Choose a source, then use SQUARE to search with the system keyboard. CROSS opens a novel's details and CROSS again opens chapters. SELECT on details starts or resumes reading. SQUARE or Save adds a favorite to Library. Browsing and downloading alone do not add a favorite.
+Books with illustrations let you view pictures up close.
+Tap an illustration to open it. Pinch to zoom, drag to move around, or use the controller buttons.
+Want to listen instead? Open START → Read aloud (TTS) → Start here to have your book read aloud using the built-in English voice, even offline.
 
-In chapters, CROSS reads and saves the selected chapter, SQUARE downloads one, and SELECT downloads all public chapters. Locked chapters are labeled and skipped. Read, Download, All, and Jump also have touch actions. Details includes Download all and Refresh chapters. UP and DOWN scroll long descriptions.
 
-During a request, CIRCLE cancels. Completed chapters are kept. After failure, tap Retry, choose Retry request in Options, or repeat the download. Valid completed chapters are skipped. After canceling, START opens Options so you can save and exit. Missing public chapters download on demand when connected; already downloaded chapters work offline.
 
-Online text preserves paragraph breaks. Website changes, browser verification, or service outages can interrupt access; errors keep existing downloaded chapters intact. Reading fonts, settings, bookmarks, illustrations, and chapter navigation remain available where the publication supports them.
+Discover Online Novels
 
-Until then, find a comfortable spot and enjoy your book.
+Connect your Vita to Wi-Fi and open Library → Add Book → Online novels.
+Browse stories from supported sources, search for your favorites, and start reading.
+You can add novels to your Library and download available chapters for offline reading.
+Downloaded chapters remain available without Wi-Fi. Some online sources may occasionally be unavailable.
+
+
+
+A Few Helpful Tips
+
+- Your reading position saves automatically.
+- Moving or renaming a book? Use Locate file in its details to reconnect it.
+- Removing a book from Library clears its saved progress and bookmarks, but keeps your original TXT or EPUB file.
+- Most menus can be controlled using either buttons or touch.
+- Press CIRCLE whenever you want to go back.
+- Open START for additional options.
+
+
+
+Happy Reading!
+
+That's everything you need to get started.
+Find a comfortable spot, pick a story, and let NovelReader take care of the rest.
+
+
+Your Vita. Your books. Your little reading space.
