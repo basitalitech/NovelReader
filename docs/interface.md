@@ -59,7 +59,7 @@ Results include a passage preview and retain the first 256 matches. Latin ASCII
 letters match regardless of case. Other characters match as typed. EPUB links
 can jump to sections and footnotes within readable spine documents.
 
-New settings default to Literata and Slide and Fade, with reading bars shown.
+New settings default to Literata and Page Curl, with reading bars shown.
 Existing saved preferences are retained. Apply commits the preview; Cancel
 restores the last committed settings; Reset previews reading defaults until Apply.
 Settings opened from Reader returns to reading after Apply. Settings opened from

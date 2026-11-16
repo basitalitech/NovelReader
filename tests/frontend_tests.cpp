@@ -680,6 +680,7 @@ namespace
             check(app.top_ == original_top, "Right joystick does not move up through text");
             tap(322, 220, 319, 220);
             check(app.menu_.empty() && app.top_ == original_top, "Reading tap crossed action zones");
+            app.settings_.page_effect = static_cast<int>(reader::PageEffect::SlideAndFade);
             const auto next_page = app.visible_end();
             app.input(SCE_CTRL_RIGHT | SCE_CTRL_DOWN);
             check(app.top_ == next_page, "One diagonal D-pad sample ran two reading actions");
@@ -957,7 +958,7 @@ namespace
             app.input(SCE_CTRL_DOWN);
             check(app.setting_row_ == 5, "Focus moved below Margins");
             footer(SCE_CTRL_SELECT);
-            check(app.settings_.reading_font == 0 && app.settings_.page_effect == 1, "Touch Settings reset failed");
+            check(app.settings_.reading_font == 0 && app.settings_.page_effect == 0, "Touch Settings reset failed");
             footer(SCE_CTRL_CIRCLE);
             check(app.settings_.reading_font == 1, "Touch Settings cancel did not discard reset");
             check(app.settings_.page_effect == 1, "Cancel applied the preview page effect");

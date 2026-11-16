@@ -118,7 +118,7 @@ namespace reader
         int reading_font = 0;  // Literata, Atkinson Hyperlegible Next, Vita system.
         int immersive = 0;     // Show the reading chrome by default; immersive remains optional.
         int speech_rate = 175; // Offline narration, words per minute (100–350).
-        int page_effect = static_cast<int>(PageEffect::SlideAndFade);
+        int page_effect = static_cast<int>(PageEffect::PageCurl);
         int font_half_step = 0; // Adds two pixels between the legacy 22/26/30 px sizes.
         int margin = 1;         // Narrow, normal, wide.
         bool speech_auto_advance = false;
