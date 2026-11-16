@@ -157,6 +157,26 @@ int main()
         const reader::FontRole roles[] = {reader::FontRole::Interface, reader::FontRole::Heading,
                                           reader::FontRole::Serif, reader::FontRole::Sans, reader::FontRole::System};
         const int widths[] = {30, 30, 36, 39, 21};
+        for (const auto role : roles)
+        {
+            auto probe = fonts.line_measure(role, 26);
+            const std::string text = "AΩB中文 Café";
+            const std::size_t first_line[] = {1, 3, 10, 4, 3, text.size()};
+            const auto rasterized = raster_loads;
+            for (std::size_t i = 0; i < sizeof(first_line) / sizeof(*first_line); ++i)
+            {
+                const auto end = first_line[i];
+                check(probe(text, 0, end, i == 0) == fonts.width(role, 26, text.substr(0, end)),
+                      "Line probes changed widths when extending or revisiting a prefix");
+            }
+            check(probe(text, 3, 7, true) == fonts.width(role, 26, text.substr(3, 4)),
+                  "A new line reused the previous line's measurements");
+            const std::string long_line(5000, 'A');
+            check(probe(long_line, 0, long_line.size(), true) == fonts.width(role, 26, long_line) &&
+                  probe(long_line, 0, 32, false) == fonts.width(role, 26, long_line.substr(0, 32)),
+                  "A line over the cache limit changed widths when bisected");
+            check(raster_loads == rasterized, "Line probes rasterized glyphs");
+        }
         for (int i = 0; i < 5; ++i)
         {
             const int before_fonts = font_loads, before_textures = texture_loads, before_rasters = raster_loads;

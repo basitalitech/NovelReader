@@ -297,12 +297,12 @@ namespace reader
         }
 
         int render(FontRole role, unsigned pixels, int x, int y, unsigned color,
-                   const std::string &text, bool drawing) const
+                   const std::string &text, bool drawing, std::vector<int> *prefixes = nullptr) const
         {
             const auto index = role == FontRole::Heading ? 1u : role == FontRole::Serif ? 2u
                                                             : role == FontRole::Sans    ? 3u
                                                                                         : 0u;
-            int advance = 0;
+            int advance = prefixes ? prefixes->back() : 0;
             std::string run;
             int run_face = -1;
             const auto system_width = [&](const std::string &value)
@@ -394,6 +394,19 @@ namespace reader
                         routes.emplace(key, selected);
                     }
                 }
+                if (prefixes)
+                {
+                    if (selected >= 0)
+                        advance += faces[selected].advance(pixels, code);
+#ifdef __vita__
+                    else if (firmware.available())
+                        advance += firmware.advance(pixels, code);
+#endif
+                    else
+                        return -1; // Legacy PGF measures a whole run with its own rounding.
+                    prefixes->resize(prefixes->size() + at - start, advance);
+                    continue;
+                }
                 if (!run.empty() && selected != run_face)
                     flush();
 #ifdef __vita__
@@ -442,6 +455,25 @@ namespace reader
     int VitaFonts::width(FontRole role, unsigned pixels, const std::string &text) const
     {
         return impl_->render(role, pixels, 0, 0, 0, text, false);
+    }
+    LineMeasure VitaFonts::line_measure(FontRole role, unsigned pixels) const
+    {
+        return [this, role, pixels, prefixes = std::vector<int>{}, additive = true]
+               (const std::string &source, std::size_t begin, std::size_t end, bool first) mutable
+        {
+            if (first || prefixes.empty())
+            {
+                prefixes.assign(1, 0);
+                additive = true;
+            }
+            const auto length = end - begin;
+            if (additive && length >= prefixes.size() && length < 4096)
+            {
+                const auto known = prefixes.size() - 1;
+                additive = impl_->render(role, pixels, 0, 0, 0, source.substr(begin + known, length - known), false, &prefixes) >= 0;
+            }
+            return length < prefixes.size() ? prefixes[length] : width(role, pixels, source.substr(begin, length));
+        };
     }
     void VitaFonts::draw(FontRole role, unsigned pixels, int x, int y, unsigned color, const std::string &text) const
     {

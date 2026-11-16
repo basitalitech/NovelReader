@@ -28,6 +28,11 @@ namespace reader
     VitaFonts::~VitaFonts() = default;
     void VitaFonts::finish_frame() const {}
     int VitaFonts::width(FontRole role, unsigned pixels, const std::string &text) const { return text.size() * pixels / (role == FontRole::Sans ? 3 : 2); }
+    LineMeasure VitaFonts::line_measure(FontRole role, unsigned pixels) const
+    {
+        return [this, role, pixels](const std::string &source, std::size_t begin, std::size_t end, bool)
+        { return width(role, pixels, source.substr(begin, end - begin)); };
+    }
     void VitaFonts::draw(FontRole role, unsigned pixels, int x, int y, unsigned color, const std::string &text) const
     {
         if (capture_font_draws)

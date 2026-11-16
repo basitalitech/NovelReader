@@ -321,6 +321,12 @@ namespace reader
 
     std::vector<Line> wrap_text(const std::string &text, int width, const Measure &measure)
     {
+        return wrap_text(text, width, [&](const std::string &source, std::size_t begin, std::size_t end, bool)
+                         { return measure(source.substr(begin, end - begin)); });
+    }
+
+    std::vector<Line> wrap_text(const std::string &text, int width, const LineMeasure &measure)
+    {
         std::vector<Line> lines;
         std::vector<std::size_t> ends;
         ends.reserve(128);
@@ -342,18 +348,25 @@ namespace reader
             ends.push_back(start);
             std::size_t fit = 0, probe = 16;
             bool overflow = false;
+            bool first = true;
+            const auto measure_prefix = [&](std::size_t end)
+            {
+                const auto result = measure(text, start, end, first);
+                first = false;
+                return result;
+            };
             for (;;)
             {
                 while (ends.size() <= probe && ends.back() < text.size() && text[ends.back()] != '\n')
                     ends.push_back(next_cluster(text, ends.back()));
                 const auto count = ends.size() - 1;
-                if (measure(text.substr(start, ends.back() - start)) > width)
+                if (measure_prefix(ends.back()) > width)
                 {
                     std::size_t high = count;
                     while (fit + 1 < high)
                     {
                         const auto mid = fit + (high - fit) / 2;
-                        if (measure(text.substr(start, ends[mid] - start)) <= width)
+                        if (measure_prefix(ends[mid]) <= width)
                             fit = mid;
                         else
                             high = mid;

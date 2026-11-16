@@ -1,5 +1,6 @@
 #pragma once
 
+#include "reader.hpp"
 #include <memory>
 #include <string>
 #include <vita2d.h>
@@ -24,6 +25,7 @@ namespace reader
         // Release evicted textures after vita2d_wait_rendering_done().
         void finish_frame() const;
         int width(FontRole role, unsigned pixels, const std::string &text) const;
+        LineMeasure line_measure(FontRole role, unsigned pixels) const;
         void draw(FontRole role, unsigned pixels, int x, int y, unsigned color,
                   const std::string &text) const;
         // Heading labels additionally use native FreeType kerning.

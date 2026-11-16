@@ -37,9 +37,34 @@ namespace reader
         return found == pages.begin() ? 0 : *(found - 1);
     }
 
-    ChapterLayout layout_book(const Book &book, int width, int page_height, int line_height, const Measure &measure)
+    ChapterLayout layout_book(const Book &book, int width, int page_height, int line_height, const Measure &measure,
+                              perf::LayoutWork *work)
+    {
+        return layout_book(book, width, page_height, line_height,
+                           [&](const std::string &source, std::size_t begin, std::size_t end, bool)
+                           { return measure(source.substr(begin, end - begin)); }, work);
+    }
+
+    ChapterLayout layout_book(const Book &book, int width, int page_height, int line_height, const LineMeasure &measure,
+                              perf::LayoutWork *work)
     {
         const perf::Scope timing(perf::Event::Layout);
+#ifdef NOVELREADER_PROFILE
+        const perf::Duration layout_time(work ? &work->total_us : nullptr);
+        LineMeasure timed_measure;
+        if (work)
+            timed_measure = [&](const std::string &value, std::size_t begin, std::size_t end, bool first)
+            {
+                ++work->measure_calls;
+                work->measured_bytes += end - begin;
+                const perf::Duration duration(&work->measure_us);
+                return measure(value, begin, end, first);
+            };
+        const LineMeasure &measure_width = work ? timed_measure : measure;
+#else
+        (void)work;
+        const LineMeasure &measure_width = measure;
+#endif
         if (width <= 0 || width > 4096 || page_height < 24 || page_height > 4096 || line_height <= 0 || line_height > page_height)
             throw std::invalid_argument("Invalid reader layout dimensions");
         ChapterLayout result;
@@ -59,7 +84,11 @@ namespace reader
                     ++begin;
             if (begin == end)
                 return;
-            const auto lines = wrap_text(book.text.substr(begin, end - begin), width, measure);
+            const auto lines = [&]
+            {
+                const perf::Duration wrap_time(work ? &work->wrap_us : nullptr);
+                return wrap_text(book.text.substr(begin, end - begin), width, measure_width);
+            }();
             for (const auto &line : lines)
                 append({begin + line.offset, line.text, line_height});
         };

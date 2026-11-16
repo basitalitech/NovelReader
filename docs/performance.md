@@ -107,6 +107,22 @@ the whole app after drawing and excludes allocation-time peaks. The device goal
 is at least 20% lower median loading latency on the illustrated book and no more
 than 10% higher median latency on the text-only control.
 
+### Diagnose chapter layout
+
+For a quick diagnosis, open the same EPUB at the same chapter and make 10 chapter
+changes with L/R. Save and exit, then copy `performance.csv`. The layout profiling
+build adds these columns to each `# epub_load` sample:
+
+| Columns | What they measure |
+| --- | --- |
+| `layout_us`, `wrap_us`, `measure_us` | Layout total, its wrapping work, and font-width calls inside wrapping. Subtract `measure_us` from `wrap_us` for wrapping work outside the font callback. |
+| `measure_calls`, `measured_bytes` | Number of width requests and total UTF-8 bytes in the requested prefixes, including prefixes that reuse cached advances. |
+| `first_frame_draw_us`, `first_frame_present_us` | Preparing and drawing the first new reader frame, then swapping buffers and waiting for rendering to complete. |
+
+The timing calls around font measurements add some overhead. Use this build to
+identify expensive stages. Compare before-and-after latency using builds with
+the same instrumentation.
+
 For the host benchmark, enable profiling in the host build and run from its fixture:
 
 ```sh

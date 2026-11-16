@@ -203,8 +203,14 @@ namespace reader
                          std::string &bytes, std::string &error);
 
     using Measure = std::function<int(const std::string &)>;
+    // Measures [begin, end) within a line. first is true for its first width probe.
+    using LineMeasure = std::function<int(const std::string &, std::size_t begin, std::size_t end, bool first)>;
 
-    ChapterLayout layout_book(const Book &book, int width, int page_height, int line_height, const Measure &measure);
+    namespace perf { struct LayoutWork; }
+    ChapterLayout layout_book(const Book &book, int width, int page_height, int line_height, const Measure &measure,
+                              perf::LayoutWork *work = nullptr);
+    ChapterLayout layout_book(const Book &book, int width, int page_height, int line_height, const LineMeasure &measure,
+                              perf::LayoutWork *work = nullptr);
     std::size_t layout_page_end(const std::vector<LayoutBlock> &blocks, std::size_t start, int page_height);
     std::size_t block_at_offset(const std::vector<LayoutBlock> &blocks, std::size_t offset);
     std::size_t previous_page_start(const std::vector<std::size_t> &pages, std::size_t start);
@@ -224,6 +230,7 @@ namespace reader
     std::string title_from_filename(const std::string &name);
     bool load_book(const std::string &path, Book &book, std::string &error);
     std::vector<Line> wrap_text(const std::string &text, int width, const Measure &measure);
+    std::vector<Line> wrap_text(const std::string &text, int width, const LineMeasure &measure);
     std::size_t line_at_offset(const std::vector<Line> &lines, std::size_t offset);
     std::string progress_path(const std::string &directory, const std::string &filename);
     Progress load_progress(const std::string &path);

@@ -263,7 +263,10 @@ namespace
         {
             draw_frame();
             redraw_ = false;
-            present();
+            {
+                const reader::perf::Duration timing(pending_reader_load_.frame_time(reader::perf::FrameStage::Present, screen_ == Screen::Reader));
+                present();
+            }
             if (screen_ == Screen::Reader)
                 pending_reader_load_.presented();
             else
@@ -406,6 +409,7 @@ namespace
         {
             const reader::perf::Scope frame(reader::perf::Event::FrameWork);
             tick_speech();
+            const reader::perf::Duration timing(pending_reader_load_.frame_time(reader::perf::FrameStage::Draw, !target && screen_ == Screen::Reader));
             if (message_ == notice_ && sceKernelGetProcessTimeWide() >= notice_until_)
                 message_.clear();
             if (screen_ == Screen::Reader)
@@ -5241,7 +5245,7 @@ namespace
                             marks.end());
                 if (progress_.has_bookmark && progress_.bookmark_chapter >= publication_.chapters.size())
                     progress_.remove_bookmark(0);
-                if (!change_chapter(progress_.chapter, progress_.offset, false, {}, true, true))
+                if (!change_chapter(progress_.chapter, progress_.offset, false, {}, true, &loading))
                 {
                     publication_ = {};
                     return;
@@ -5254,6 +5258,7 @@ namespace
             }
             catch (const std::exception &)
             {
+                pending_reader_load_ = {};
                 book_ = {};
                 publication_ = {};
                 std::vector<reader::LayoutBlock>().swap(lines_);
@@ -5268,7 +5273,6 @@ namespace
             release_image();
             screen_ = Screen::Reader;
             save();
-            pending_reader_load_ = loading;
         }
 
         bool move_to_position(std::size_t chapter, std::size_t offset)
@@ -5351,10 +5355,10 @@ namespace
         }
 
         bool change_chapter(std::size_t index, std::size_t offset, bool at_end = false, const std::string &fragment = {}, bool allow_fetch = true,
-                            bool opening_book = false)
+                            const reader::perf::ReaderLoad *book_load = nullptr)
         {
-            const reader::perf::ReaderLoad loading(publication_.epub && !opening_book,
-                                                  lines_.empty() ? reader::perf::LoadKind::Book : reader::perf::LoadKind::Chapter, input_started_);
+            auto loading = book_load ? *book_load : reader::perf::ReaderLoad(publication_.epub,
+                                      lines_.empty() ? reader::perf::LoadKind::Book : reader::perf::LoadKind::Chapter, input_started_);
             speech_.stop();
             speech_deadline_ = 0;
             if (publication_.online && index < online_novel_.chapters.size() && !reader::online::cached(online_manifest_, online_novel_.chapters[index].url))
@@ -5371,7 +5375,7 @@ namespace
                 return false;
             }
             message_ = "Opening chapter...";
-            if (!opening_book || !publication_.epub)
+            if (!book_load || !publication_.epub)
                 draw_loading();
             try
             {
@@ -5392,8 +5396,8 @@ namespace
                     }
                     offset = anchor->second;
                 }
-                auto layout = reader::layout_book(candidate, reading_width(), reading_area().height, line_height(), [this](const std::string &value)
-                                                  { return fonts_.width(reading_font(), reading_pixels(), value); });
+                auto layout = reader::layout_book(candidate, reading_width(), reading_area().height, line_height(),
+                                                  fonts_.line_measure(reading_font(), reading_pixels()), loading.layout_work());
                 const auto position = at_end ? layout.pages.back() : reader::block_at_offset(layout.blocks, offset);
                 if (publication_.chapters[index].title == "Chapter " + std::to_string(index + 1))
                     publication_.chapters[index].title = candidate.title;
@@ -5404,8 +5408,7 @@ namespace
                 top_ = position;
                 chapter_ = index;
                 message_.clear();
-                if (!opening_book)
-                    pending_reader_load_ = loading;
+                pending_reader_load_ = loading;
                 return true;
             }
             catch (const std::exception &)
@@ -5417,8 +5420,8 @@ namespace
 
         void reflow(std::size_t offset)
         {
-            auto layout = reader::layout_book(book_, reading_width(), reading_area().height, line_height(), [this](const std::string &value)
-                                              { return fonts_.width(reading_font(), reading_pixels(), value); });
+            auto layout = reader::layout_book(book_, reading_width(), reading_area().height, line_height(),
+                                              fonts_.line_measure(reading_font(), reading_pixels()));
             lines_ = std::move(layout.blocks);
             pages_ = std::move(layout.pages);
             top_ = reader::block_at_offset(lines_, offset);
