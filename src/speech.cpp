@@ -203,6 +203,7 @@ namespace reader
                                     std::lock_guard<std::mutex> lock(mutex);
                                     current.offset = chunk.begin;
                                 }
+                                output->begin_segment(chunk.begin);
                                 slt->configure(callback, this, speed);
                                 std::unique_ptr<cst_utterance, decltype(&delete_utterance)> utterance(
                                     flite_synth_text(chunk.text.c_str(), slt->voice()), delete_utterance);
@@ -216,6 +217,11 @@ namespace reader
                             if (!canceled && !output->healthy())
                                 fail("Audio playback failed.");
                             std::lock_guard<std::mutex> lock(mutex);
+                            const auto played = output->playback_offset();
+                            if (!canceled && current.state != State::Error)
+                                current.playback_offset = current.offset;
+                            else if (played != unknown_playback_offset)
+                                current.playback_offset = played;
                             audio.reset();
                         }
                     }
@@ -284,7 +290,7 @@ namespace reader
                 rate(words_per_minute);
                 {
                     std::lock_guard<std::mutex> lock(impl_->mutex);
-                    impl_->current = {State::Speaking, offset, {}};
+                    impl_->current = {State::Speaking, offset, {}, offset};
                 }
                 impl_->launch(std::move(snapshot), offset);
             }
@@ -311,7 +317,14 @@ namespace reader
         Status Player::status() const
         {
             std::lock_guard<std::mutex> lock(impl_->mutex);
-            return impl_->current;
+            auto current = impl_->current;
+            if (impl_->audio)
+            {
+                const auto played = impl_->audio->playback_offset();
+                if (played != unknown_playback_offset)
+                    current.playback_offset = played;
+            }
+            return current;
         }
 
     }

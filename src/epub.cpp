@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -162,22 +163,27 @@ namespace reader
             return -1;
         }
 
-        std::string resolve(const std::string &base, std::string href)
+        std::string percent_decode(const std::string &value)
         {
-            href = href.substr(0, href.find_first_of("#?"));
             std::string decoded;
-            for (std::size_t i = 0; i < href.size(); ++i)
+            for (std::size_t i = 0; i < value.size(); ++i)
             {
-                if (href[i] != '%')
-                    decoded += href[i];
+                if (value[i] != '%')
+                    decoded += value[i];
                 else
                 {
-                    if (i + 2 >= href.size() || hex(href[i + 1]) < 0 || hex(href[i + 2]) < 0)
-                        throw std::runtime_error("Invalid EPUB document path.");
-                    decoded += static_cast<char>(hex(href[i + 1]) * 16 + hex(href[i + 2]));
+                    if (i + 2 >= value.size() || hex(value[i + 1]) < 0 || hex(value[i + 2]) < 0)
+                        throw std::runtime_error("Invalid EPUB link encoding.");
+                    decoded += static_cast<char>(hex(value[i + 1]) * 16 + hex(value[i + 2]));
                     i += 2;
                 }
             }
+            return decoded;
+        }
+
+        std::string resolve(const std::string &base, const std::string &href)
+        {
+            const auto decoded = percent_decode(href.substr(0, href.find_first_of("#?")));
             if (decoded.empty())
                 return base;
             if (decoded[0] == '/' || decoded.find_first_of(":\\") != std::string::npos ||
@@ -212,6 +218,15 @@ namespace reader
             if (result.empty())
                 throw std::runtime_error("Invalid empty EPUB document path.");
             return result;
+        }
+
+        DocumentTarget link_target(const std::string &base, const std::string &href)
+        {
+            const auto hash = href.find('#');
+            auto fragment = hash == std::string::npos ? std::string{} : percent_decode(href.substr(hash + 1));
+            if (fragment.size() > 2048 || fragment.find('\0') != std::string::npos || !valid_utf8(fragment))
+                throw std::runtime_error("Invalid EPUB link fragment.");
+            return {resolve(base, href), std::move(fragment)};
         }
 
         // XML has only five named entities. Common legacy XHTML entities are converted
@@ -370,6 +385,11 @@ namespace reader
                                       tag == "blockquote" || tag == "li" || tag == "tr" || tag == "pre" || tag == "hr";
                 if (boundary)
                     block();
+                auto id = attr(element, "id");
+                if (id.empty() && tag == "a")
+                    id = attr(element, "name");
+                if (!id.empty() && id.size() <= 2048 && book.anchors.size() < 8192)
+                    book.anchors.emplace(std::move(id), book.text.size());
                 if (tag == "br")
                 {
                     block(1);
@@ -403,8 +423,22 @@ namespace reader
                     text("- ", Plain);
                 if (tag == "td" || tag == "th")
                     pending_ = true;
+                const auto begin = book.text.size();
                 for (auto *n = element->FirstChild(); n; n = n->NextSibling())
                     walk(n, style);
+                if (tag == "a" && book.text.size() > begin && book.links.size() < 4096)
+                {
+                    const auto href = attr(element, "href");
+                    if (!href.empty())
+                        try
+                        {
+                            book.links.push_back({begin, book.text.size(), link_target(base_, href)});
+                        }
+                        catch (const std::runtime_error &)
+                        {
+                            // External or malformed links are displayed as plain text.
+                        }
+                }
                 if (boundary)
                     block();
             }
@@ -427,11 +461,12 @@ namespace reader
             std::string base_;
         };
 
-        void navigation_labels(Archive &archive, const std::string &path, bool ncx,
-                               std::map<std::string, std::string> &labels)
+        std::vector<ContentsEntry> read_navigation(Archive &archive, const std::string &path, bool ncx,
+                                                   const std::set<std::string> &spine_paths)
         {
+            std::vector<ContentsEntry> entries;
             if (path.empty())
-                return;
+                return entries;
             try
             {
                 XMLDocument document;
@@ -439,27 +474,39 @@ namespace reader
                 visit(document.RootElement(), [&](const XMLElement *element)
                       {
                           std::string href, label;
+                          unsigned depth = 0;
                           if (ncx && local(element->Name()) == "navPoint")
                           {
                               href = attr(child(element, "content"), "src");
                               label = compact(node_text(child(element, "navLabel")));
+                              for (auto *parent = element->Parent(); parent; parent = parent->Parent())
+                                  if (parent->ToElement() && local(parent->Value()) == "navPoint")
+                                      ++depth;
                           }
                           else if (!ncx && local(element->Name()) == "a")
                           {
                               // Only use the table of contents, not page lists or landmarks.
                               const XMLNode *parent = element->Parent();
                               while (parent && (!parent->ToElement() || local(parent->Value()) != "nav"))
+                              {
+                                  if (parent->ToElement() && local(parent->Value()) == "ol")
+                                      ++depth;
                                   parent = parent->Parent();
+                              }
+                              if (depth)
+                                  --depth;
                               if (!parent || !token(attr(parent->ToElement(), "type"), "toc"))
                                   return;
                               href = attr(element, "href");
                               label = compact(node_text(element));
                           }
-                          if (!href.empty() && !label.empty())
+                          if (!href.empty() && !label.empty() && entries.size() < 8192)
                           {
                               try
                               {
-                                  labels.emplace(resolve(path, href), label);
+                                  auto target = link_target(path, href);
+                                  if (spine_paths.count(target.path))
+                                      entries.push_back({std::move(label), std::move(target), depth});
                               }
                               catch (const std::runtime_error &)
                               {
@@ -470,6 +517,7 @@ namespace reader
             {
                 // Navigation is optional; the spine is authoritative.
             }
+            return entries;
         }
 
         void check_encryption(Archive &archive, const Publication &publication)
@@ -608,11 +656,16 @@ namespace reader
             }
             if (result.chapters.empty())
                 throw std::runtime_error("EPUB has no readable chapters.");
-            std::map<std::string, std::string> labels;
-            navigation_labels(archive, nav_path, false, labels);
+            std::set<std::string> spine_paths;
+            for (const auto &chapter : result.chapters)
+                spine_paths.insert(chapter.path);
+            result.contents = read_navigation(archive, nav_path, false, spine_paths);
             const auto ncx = manifest.find(attr(spine, "toc"));
-            if (ncx != manifest.end())
-                navigation_labels(archive, ncx->second.path, true, labels);
+            if (result.contents.empty() && ncx != manifest.end())
+                result.contents = read_navigation(archive, ncx->second.path, true, spine_paths);
+            std::map<std::string, std::string> labels;
+            for (const auto &entry : result.contents)
+                labels.emplace(entry.target.path, entry.title);
             for (auto &chapter : result.chapters)
             {
                 const auto found = labels.find(chapter.path);

@@ -26,11 +26,11 @@ reader. Home and About have no Options menu.
 | Home | Cross resumes the recent available book, or opens Library if none exists |
 | Library | Cross opens a cover or Add Book; Square searches titles; Triangle sorts/filters; Circle clears an active search before returning Home |
 | Import browser | Cross opens a folder or toggles a book; Square imports the selection; Triangle refreshes; Circle goes to parent, storage list, then Library |
-| Local book details | Move focus to Read or Chapters and press Cross; Circle returns to Library |
+| Local book details | Cross opens the selected action. Locate file appears when an imported TXT or EPUB is missing. Circle returns to Library |
 | Bookmarks | Cross opens the saved passage; Start → Remove asks for confirmation; Circle returns to the caller |
-| Reader | Left/Right turns pages; Up/Down steps by line; Cross opens Chapters; Square saves the bookmark; Select jumps to it; Start opens Reading controls; Circle saves and returns to Library or online chapters |
+| Reader | Left/Right turns pages; Up/Down steps by line; Cross opens Chapters; Square toggles a bookmark at the current position; Select jumps to the newest bookmark; Start opens Reading controls; Circle saves and returns to Library or online chapters |
 | Reader shoulders | L/R changes EPUB or online chapters; for TXT, turns pages |
-| Chapters | Up/Down selects across pages; Left/Right browses five entries; Cross opens; Triangle jumps by number; Start → Illustrations opens current-chapter images; Circle returns |
+| Chapters | Up/Down selects across pages; Left/Right browses five entries; Cross opens; Square switches between Chapters and EPUB Sections when available; Triangle jumps by chapter number; Circle returns |
 | Illustrations | Up/Down selects; Left/Right browses four entries; Cross views; Circle returns to Chapters |
 | Image viewer | Cross zooms in; Square zooms out; Triangle fits; D-pad pans; L/R selects the previous/next illustration; Circle returns to the opening screen |
 | Settings | Up/Down selects a row; Left/Right adjusts; Cross applies; Circle cancels; Select resets the preview |
@@ -70,7 +70,7 @@ shoulders together have no shortcut.
 | Paged lists and Bookmarks | Tap an entry; swipe to browse pages |
 | Reader body | Tap left/right zones to turn pages; tap center to show/hide reading bars |
 | Reader body | Drag horizontally to preview a page turn, then release to complete or settle back; drag vertically to scroll and settle onto a line |
-| Reader body | Hold and release to save the bookmark |
+| Reader body | Hold and release to save a bookmark |
 | Reader illustration | Tap to inspect; drag/pinch to pan/zoom; tap to return |
 | Image viewer | Drag to pan; pinch to zoom; tap the image to toggle fit/2× |
 | Settings | Tap selectors/sliders or swipe horizontally on a row; tap footer Apply, Cancel, or Reset |

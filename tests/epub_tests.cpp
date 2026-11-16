@@ -122,12 +122,14 @@ namespace
 <item id="extra" href="extra.xhtml" media-type="application/xhtml+xml"/>
 </manifest><spine toc="ncx"><itemref idref="first"/><itemref idref="extra" linear="no"/><itemref idref="second"/></spine></package>)";
     const std::string first = R"(<?xml version="1.0"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Hidden title</title><style>Hidden style</style></head>
-<body><h1>First chapter</h1><p>Hello <em>quiet <strong>world</strong></em> &amp; welcome&nbsp;home.</p>
-<p>Next paragraph.<br/>Another line. &#x65E5;&#26412;</p><script>Hidden script</script><!-- Hidden comment -->
+<body><h1 id="start">First chapter</h1><p>Hello <em>quiet <strong>world</strong></em> &amp; welcome&nbsp;home.</p>
+<p id="second-section">Next paragraph.<br/>Another line. &#x65E5;&#26412; <a href="#caf%C3%A9">[1]</a></p><script>Hidden script</script><!-- Hidden comment -->
+<p id="café">Footnote text. <a href="https://example.com">External text</a></p>
 <p><ruby>Base<rt>Hidden ruby</rt></ruby></p><img alt="A moonlit lake" src="../Images/cover.jpg"/></body></html>)";
     const std::string second = R"(<html xmlns="http://www.w3.org/1999/xhtml"><body><h2>Second chapter</h2><p>The end.</p></body></html>)";
     const std::string nav = R"(<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>
 <nav epub:type="toc"><ol><li><a href="../Text/one%20chapter.xhtml#start">The beginning</a><ol>
+<li><a href="../Text/one%20chapter.xhtml#second-section">A section in the same chapter</a></li>
 <li><a href="../Text/two.xhtml">The ending</a></li></ol></li></ol></nav>
 <nav epub:type="landmarks"><a href="../Text/one%20chapter.xhtml">Wrong label</a></nav></body></html>)";
     const std::string ncx = R"(<ncx><navMap><navPoint><navLabel><text>NCX beginning</text></navLabel><content src="Text/one%20chapter.xhtml#start"/>
@@ -177,11 +179,18 @@ int main()
                   publication.chapters[1].path == "OPS/Text/two.xhtml",
               "Spine order, relative paths or linear=no");
         check(publication.chapters[0].title == "The beginning" && publication.chapters[1].title == "The ending", "EPUB3 labels");
+        check(publication.contents.size() == 3 && publication.contents[1].depth == 1 &&
+                  publication.contents[1].target.path == publication.chapters[0].path && publication.contents[1].target.fragment == "second-section",
+              "Nested sections sharing one XHTML file lost their target");
         check(reader::load_chapter(publication, 0, book, error), "Load EPUB chapter: " + error);
         check(book.title == "First chapter" && book.text.find("Hello quiet world & welcome home.") != std::string::npos,
               "Inline whitespace or entities");
         check(book.text.find("\n\nNext paragraph.\nAnother line.") != std::string::npos, "Paragraphs and line breaks");
         check(book.text.find("\xe6\x97\xa5\xe6\x9c\xac") != std::string::npos, "Numeric UTF-8 entities");
+        check(book.anchors.at("second-section") == book.text.find("Next paragraph.") &&
+                  book.anchors.at("café") == book.text.find("Footnote text.") && book.links.size() == 1 &&
+                  book.links[0].target.fragment == "café" && book.links[0].target.path == publication.chapters[0].path,
+              "Footnote offsets or encoded internal link were lost");
         check(book.text.find("Hidden") == std::string::npos && book.text.find("Base") != std::string::npos, "Hidden content filtering");
         check(book.text.find("[Illustration: A moonlit lake]") != std::string::npos, "Image placeholder");
         check(book.illustrations.size() == 1 && book.illustrations[0].path == "OPS/Images/cover.jpg" &&

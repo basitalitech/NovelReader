@@ -125,6 +125,12 @@ int main()
             lines = reader::wrap_text("\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e", 1, columns);
             check(lines.size() == 3 && lines[0].text.size() == 3 && lines[2].offset == 6,
                   "UTF-8 characters split during wrapping");
+            lines = reader::wrap_text(u8"e\u0301🙂‍↔️x", 1, columns);
+            check(lines.size() == 3 && lines[0].text == u8"e\u0301" && lines[1].text == u8"🙂‍↔️",
+                  "Forced wrapping split a combining or joined emoji sequence");
+            lines = reader::wrap_text(u8"あいう、え「お」", 3, columns);
+            check(lines.size() == 3 && lines.front().text == u8"あい" && lines.back().text == u8"「お」",
+                  "Japanese punctuation did not stay with its adjacent text");
             lines = reader::wrap_text("ab", 0, [](const std::string &)
                                       { return 100; });
             check(lines.size() == 2, "Layout did not advance with oversized glyphs");
@@ -174,6 +180,15 @@ int main()
             auto progress = reader::load_progress(state);
             check(progress.offset == anchor && progress.has_bookmark && progress.bookmark == 7,
                   "Progress or bookmark failed round trip");
+            check(progress.add_bookmark({2, 31, "chapter-2"}) && progress.add_bookmark({3, 44, "chapter-3"}) &&
+                      reader::save_progress(state, progress),
+                  "Multiple bookmark save failed");
+            progress = reader::load_progress(state);
+            check(progress.bookmark_count() == 3 && progress.bookmark_at(2).offset == 7 &&
+                      progress.bookmark_at(1) == reader::BookmarkPosition{2, 31, "chapter-2"},
+                  "Saved bookmarks did not round-trip");
+            progress.remove_bookmark(0);
+            check(progress.bookmark_count() == 2 && progress.bookmark_at(0).offset == 31, "Removing the newest bookmark discarded the previous one");
             check(reader::save_progress(state, {4, true, 8}), "Replacing an existing save failed");
             check(reader::load_progress(state).offset == 4, "Save replacement was not persisted");
             write(state, "NRP1\n-1 1 5\n");
@@ -202,6 +217,15 @@ int main()
             check(reader::save_settings(settings_path, settings) && reader::load_settings(settings_path).speech_rate == 225,
                   "Speech speed failed round trip");
             check(settings.font == 2 && settings.spacing == 0 && settings.theme == 1, "Settings failed round trip");
+            auto appearance = settings;
+            appearance.font = 1;
+            appearance.font_half_step = 1;
+            appearance.margin = 2;
+            appearance.speech_auto_advance = true;
+            check(reader::save_settings(settings_path, appearance), "Could not save extended settings");
+            appearance = reader::load_settings(settings_path);
+            check(appearance.font == 1 && appearance.font_half_step == 1 && appearance.margin == 2 && appearance.speech_auto_advance,
+                  "Extended settings did not round-trip");
             for (int theme = 0; theme < reader::page_theme_count; ++theme)
             {
                   auto themed = settings;

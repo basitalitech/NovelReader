@@ -105,12 +105,15 @@ int main()
         audio = make(paused);
         check(audio->open(22050), "Paused queue did not open");
         audio->pause(true);
+        audio->begin_segment(45);
         check(audio->write(source.data(), 4096), "Paused write failed");
         check(!wrote(paused, 25), "Paused queue still played");
+        check(audio->playback_offset() == unknown_playback_offset, "Queued text moved the playback cursor while paused");
         audio->pause(false);
         check(wrote(paused, 1000), "Resume did not wake playback");
         audio->close();
         check(paused.pcm == std::vector<short>(source.begin(), source.begin() + 4096), "Pause dropped samples");
+        check(audio->playback_offset() == 45, "Audio playback did not publish its source offset");
 
         Capture canceled;
         audio = make(canceled);

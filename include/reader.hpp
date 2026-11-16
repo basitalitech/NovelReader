@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -34,6 +35,21 @@ namespace reader
         unsigned width = 0, height = 0; // Probed once per chapter; zero means unavailable.
         std::string error = {};
     };
+    struct DocumentTarget
+    {
+        std::string path, fragment;
+    };
+    struct InternalLink
+    {
+        std::size_t begin, end;
+        DocumentTarget target;
+    };
+    struct ContentsEntry
+    {
+        std::string title;
+        DocumentTarget target;
+        unsigned depth;
+    };
 
     struct Book
     {
@@ -41,6 +57,8 @@ namespace reader
         std::string text; // Normalized UTF-8; positions always refer to these bytes.
         std::vector<StyleSpan> styles;
         std::vector<Illustration> illustrations;
+        std::map<std::string, std::size_t> anchors = {};
+        std::vector<InternalLink> links = {};
     };
 
     struct Chapter
@@ -54,6 +72,7 @@ namespace reader
         std::vector<Chapter> chapters; // OPF spine order; chapter contents load on demand.
         std::string cover_path;
         bool online = false;
+        std::vector<ContentsEntry> contents = {};
     };
 
     struct Line
@@ -97,7 +116,22 @@ namespace reader
         int immersive = 0;     // Show the reading chrome by default; immersive remains optional.
         int speech_rate = 175; // Offline narration, words per minute (100–350).
         int page_effect = static_cast<int>(PageEffect::SlideAndFade);
+        int font_half_step = 0; // Adds two pixels between the legacy 22/26/30 px sizes.
+        int margin = 1;         // Narrow, normal, wide.
+        bool speech_auto_advance = false;
     };
+
+    struct BookmarkPosition
+    {
+        std::size_t chapter = 0, offset = 0;
+        std::string chapter_id;
+
+        bool operator==(const BookmarkPosition &other) const
+        {
+            return chapter == other.chapter && offset == other.offset && chapter_id == other.chapter_id;
+        }
+    };
+    constexpr std::size_t max_bookmarks = 128;
 
     struct Progress
     {
@@ -109,6 +143,12 @@ namespace reader
         int percent = -1;                              // Unknown for legacy saves; EPUB estimate weights chapters equally.
         std::uint64_t last_read = 0;                   // Unix time, updated by the frontend on reading actions.
         std::string chapter_id = {}, bookmark_id = {}; // Stable paths for downloaded chapters.
+        std::vector<BookmarkPosition> other_bookmarks = {};
+
+        std::size_t bookmark_count() const { return has_bookmark ? 1 + other_bookmarks.size() : 0; }
+        BookmarkPosition bookmark_at(std::size_t index) const;
+        bool add_bookmark(const BookmarkPosition &position);
+        void remove_bookmark(std::size_t index);
     };
 
     enum class LibrarySort
@@ -130,6 +170,7 @@ namespace reader
         Progress progress;
         bool guide = false;
         bool directory = false;
+        bool missing = false;
     };
     bool valid_library_component(const std::string &name);
     bool load_library(const std::string &path, std::vector<std::string> &books);

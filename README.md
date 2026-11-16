@@ -16,7 +16,7 @@ progress, bookmarks, and English text-to-speech. The current source version is
 
 - Persistent library with local imports, online favorites, cover thumbnails,
   title search, sorting, and reading-status filters.
-- Chapter navigation, automatic reading-position saves, and one bookmark per book.
+- EPUB section and footnote navigation, offline full-text search, automatic reading-position saves, and multiple bookmarks per book.
 - EPUB text formatting and inline PNG/JPEG illustrations, with image inspection,
   zoom, and pan.
 - Literata, Atkinson Hyperlegible Next, and Vita system reading fonts; adjustable
@@ -25,7 +25,7 @@ progress, bookmarks, and English text-to-speech. The current source version is
   Vita's Latin, Japanese, Chinese, and Korean firmware fonts.
 - Page Curl, Slide and Fade, or immediate page turns, with controller and front
   touchscreen input.
-- Bundled Flite SLT English narration with pause, resume, stop, and saved speed.
+- Bundled Flite SLT English narration with saved speed, optional chapter advance, and a sleep timer.
 - Online catalogs and public chapter downloads for Novgo, Asura Novels, and Beast
   Novels. Saved chapters and supported cover artwork remain available offline.
 
@@ -75,12 +75,17 @@ when there is no reading history.
 
 ### Read and customize
 
-Progress saves as you navigate and leave the reader. Press **Square** to save the
-current position as the book's bookmark; **Select** returns to it. The Bookmarks
-screen collects saved passages from library books.
+Progress saves as you navigate and leave the reader. Press **Square** to add or
+remove a bookmark at the current position. **Select** returns to the most recently
+saved bookmark. Open **Start → Find in book** for search results, passage previews,
+and next/previous matches. Searches include local and downloaded chapter text.
+
+For EPUBs, press **Cross → Square** to switch from Chapters to Sections. Use
+**Start → Links on this page** to open an internal link and **Back to reading
+position** to return.
 
 Press **Start → Reader Settings** while reading to change typeface, font size,
-line spacing, page theme, and page effect. **Cross / Apply** saves changes;
+line spacing, page margins, page theme, and page effect. **Cross / Apply** saves changes;
 **Circle / Cancel** discards the preview; **Select / Reset** previews defaults.
 Themes are Night, Paper, Sepia, OLED, and OLED Night. Tap the center of the reading
 area, or use **Show/Hide reading bar** in Reading controls, to toggle immersive mode.
@@ -109,7 +114,7 @@ supported. See [library, downloads, and backups](docs/library-and-online.md).
 | Menus and lists | D-pad or either stick moves content focus; Cross activates; Circle returns or cancels |
 | Sidebar screens | L/R switches Home, Library, Bookmarks, Settings, and About |
 | Library | Cross opens details; Square searches; Triangle sorts/filters; Circle clears an active search before returning Home |
-| Reader | Left/Right turns pages; Up/Down moves by line; Cross opens Chapters; Square saves a bookmark; Select jumps to it |
+| Reader | Left/Right turns pages; Up/Down moves by line; Cross opens Chapters; Square toggles a bookmark; Select jumps to the newest bookmark |
 | Reader shoulders | L/R changes EPUB/online chapters; for TXT, turns pages |
 | Reader controls | Start opens Reading controls; Circle saves and returns to the originating collection |
 | Settings | Up/Down selects; Left/Right adjusts; Cross applies; Circle cancels; Select resets the preview |
@@ -131,8 +136,8 @@ for viewer, online, import, and gesture mappings. Rear touch is not used.
 
 EPUB rendering supports chapter order/navigation, headings, emphasis, paragraphs,
 and inline images. It does not implement full publisher CSS layout, embedded
-fonts, or text flowing around images. PDF, encrypted EPUB chapter content, TXT
-chapter detection, and full-text search are not supported. Glyph availability
+fonts, or text flowing around images. PDF, encrypted EPUB chapter content, and TXT
+chapter detection are not supported. Glyph availability
 depends on the bundled, optional user, and firmware fonts. See
 [language coverage and custom fallback fonts](assets/fonts/README.md). Menus and
 offline narration remain English; Arabic shaping, bidirectional layout, and

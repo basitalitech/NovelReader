@@ -32,10 +32,10 @@ and sidebar screen resources before showing Home.
 | Library | Four-column scrolling cover grid; Add Book opens the Import books/Online novels menu; Search and Filter shortcuts are in the footer |
 | Book details | Cover, title/author, progress, last-read time, chapter count, and local format; Start/Continue Reading and Chapters actions |
 | Online details | Shared details layout, scrollable description, offline count, library membership, and reading/chapter/download/refresh actions |
-| Chapters | Large cover beside five chapter rows; current/progress markers, offline/download/locked indicators for online chapters, and numeric Jump action |
+| Chapters | Five rows with progress and offline indicators, numeric Jump, and an EPUB Sections view for nested table-of-contents entries |
 | Illustrations and viewer | Four-entry illustration lists; separate fit/zoom/pan viewer, plus inspection of images directly from Reader |
-| Bookmarks | Three passage rows per page, one saved bookmark per book; Open and confirmed Remove actions |
-| Settings | Five reading-preference rows and a live text preview; explicit Apply, Cancel, and Reset |
+| Bookmarks | Three passage rows per page with Open and confirmed Remove actions |
+| Settings | Six reading preferences and a live text preview, with Apply, Cancel, and Reset |
 | About | App version and author, Check for Updates, Credits, and pageable License summaries |
 
 Missing covers use a title-card fallback. Missing fonts fall back to the Vita
@@ -47,10 +47,16 @@ system font and produce a startup notice. The packaged
 | Preference | Choices |
 | --- | --- |
 | Typeface | Literata, Atkinson Hyperlegible Next, Vita system font |
-| Font size | Three sizes |
+| Font size | 22, 24, 26, 28, and 30 px |
 | Line spacing | Three levels |
 | Page theme | Night, Paper, Sepia, OLED, OLED Night |
 | Page effect | Page Curl, Slide and Fade, None |
+| Margins | Narrow, normal, and wide |
+
+**Find in book** searches local and downloaded text without contacting a source.
+Results include a passage preview and retain the first 256 matches. Latin ASCII
+letters match regardless of case. Other characters match as typed. EPUB links
+can jump to sections and footnotes within readable spine documents.
 
 New settings default to Literata and Slide and Fade, with reading bars shown.
 Existing saved preferences are retained. Apply commits the preview; Cancel

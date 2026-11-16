@@ -98,6 +98,74 @@ namespace
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
+        static void reading_storage_and_search()
+        {
+            mkdir("ux0:", 0777);
+            const std::string original = "ux0:/missing-reader-book.txt";
+            const std::string renamed = "ux0:/renamed-reader-book.txt";
+            const auto original_save = reader::progress_path(progress_directory, original);
+            const auto renamed_save = reader::progress_path(progress_directory, renamed);
+            std::remove(original.c_str());
+            std::remove(renamed_save.c_str());
+            {
+                std::ofstream book(renamed);
+                for (int i = 0; i < 30; ++i)
+                    book << "Reading line " << i << ".\n";
+                book << "A rare phrase to find in the book.\n";
+            }
+            reader::Progress saved;
+            check(saved.add_bookmark({0, 0, {}}) && reader::save_progress(original_save, saved) &&
+                      reader::save_library(library_path, {original}) && reader::save_settings(settings_path, {}),
+                  "Relink fixture failed");
+            vita2d_pgf font;
+            App app(&font);
+            app.navigate(1);
+            app.refresh_library(original);
+            app.perform({"Book details", 0, Command::Details});
+            app.input(SCE_CTRL_CROSS);
+            check(app.importing_ && app.relink_filename_ == original, "Locate file did not open the native browser");
+            app.browse_folder("ux0:/");
+            wait_browser(app);
+            app.refresh_library(renamed);
+            check(app.selected_filename() == renamed, "Relink fixture was hidden in the importer");
+            app.set_focus(1000 + app.selected_);
+            app.input(SCE_CTRL_CROSS);
+            check(!app.importing_ && app.library_books_ == std::vector<std::string>{renamed} &&
+                      reader::load_progress(renamed_save).has_bookmark,
+                  "Relinking lost membership or the saved bookmark");
+            app.open();
+            check(app.screen_ == Screen::Reader && app.progress_.has_bookmark, "Cannot open and resume relinked book");
+            app.top_ = 2;
+            const auto temporary = renamed_save + ".tmp";
+            check(mkdir(temporary.c_str(), 0777) == 0, "Could not block bookmark write");
+            const auto blocker = temporary + "/blocker";
+            std::ofstream(blocker) << "Prevent removing the temporary directory";
+            app.perform({"Bookmark", SCE_CTRL_SQUARE, Command::SaveBookmark});
+            const bool save_failed = app.message_.find("Could not save progress") != std::string::npos &&
+                                     app.progress_.bookmark_count() == 1 && app.progress_.bookmark == 0 &&
+                                     reader::load_progress(renamed_save).bookmark_count() == 1;
+            std::remove(blocker.c_str());
+            rmdir(temporary.c_str());
+            check(save_failed, "Failed write falsely confirmed or changed the bookmark");
+            app.perform({"Bookmark", SCE_CTRL_SQUARE, Command::SaveBookmark});
+            check(reader::load_progress(renamed_save).bookmark_count() == 2, "Bookmark retry lost one of the marks");
+            app.perform({"Bookmark", SCE_CTRL_SQUARE, Command::SaveBookmark});
+            check(reader::load_progress(renamed_save).bookmark_count() == 1, "Square did not remove the mark at the current position");
+
+            app.begin_book_search("RARE PHRASE");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (app.book_search_.pending())
+            {
+                check(std::chrono::steady_clock::now() < deadline, "Offline book search did not complete");
+                app.input(0);
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            check(app.book_search_.matches.size() == 1 && app.menu_[0].label.find("rare phrase") != std::string::npos,
+                  "Offline search did not show a passage preview");
+            app.input(SCE_CTRL_CROSS);
+            check(app.lines_[app.top_].text.find("rare phrase") != std::string::npos, "Search result did not jump to the passage");
+        }
+
         static void browser_regressions()
         {
             mkdir("uma0:", 0777);
@@ -464,7 +532,7 @@ namespace
             check(app.menu_title_ == title, "Touch Filter does not share filter state");
             footer(SCE_CTRL_CIRCLE);
             app.input(SCE_CTRL_SQUARE);
-            check(app.ime_active_ && app.ime_library_, "Square duplicates filters instead of searching");
+            check(app.ime_active_ && app.ime_purpose_ == KeyboardPurpose::LibrarySearch, "Square duplicates filters instead of searching");
             test_ime_status() = SCE_COMMON_DIALOG_STATUS_FINISHED;
             test_ime_button() = 0;
             app.input(SCE_CTRL_CROSS | SCE_CTRL_CIRCLE);
@@ -815,7 +883,7 @@ namespace
                 for (const auto &draw : reader::font_draws)
                     check(draw.text.find("Touch sliders or arrows") == std::string::npos, "Settings retains the removed instruction");
             }
-            check(app.widgets().size() == 5, "Settings missing Page effect");
+            check(app.widgets().size() == 6, "Settings missing Page effect or Margins");
             app.set_focus(1003);
             app.input(SCE_CTRL_DOWN);
             check(app.setting_row_ == 4, "Page effect cannot be reached from Page theme");
@@ -827,7 +895,11 @@ namespace
             tap(590, effect_row.y + 50);
             check(app.settings_.page_effect == 2, "Touch cannot select None");
             app.input(SCE_CTRL_DOWN);
-            check(app.setting_row_ == 4, "Focus moved below Page effect");
+            check(app.setting_row_ == 5, "Margins cannot be reached from Page effect");
+            app.input(SCE_CTRL_RIGHT);
+            check(app.settings_.margin == 2, "Right did not widen the reading margins");
+            app.input(SCE_CTRL_DOWN);
+            check(app.setting_row_ == 5, "Focus moved below Margins");
             footer(SCE_CTRL_SELECT);
             check(app.settings_.reading_font == 0 && app.settings_.page_effect == 1, "Touch Settings reset failed");
             footer(SCE_CTRL_CIRCLE);
@@ -1567,7 +1639,7 @@ namespace
             app.input(SCE_CTRL_RIGHT);
             check(focus(app) == 200, "Removed Search target is still focusable");
             app.input(SCE_CTRL_SQUARE);
-            check(app.ime_active_ && app.ime_library_, "Square Search cannot be activated");
+            check(app.ime_active_ && app.ime_purpose_ == KeyboardPurpose::LibrarySearch, "Square Search cannot be activated");
             app.ime_active_ = false;
             app.input(SCE_CTRL_DOWN);
             check(focus(app) >= 1000, "Search cannot enter the book row");
@@ -2104,6 +2176,7 @@ namespace
             illustration_controls();
             sidebar_settings_apply();
             browser_regressions();
+            reading_storage_and_search();
             large_text_settings();
         }
     };

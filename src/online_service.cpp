@@ -293,7 +293,8 @@ namespace reader
                 directories(chapter_file.substr(0, chapter_file.find_last_of('/')));
                 if (!save_novel(path, novel))
                     throw std::runtime_error("Could not save novel index.");
-                const auto begin = request.all ? 0 : request.chapter, end = request.all ? novel.chapters.size() : request.chapter + 1;
+                const auto begin = request.all ? 0 : request.chapter;
+                const auto end = request.all ? novel.chapters.size() : begin + std::min(novel.chapters.size() - begin, std::max<std::size_t>(1, request.count));
                 std::size_t done = 0, total = 0;
                 for (auto i = begin; i < end; ++i)
                     if (!novel.chapters[i].locked)
@@ -316,7 +317,7 @@ namespace reader
                     }
                     if (chapter.locked)
                     {
-                        if (!request.all)
+                        if (!request.all && !request.count)
                             throw std::runtime_error("This chapter requires login or purchase.");
                         continue;
                     }
@@ -329,7 +330,7 @@ namespace reader
                     ++done;
                     status(done, total, "Saved " + std::to_string(done) + " / " + std::to_string(total));
                     // Sequential requests with a short cancelable pause avoid flooding a source.
-                    if (request.all)
+                    if (request.all || request.count)
                         for (int n = 0; n < 5 && !canceled; ++n)
                             std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
@@ -359,6 +360,13 @@ namespace reader
                     {
                         status(0, 0, "Deleting downloaded book data...");
                         if (!remove_downloads(request.manifest, result.error))
+                            throw std::runtime_error(result.error);
+                        result.manifest = request.manifest;
+                    }
+                    else if (request.action == Action::ClearCache)
+                    {
+                        status(0, 0, "Clearing downloaded chapters...");
+                        if (!clear_cached_chapters(request.manifest, result.error))
                             throw std::runtime_error(result.error);
                         result.manifest = request.manifest;
                     }

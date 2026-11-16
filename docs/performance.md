@@ -111,11 +111,16 @@ Before treating a build as device-validated, check on a PS Vita:
 - Large TXT/EPUB books, illustrations, image pan/pinch, sustained page turns,
   reversed/canceled drags, and reading bars shown/hidden.
 - Cold versus warm navigation, idle behavior, repeated transitions, and heap/VRAM
-  stability; use the same inputs and book set for comparisons.
+  stability. Use a large illustrated EPUB to compare cold book open, chapter
+  changes, font and margin reflow, and image decoding on the same device.
 - Online Wi-Fi/TLS, missing chapters, cancellation, retry, partial downloads,
   artwork failure, and offline reopening.
 - Narration audio, pause/resume/stop, speed changes, EOF/restart, and interaction
-  with page rendering. Check saved progress after a clean exit and relaunch.
+  with page rendering. Verify chapter advance in airplane mode and compare the
+  sleep timer's saved line with the audio that played.
+- Put the Vita to sleep during reading, narration, and a chapter download. Check
+  input and audio after resume, then confirm saved progress and retained chapter
+  files after a clean exit and relaunch.
 
 Cross-compilation and host stubs do not replace these device checks. No current
 hardware timing or CPU improvement is claimed by this guide.
