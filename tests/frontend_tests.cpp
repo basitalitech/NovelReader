@@ -26,6 +26,7 @@ namespace reader
     };
     VitaFonts::VitaFonts(vita2d_pgf *) : impl_(new Impl) {}
     VitaFonts::~VitaFonts() = default;
+    void VitaFonts::finish_frame() const {}
     int VitaFonts::width(FontRole role, unsigned pixels, const std::string &text) const { return text.size() * pixels / (role == FontRole::Sans ? 3 : 2); }
     void VitaFonts::draw(FontRole role, unsigned pixels, int x, int y, unsigned color, const std::string &text) const
     {
@@ -48,6 +49,45 @@ namespace
     }
     struct FrontendTest
     {
+        static void large_text_settings()
+        {
+            const auto filename = books_directory + "/large-unicode.txt";
+            {
+                std::ofstream output(filename, std::ios::binary);
+                for (int i = 0; i < 4000; ++i)
+                    output << "A story in English, français, Ελληνικά, Русский, 日本語, 中文, 한국어.\n";
+            }
+            vita2d_pgf font;
+            App app(&font);
+            const auto original_settings = app.settings_;
+            std::string error;
+            check(reader::open_publication(filename, app.publication_, error) && app.change_chapter(0, 0),
+                  "Large multilingual TXT did not open");
+            check(app.book_.text.size() > 100000 && app.lines_.size() > 200, "Large TXT regression fixture is too small");
+            app.top_ = 200;
+            const auto anchor = app.lines_[app.top_].offset;
+            app.previous_settings_ = app.settings_;
+            auto *blocks = app.lines_.data();
+            app.settings_.theme = (app.settings_.theme + 1) % reader::page_theme_count;
+            check(app.apply_settings() && app.lines_.data() == blocks && app.lines_[app.top_].offset == anchor,
+                  "Theme-only change rewrapped the book or changed the anchor");
+            app.previous_settings_ = app.settings_;
+            app.settings_.page_effect = (app.settings_.page_effect + 1) % 3;
+            check(app.apply_settings() && app.lines_.data() == blocks, "Page-effect change rewrapped the book");
+            for (int family = 0; family < 3; ++family)
+            {
+                const auto current_anchor = app.lines_[app.top_].offset;
+                app.previous_settings_ = app.settings_;
+                app.settings_.reading_font = family;
+                check(app.apply_settings(), "Large TXT font switch failed");
+                const auto at = reader::block_at_offset(app.lines_, current_anchor);
+                check(app.top_ == at && app.lines_[at].offset <= current_anchor &&
+                          (at + 1 == app.lines_.size() || app.lines_[at + 1].offset > current_anchor),
+                      "Font switch lost the source-byte reading position");
+            }
+            std::remove(filename.c_str());
+            check(reader::save_settings(settings_path, original_settings), "Settings fixture restore failed");
+        }
         static void wait_browser(App &app)
         {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -2064,6 +2104,7 @@ namespace
             illustration_controls();
             sidebar_settings_apply();
             browser_regressions();
+            large_text_settings();
         }
     };
 }

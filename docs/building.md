@@ -55,7 +55,7 @@ cmake --build build/host -j2
 ctest --test-dir build/host --output-on-failure
 ```
 
-There are 14 CTest suites covering text/progress/settings, EPUB parsing, library
+There are 15 CTest suites covering text/progress/settings, EPUB parsing, library
 and image headers, mixed layout, controls, page-curl geometry, online adapters and
 storage, Vita network startup, font routing, UI geometry, native frontend flows,
 and speech synthesis/buffering/audio. Tests use generated fixtures and injected

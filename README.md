@@ -3,7 +3,7 @@
 [![Platform: PS Vita](https://img.shields.io/badge/platform-PS%20Vita-003791)](https://vitasdk.org/)
 [![C++14](https://img.shields.io/badge/C%2B%2B-14-00599C)](CMakeLists.txt)
 
-NovelReader is a native PS Vita homebrew app for reading UTF-8 text, DRM-free EPUBs,
+NovelReader is a native PS Vita homebrew app for reading Unicode text, DRM-free EPUBs,
 and downloaded web novels. It supports offline reading, illustrations, saved
 progress, bookmarks, and English text-to-speech. The current source version is
 **0.7.0**.
@@ -21,6 +21,8 @@ progress, bookmarks, and English text-to-speech. The current source version is
   zoom, and pan.
 - Literata, Atkinson Hyperlegible Next, and Vita system reading fonts; adjustable
   size and spacing; five themes; optional immersive reading.
+- Automatic glyph fallback across bundled fonts, optional user fonts, and the
+  Vita's Latin, Japanese, Chinese, and Korean firmware fonts.
 - Page Curl, Slide and Fade, or immediate page turns, with controller and front
   touchscreen input.
 - Bundled Flite SLT English narration with pause, resume, stop, and saved speed.
@@ -122,7 +124,7 @@ for viewer, online, import, and gesture mappings. Rear touch is not used.
 
 | Format | Support and limits |
 | --- | --- |
-| UTF-8 TXT | Case-insensitive `.txt` extension; optional BOM; Unix, Windows, and classic Mac line endings; 8 MiB input and normalized-text limit |
+| Unicode TXT | UTF-8 (optional BOM), UTF-16 LE/BE (BOM required); case-insensitive `.txt` extension; Unix, Windows, and classic Mac line endings; 8 MiB input and normalized UTF-8 limit |
 | DRM-free EPUB | Case-insensitive `.epub` extension; stored/deflated ZIP entries; up to 512 MiB per archive and 4,096 spine chapters; 2 MiB per chapter document and resulting text |
 | Downloaded web novels | App-generated `.nvr` index plus its chapter cache; up to 20,000 chapter entries per novel |
 | Illustrations and covers | PNG and JPEG; image bytes and dimensions are bounded before decoding |
@@ -131,7 +133,10 @@ EPUB rendering supports chapter order/navigation, headings, emphasis, paragraphs
 and inline images. It does not implement full publisher CSS layout, embedded
 fonts, or text flowing around images. PDF, encrypted EPUB chapter content, TXT
 chapter detection, and full-text search are not supported. Glyph availability
-depends on the selected font and Vita system fallback.
+depends on the bundled, optional user, and firmware fonts. See
+[language coverage and custom fallback fonts](assets/fonts/README.md). Menus and
+offline narration remain English; Arabic shaping, bidirectional layout, and
+complex-script shaping are not implemented.
 
 ## Building from source
 

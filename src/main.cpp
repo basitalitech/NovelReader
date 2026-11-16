@@ -272,6 +272,7 @@ namespace
             vita2d_end_drawing();
             vita2d_swap_buffers();
             vita2d_wait_rendering_done();
+            fonts_.finish_frame();
         }
         void prepare_startup_views()
         {
@@ -323,6 +324,7 @@ namespace
                 vita2d_end_drawing();
                 // Complete GPU use before reusing/freeing the target or its assets.
                 vita2d_wait_rendering_done();
+                fonts_.finish_frame();
             }
             screen_ = Screen::Home;
             nav_active_ = nav_selected_ = 0;
@@ -447,6 +449,7 @@ namespace
             const reader::perf::Scope timing(reader::perf::Event::FramePresent);
             vita2d_swap_buffers();
             vita2d_wait_rendering_done();
+            fonts_.finish_frame();
         }
 
         bool input(unsigned pressed, bool physical = true)
@@ -1929,7 +1932,10 @@ namespace
                 const auto offset = lines_[top_].offset;
                 try
                 {
-                    reflow(offset);
+                    if (settings_.reading_font != previous_settings_.reading_font ||
+                        settings_.font != previous_settings_.font || settings_.spacing != previous_settings_.spacing ||
+                        settings_.immersive != previous_settings_.immersive)
+                        reflow(offset);
                 }
                 catch (const std::exception &)
                 {
@@ -2364,9 +2370,16 @@ namespace
             }
             if (marks.empty())
             {
-                icon(Icon::Bookmark, 576, 255, palette().accent, 2);
-                this->text(395, 325, palette().text, 1.f, "Keep a favorite passage.", 450, reader::FontRole::Heading);
-                this->text(296, 363, palette().muted, 0.8f, "Reading controls → Bookmarks → Save bookmark keeps your place.", 616);
+                const int center_x = 232 + 704 / 2;
+                const auto centered = [&](int y, unsigned pixels, unsigned color, const std::string &value,
+                                          reader::FontRole role = reader::FontRole::Interface)
+                {
+                    const auto line = fit(value, pixels / 26.f, 656, role);
+                    fonts_.draw(role, pixels, center_x - fonts_.width(role, pixels, line) / 2, y, color, line);
+                };
+                icon(Icon::Bookmark, center_x, 255, palette().accent, 2);
+                centered(325, 26, palette().text, "Keep a favorite passage.", reader::FontRole::Heading);
+                centered(363, 21, palette().muted, "Reading controls → Bookmarks → Save bookmark keeps your place.");
             }
         }
         void draw_about() const
@@ -5119,6 +5132,7 @@ namespace
             vita2d_texture_set_filters(turn_page_.get(), SCE_GXM_TEXTURE_FILTER_LINEAR, SCE_GXM_TEXTURE_FILTER_LINEAR);
             draw_frame(turn_page_.get());
             vita2d_wait_rendering_done();
+            fonts_.finish_frame();
         }
         void capture_turn_page(bool dragging = false)
         {
@@ -5639,6 +5653,7 @@ int main()
     sceIoMkdir(root.c_str(), 0777);
     sceIoMkdir(books_directory.c_str(), 0777);
     sceIoMkdir(progress_directory.c_str(), 0777);
+    sceIoMkdir((root + "/fonts").c_str(), 0777);
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     const bool touch_enabled = sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START) >= 0;
     SceTouchPanelInfo panel{};

@@ -20,13 +20,34 @@ uses a second pass in the selected reading family; emphasis is underlined.
 Publisher-embedded and italic font faces are not loaded.
 
 [The font renderer](../../src/vita_fonts.cpp) checks glyph coverage through
-FreeType and falls back to the Vita system PGF font for missing glyphs. Unavailable
-bundled fonts also fall back and show a startup notice; the system font's coverage
-is the final limit.
+FreeType. A missing glyph first tries the other bundled faces, then an optional
+user font, then the Vita firmware's Latin, Japanese, Korean, and Chinese PGF
+fonts. The system reading face uses firmware fonts directly. Unavailable bundled
+fonts show a startup notice. Firmware glyphs outside the BMP use a visible
+replacement; a supplied TrueType face can cover supplementary characters.
 
-Measurement and drawing share font selection, glyph runs, and size-specific
-vita2d font objects. Separate atlases prevent one raster size being reused for
-another. Home titles use a small cache of whole-line FreeType textures. Caches
-are released with the app. Actual rasterization and readability need device
-validation; [font tests](../../tests/vita_font_tests.cpp) check routing and fallback
-through stubs.
+Measurement uses cached FreeType/PGF metrics without allocating glyph textures.
+Bundled and custom text draw through shared vita2d glyph atlases per face and
+pixel size. Different text lines reuse the same glyphs; complete-line textures
+are reserved for Home headings, which also apply kerning. Atlases rotate after
+128 distinct characters to keep drawing within their finite capacity. Firmware
+glyphs share up to four 512 × 512 atlas pages, and each language font opens only
+when needed. Evicted atlases are released after the GPU finishes the frame.
+Actual rasterization and readability need device validation;
+[font tests](../../tests/vita_font_tests.cpp) and
+[firmware tests](../../tests/firmware_font_tests.cpp) check metrics, routing,
+language selection, and cache lifetimes through stubs.
+
+## Language coverage and custom fallback
+
+UTF-8 books and BOM-marked UTF-16 TXT files normalize to the same UTF-8 byte
+positions, including Latin accents, Cyrillic, Greek, CJK, and supplementary
+characters. Display depends on available font coverage. The reader does not
+perform Arabic joining, bidirectional layout, Indic shaping, or script-specific
+hyphenation and punctuation rules. Menus and the Flite voice remain English.
+
+For additional coverage, copy a static Unicode TrueType font you are licensed
+to use to `ux0:data/NovelReader/fonts/fallback.ttf`, then restart the app. It is
+used automatically for characters absent from the chosen and bundled families;
+no settings migration is needed. A font adds glyphs, not complex-script shaping.
+The file is optional and is not downloaded or distributed by the app.

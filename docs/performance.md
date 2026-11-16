@@ -13,12 +13,14 @@ replacement.
 
 | Resource | Lifetime or bound |
 | --- | --- |
-| Fonts and packaged artwork | Owned for the app lifetime; requested font sizes are cached lazily |
+| Font metrics and packaged artwork | Owned for the app lifetime; up to 4,096 metric/route entries per cache |
+| FreeType text | Shared vita2d glyph atlases per face/size; rotate after 128 distinct glyphs and release old atlases after frame completion |
+| Firmware PGF textures | Up to four shared 512 × 512 atlas pages; fonts open by language on demand and layout reads metrics without rasterizing |
 | Library cover thumbnails | Up to 12 cached thumbnails, bounded to 144 × 200 pixels |
 | Bookmark previews | Up to 24 excerpts keyed by book/chapter/offset |
 | Clipped UI text | Up to 128 cached results for input strings of at most 1,024 bytes |
 | Wrapped UI text | Up to 32 cached results for input strings of at most 4,096 bytes |
-| Home title textures | Up to eight cached line textures |
+| Home title textures | Up to eight cached line textures, bounded to 2 MiB; evictions released after frame completion |
 | Reader content | Current chapter/layout and inline textures released when reading is cleared |
 
 Cache keys include the relevant font/size/layout parameters. Explicit folder
@@ -36,10 +38,21 @@ Allocation failure uses the existing transition fallbacks.
 ## Known synchronous work
 
 Cold library metadata loading, uncached bookmark previews, chapter/book reads,
-EPUB image decoding, and font-setting reflow can block the UI. Narration
+EPUB image decoding, and font-setting reflow can block the UI. Wrapping now uses
+exponential probes and binary search rather than measuring every character
+prefix; font measurements cache metrics without filling a GPU atlas. Theme and
+page-effect changes skip text reflow. Narration
 cancellation joins its worker and can wait for the next synthesis callback.
 These are profiling targets; desktop timings do not establish Vita CPU usage,
 GPU performance, frame pacing, or hardware latency.
+
+Ordinary interface and reading text reuse glyph atlases across different lines
+and pages. Only Home headings use complete-line textures. Font tests draw 2,000
+different lines and assert a single reused face/size atlas without per-line
+texture allocations. Firmware tests pack thousands of glyphs into shared pages,
+assert lazy language loading, and defer atlas eviction until GPU completion.
+These operation counts guard against allocation/rasterization regressions; they
+do not predict a hardware frame rate.
 
 ## Enable profiling
 
@@ -79,7 +92,7 @@ with `-DNOVELREADER_PROFILE=OFF` and rebuild; CMake retains options in its cache
 
 ## Automated checks
 
-The [CTest targets](../CMakeLists.txt) cover 14 suites. In addition to functional
+The [CTest targets](../CMakeLists.txt) cover 15 suites. In addition to functional
 flows, profiling-enabled frontend tests assert warm-navigation cache behavior,
 bounded resources, unchanged idle polls, and online exit without a probe per
 chapter. Geometry tests check finite curl coordinates, coverage, and storage

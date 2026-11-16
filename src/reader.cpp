@@ -23,6 +23,58 @@ namespace reader
             return at;
         }
 
+        bool decode_utf16(std::string &raw)
+        {
+            const bool little = static_cast<unsigned char>(raw[0]) == 0xff;
+            if (raw.size() % 2)
+                return false;
+            const auto unit = [&](std::size_t at) -> unsigned
+            {
+                const auto a = static_cast<unsigned char>(raw[at]);
+                const auto b = static_cast<unsigned char>(raw[at + 1]);
+                return little ? a | (b << 8) : (a << 8) | b;
+            };
+            std::string utf8;
+            utf8.reserve(raw.size());
+            for (std::size_t at = 2; at < raw.size(); at += 2)
+            {
+                unsigned code = unit(at);
+                if (code >= 0xd800 && code <= 0xdbff)
+                {
+                    if (at + 3 >= raw.size())
+                        return false;
+                    const auto low = unit(at + 2);
+                    if (low < 0xdc00 || low > 0xdfff)
+                        return false;
+                    code = 0x10000 + ((code - 0xd800) << 10) + low - 0xdc00;
+                    at += 2;
+                }
+                else if (code >= 0xdc00 && code <= 0xdfff)
+                    return false;
+                if (code < 0x80)
+                    utf8 += static_cast<char>(code);
+                else
+                {
+                    if (code >= 0x10000)
+                    {
+                        utf8 += static_cast<char>(0xf0 | (code >> 18));
+                        utf8 += static_cast<char>(0x80 | ((code >> 12) & 0x3f));
+                    }
+                    else if (code >= 0x800)
+                        utf8 += static_cast<char>(0xe0 | (code >> 12));
+                    else
+                        utf8 += static_cast<char>(0xc0 | (code >> 6));
+                    if (code >= 0x800)
+                        utf8 += static_cast<char>(0x80 | ((code >> 6) & 0x3f));
+                    utf8 += static_cast<char>(0x80 | (code & 0x3f));
+                }
+                if (utf8.size() > max_book_bytes)
+                    return false;
+            }
+            raw = std::move(utf8);
+            return true;
+        }
+
     } // namespace
 
     bool valid_utf8(const std::string &text)
@@ -142,11 +194,19 @@ namespace reader
             error = "Could not read the complete book.";
             return false;
         }
-        if (raw.compare(0, 3, "\xef\xbb\xbf") == 0)
+        if (raw.compare(0, 2, "\xff\xfe") == 0 || raw.compare(0, 2, "\xfe\xff") == 0)
+        {
+            if (!decode_utf16(raw))
+            {
+                error = "Invalid UTF-16 text or decoded text exceeds the 8 MiB limit.";
+                return false;
+            }
+        }
+        else if (raw.compare(0, 3, "\xef\xbb\xbf") == 0)
             raw.erase(0, 3);
         if (!valid_utf8(raw) || raw.find('\0') != std::string::npos)
         {
-            error = "Save this book as UTF-8 text first.";
+            error = "Save this book as UTF-8 or UTF-16 text (with a BOM) first.";
             return false;
         }
         std::string normalized;
@@ -182,6 +242,8 @@ namespace reader
     std::vector<Line> wrap_text(const std::string &text, int width, const Measure &measure)
     {
         std::vector<Line> lines;
+        std::vector<std::size_t> ends;
+        ends.reserve(128);
         width = std::max(1, width);
         std::size_t start = 0;
         while (start < text.size())
@@ -193,21 +255,47 @@ namespace reader
                 lines.push_back({start++, ""});
                 continue;
             }
-            std::size_t end = start, space = std::string::npos;
-            while (end < text.size() && text[end] != '\n')
+            // Probe exponentially, then bisect on UTF-8 boundaries. Measuring
+            // every growing prefix made each line quadratic in glyph work.
+            // Only scan the current probe, even for a book with no newlines.
+            ends.clear();
+            ends.push_back(start);
+            std::size_t fit = 0, probe = 16;
+            bool overflow = false;
+            for (;;)
             {
-                const auto next = next_character(text, end);
-                if (measure(text.substr(start, next - start)) > width)
+                while (ends.size() <= probe && ends.back() < text.size() && text[ends.back()] != '\n')
+                    ends.push_back(next_character(text, ends.back()));
+                const auto count = ends.size() - 1;
+                if (measure(text.substr(start, ends.back() - start)) > width)
                 {
-                    if (end == start)
-                        end = next; // Always advance, even for a wide glyph.
-                    else if (space != std::string::npos && space > start)
-                        end = space;
+                    std::size_t high = count;
+                    while (fit + 1 < high)
+                    {
+                        const auto mid = fit + (high - fit) / 2;
+                        if (measure(text.substr(start, ends[mid] - start)) <= width)
+                            fit = mid;
+                        else
+                            high = mid;
+                    }
+                    overflow = true;
                     break;
                 }
-                if (text[end] == ' ')
-                    space = end;
-                end = next;
+                fit = count;
+                if (count < probe || ends.back() == text.size() || text[ends.back()] == '\n')
+                    break;
+                probe *= 2;
+            }
+            std::size_t end = ends[std::max<std::size_t>(1, fit)];
+            if (overflow && fit)
+            {
+                // Keep the last fitting word boundary, as in the old wrapper.
+                std::size_t space = std::string::npos;
+                for (auto at = start; at < ends[fit]; ++at)
+                    if (text[at] == ' ')
+                        space = at;
+                if (space != std::string::npos && space > start)
+                    end = space;
             }
             auto visible_end = end;
             while (visible_end > start && text[visible_end - 1] == ' ')

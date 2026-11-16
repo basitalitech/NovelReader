@@ -68,6 +68,41 @@ int main()
             check(reader::load_book(fixture, book, error), "Valid UTF-8 book rejected");
             check(book.text == "Chapter 1\n\nCaf\xc3\xa9    story\nEnd", "BOM or line endings not normalized");
 
+            // Both byte orders, non-Latin scripts, CRLF, and a surrogate pair.
+            const unsigned units[] = {'A', '\r', '\n', 0x4e2d, 0x65e5, 0xd55c, 0x0416, 0x03a9, 0x1f600};
+            const std::string multilingual = "A\n中日한ЖΩ😀";
+            for (bool little : {false, true})
+            {
+                  std::string encoded = little ? "\xff\xfe" : "\xfe\xff";
+                  const auto append = [&](unsigned unit)
+                  {
+                        encoded += static_cast<char>(little ? unit & 255 : unit >> 8);
+                        encoded += static_cast<char>(little ? unit >> 8 : unit & 255);
+                  };
+                  for (auto code : units)
+                  {
+                        if (code > 0xffff)
+                        {
+                              code -= 0x10000;
+                              append(0xd800 | (code >> 10));
+                              append(0xdc00 | (code & 0x3ff));
+                        }
+                        else
+                              append(code);
+                  }
+                  write(fixture, encoded);
+                  check(reader::load_book(fixture, book, error) && book.text == multilingual, "UTF-16 multilingual decoding failed");
+                  write(fixture, multilingual);
+                  reader::Book utf8;
+                  check(reader::load_book(fixture, utf8, error) && utf8.text == book.text, "Encoding changed normalized progress offsets");
+            }
+            for (const auto &invalid : {std::string("\xff\xfe\x00", 3), std::string("\xff\xfe\x00\xd8", 4),
+                                        std::string("\xff\xfe\x00\xdc", 4), std::string("\xfe\xff\xd8\x00\x00\x41", 6)})
+            {
+                  write(fixture, invalid);
+                  check(!reader::load_book(fixture, book, error), "Malformed UTF-16 accepted");
+            }
+
             write(fixture, "\xc0\xaf");
             check(!reader::load_book(fixture, book, error), "Overlong UTF-8 accepted");
             write(fixture, "\xed\xa0\x80");
@@ -93,6 +128,25 @@ int main()
             lines = reader::wrap_text("ab", 0, [](const std::string &)
                                       { return 100; });
             check(lines.size() == 2, "Layout did not advance with oversized glyphs");
+
+            // Operation counts catch the slow prefix-per-character algorithm
+            // without depending on desktop speed or a mocked Vita clock.
+            std::string large;
+            for (int i = 0; i < 6000; ++i)
+                  large += "A multilingual story with words and sentences. ";
+            std::size_t measured_bytes = 0, calls = 0;
+            const auto large_lines = reader::wrap_text(large, 72, [&](const std::string &value)
+                                                       {
+                  measured_bytes += value.size();
+                  ++calls;
+                  return columns(value); });
+            check(measured_bytes < large.size() * 12 && calls < large.size() / 4,
+                  "Large text wrapping regressed to measuring every character prefix");
+            for (const auto &line : large_lines)
+                  check(columns(line.text) <= 72 && large.compare(line.offset, line.text.size(), line.text) == 0,
+                        "Fast wrapping changed source anchors or overflowed the line");
+            const auto unbroken = reader::wrap_text(std::string(150000, 'x'), 72, columns);
+            check(unbroken.size() == 2084 && unbroken.back().offset == 149976, "Long paragraph or unbroken word wrapping failed");
 
             const std::string story = "One evening the rain stopped and a new chapter began.";
             const auto narrow = reader::wrap_text(story, 10, columns);
