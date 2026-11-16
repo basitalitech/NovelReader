@@ -22,6 +22,7 @@ replacement.
 | Wrapped UI text | Up to 32 cached results for input strings of at most 4,096 bytes |
 | Home title textures | Up to eight cached line textures, bounded to 2 MiB; evictions released after frame completion |
 | Reader content | Current chapter/layout and inline textures released when reading is cleared |
+| EPUB directory | Shared immutable ZIP positions for the open publication, with up to 1 MiB of entry names and 20,000 entries |
 
 Cache keys include the relevant font/size/layout parameters. Explicit folder
 refresh invalidates affected book assets. Startup prepares the first Library
@@ -45,6 +46,11 @@ page-effect changes skip text reflow. Narration
 cancellation joins its worker and can wait for the next synthesis callback.
 These are profiling targets; desktop timings do not establish Vita CPU usage,
 GPU performance, frame pacing, or hardware latency.
+
+EPUB chapter layout reads image dimensions from PNG headers and short JPEG
+prefixes. JPEGs with longer metadata can still require a full read. When an
+illustration becomes visible, the reader checks the full ZIP CRC before passing
+the encoded image to the texture decoder.
 
 Ordinary interface and reading text reuse glyph atlases across different lines
 and pages. Only Home headings use complete-line textures. Font tests draw 2,000
@@ -75,6 +81,31 @@ memory and allocation-time peaks.
 completion; `frame_interval` covers the main loop; `idle_wait` measures VBlank
 waiting on unchanged screens. These are elapsed-time measurements, not CPU counters.
 Compare identical actions and separate cold and warm visits.
+
+### Compare EPUB loading on Vita
+
+The profiling VPKs share the same title ID and app data. Install the baseline
+and optimized builds in turn on the same Vita. Use the same storage device,
+settings, and books for both builds. Turn narration off and keep online activity
+and book search idle during measurement.
+
+1. For each build, open a large illustrated EPUB from the same saved chapter
+   after five fresh app launches. Leave the page at that chapter, exit through
+   **Start → Save and exit**, and copy `ux0:data/NovelReader/performance.csv`
+   after each run. The next clean exit overwrites the CSV.
+2. In a separate run, change chapters 20 times with the same sequence of controls
+   and chapters on both builds. Return to the same starting chapter before each
+   build's run. Use the `chapter` samples for this comparison.
+3. Repeat with a small text-only EPUB. A two-chapter book works as a control if
+   you alternate forward and back for all 20 changes.
+
+The `# epub_load` rows show up to 128 successful presented loads in order. The
+`kind` field identifies `book` or `chapter`. Compare median and worst `elapsed_us`
+within each group. Check ZIP opens, directory scan entries, and inflated image
+probe bytes to explain changes in workload. `# heap_bytes` is sampled across
+the whole app after drawing and excludes allocation-time peaks. The device goal
+is at least 20% lower median loading latency on the illustrated book and no more
+than 10% higher median latency on the text-only control.
 
 For the host benchmark, enable profiling in the host build and run from its fixture:
 

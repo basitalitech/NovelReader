@@ -242,6 +242,9 @@ extern int ZEXPORT unzGoToNextFile(unzFile file);
 extern int ZEXPORT unzLocateFile(unzFile file,
                                  const char *szFileName,
                                  int iCaseSensitivity);
+/* NovelReader profiling extension. Adds the entries examined to *scanned. */
+extern int ZEXPORT unzLocateFileCounted(unzFile file, const char *szFileName,
+                                       int iCaseSensitivity, unsigned *scanned);
 /*
   Try locate the file szFileName in the zipfile.
   For the iCaseSensitivity signification, see unzStringFileNameCompare

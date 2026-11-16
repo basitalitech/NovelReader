@@ -264,6 +264,10 @@ namespace
             draw_frame();
             redraw_ = false;
             present();
+            if (screen_ == Screen::Reader)
+                pending_reader_load_.presented();
+            else
+                pending_reader_load_ = {};
 #ifdef NOVELREADER_PROFILE
             reader::perf::sample_heap();
 #endif
@@ -481,6 +485,7 @@ namespace
 
         bool input(unsigned pressed, bool physical = true)
         {
+            const reader::perf::InputTimer timing(input_started_, pressed != 0);
             tick_browser();
             if (browser_import_busy_)
                 return true;
@@ -809,6 +814,7 @@ namespace
 
         bool gesture(const reader::controls::Gesture &gesture)
         {
+            const reader::perf::InputTimer timing(input_started_, gesture.kind != reader::controls::GestureKind::None);
             tick_browser();
             if (browser_import_busy_)
                 return true;
@@ -2086,6 +2092,7 @@ namespace
         }
         void clear_reading()
         {
+            pending_reader_load_ = {};
             const reader::perf::Scope timing(reader::perf::Event::Cleanup);
             end_inspection();
             speech_.stop();
@@ -4320,21 +4327,6 @@ namespace
             }
         }
 
-        void probe_illustrations(reader::Book &book)
-        {
-            for (auto &illustration : book.illustrations)
-            {
-                std::string bytes;
-                reader::ImageInfo info;
-                if (reader::load_epub_image(publication_.path, illustration.path, bytes, illustration.error) &&
-                    reader::inspect_image(bytes, info, illustration.error))
-                {
-                    illustration.width = info.width;
-                    illustration.height = info.height;
-                }
-            }
-        }
-
         std::size_t visible_end() const { return reader::layout_page_end(lines_, top_, reading_area().height); }
         float animation_remaining(std::uint64_t until, std::uint64_t duration) const
         {
@@ -4542,7 +4534,7 @@ namespace
                     try
                     {
                         std::string bytes;
-                        if (reader::load_epub_image(publication_.path, book_.illustrations[block.illustration].path, bytes, cached.error))
+                        if (reader::load_epub_image(publication_, book_.illustrations[block.illustration].path, bytes, cached.error))
                             cached.texture.reset(decode_thumbnail(bytes, block.image_width, block.image_height, cached.error));
                     }
                     catch (const std::exception &)
@@ -4732,7 +4724,7 @@ namespace
             try
             {
                 std::string bytes, error;
-                if (!reader::load_epub_image(publication_.path, book_.illustrations[index].path, bytes, error))
+                if (!reader::load_epub_image(publication_, book_.illustrations[index].path, bytes, error))
                 {
                     message_ = error;
                     return;
@@ -5227,6 +5219,7 @@ namespace
                 return;
             }
             message_ = "Opening book...";
+            const reader::perf::ReaderLoad loading(reader::is_epub_book(entries_[entry_index].path), reader::perf::LoadKind::Book, input_started_);
             draw_loading();
             std::string error;
             try
@@ -5248,7 +5241,7 @@ namespace
                             marks.end());
                 if (progress_.has_bookmark && progress_.bookmark_chapter >= publication_.chapters.size())
                     progress_.remove_bookmark(0);
-                if (!change_chapter(progress_.chapter, progress_.offset))
+                if (!change_chapter(progress_.chapter, progress_.offset, false, {}, true, true))
                 {
                     publication_ = {};
                     return;
@@ -5275,6 +5268,7 @@ namespace
             release_image();
             screen_ = Screen::Reader;
             save();
+            pending_reader_load_ = loading;
         }
 
         bool move_to_position(std::size_t chapter, std::size_t offset)
@@ -5356,8 +5350,11 @@ namespace
             speech_.start(book_, speech_offset_, settings_.speech_rate);
         }
 
-        bool change_chapter(std::size_t index, std::size_t offset, bool at_end = false, const std::string &fragment = {}, bool allow_fetch = true)
+        bool change_chapter(std::size_t index, std::size_t offset, bool at_end = false, const std::string &fragment = {}, bool allow_fetch = true,
+                            bool opening_book = false)
         {
+            const reader::perf::ReaderLoad loading(publication_.epub && !opening_book,
+                                                  lines_.empty() ? reader::perf::LoadKind::Book : reader::perf::LoadKind::Chapter, input_started_);
             speech_.stop();
             speech_deadline_ = 0;
             if (publication_.online && index < online_novel_.chapters.size() && !reader::online::cached(online_manifest_, online_novel_.chapters[index].url))
@@ -5374,12 +5371,13 @@ namespace
                 return false;
             }
             message_ = "Opening chapter...";
-            draw_loading();
+            if (!opening_book || !publication_.epub)
+                draw_loading();
             try
             {
                 reader::Book candidate;
                 std::string error;
-                if (!reader::load_chapter(publication_, index, candidate, error))
+                if (!reader::load_chapter(publication_, index, candidate, error, true))
                 {
                     message_ = error;
                     return false;
@@ -5394,7 +5392,6 @@ namespace
                     }
                     offset = anchor->second;
                 }
-                probe_illustrations(candidate);
                 auto layout = reader::layout_book(candidate, reading_width(), reading_area().height, line_height(), [this](const std::string &value)
                                                   { return fonts_.width(reading_font(), reading_pixels(), value); });
                 const auto position = at_end ? layout.pages.back() : reader::block_at_offset(layout.blocks, offset);
@@ -5407,6 +5404,8 @@ namespace
                 top_ = position;
                 chapter_ = index;
                 message_.clear();
+                if (!opening_book)
+                    pending_reader_load_ = loading;
                 return true;
             }
             catch (const std::exception &)
@@ -6188,6 +6187,8 @@ namespace
         bool contents_from_details_ = false;
         int setting_row_ = 0;
         Screen screen_ = Screen::Home;
+        std::uint64_t input_started_ = 0;
+        reader::perf::ReaderLoad pending_reader_load_;
         Screen image_return_ = Screen::Illustrations;
     };
 } // namespace

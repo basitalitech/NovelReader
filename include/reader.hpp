@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -65,6 +66,7 @@ namespace reader
     {
         std::string title, path;
     };
+    struct EpubDirectory;
     struct Publication
     {
         std::string title, author, path;
@@ -73,6 +75,7 @@ namespace reader
         std::string cover_path;
         bool online = false;
         std::vector<ContentsEntry> contents = {};
+        std::shared_ptr<const EpubDirectory> epub_directory;
     };
 
     struct Line
@@ -196,6 +199,8 @@ namespace reader
     bool inspect_image(const std::string &bytes, ImageInfo &image, std::string &error);
     bool load_epub_image(const std::string &archive_path, const std::string &image_path,
                          std::string &bytes, std::string &error);
+    bool load_epub_image(const Publication &publication, const std::string &image_path,
+                         std::string &bytes, std::string &error);
 
     using Measure = std::function<int(const std::string &)>;
 
@@ -214,7 +219,8 @@ namespace reader
     std::string library_book_path(const std::string &identity, const std::string &books_directory);
     bool valid_utf8(const std::string &text);
     bool open_publication(const std::string &path, Publication &publication, std::string &error);
-    bool load_chapter(const Publication &publication, std::size_t index, Book &chapter, std::string &error);
+    bool load_chapter(const Publication &publication, std::size_t index, Book &chapter, std::string &error,
+                      bool probe_illustrations = false);
     std::string title_from_filename(const std::string &name);
     bool load_book(const std::string &path, Book &book, std::string &error);
     std::vector<Line> wrap_text(const std::string &text, int width, const Measure &measure);

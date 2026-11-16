@@ -1111,6 +1111,10 @@ extern int ZEXPORT unzGoToNextFile(unzFile file) {
   UNZ_END_OF_LIST_OF_FILE if the file is not found
 */
 extern int ZEXPORT unzLocateFile(unzFile file, const char *szFileName, int iCaseSensitivity) {
+    return unzLocateFileCounted(file, szFileName, iCaseSensitivity, NULL);
+}
+
+extern int ZEXPORT unzLocateFileCounted(unzFile file, const char *szFileName, int iCaseSensitivity, unsigned *scanned) {
     unz64_s* s;
     int err;
 
@@ -1144,6 +1148,8 @@ extern int ZEXPORT unzLocateFile(unzFile file, const char *szFileName, int iCase
     while (err == UNZ_OK)
     {
         char szCurrentFileName[UNZ_MAXFILENAMEINZIP+1];
+        if (scanned != NULL)
+            ++*scanned;
         err = unzGetCurrentFileInfo64(file,NULL,
                                     szCurrentFileName,sizeof(szCurrentFileName)-1,
                                     NULL,0,NULL,0);

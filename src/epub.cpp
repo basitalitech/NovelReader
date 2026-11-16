@@ -11,10 +11,67 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <sys/stat.h>
+#include <tuple>
 #include <utility>
 
 namespace reader
 {
+    namespace
+    {
+        struct ArchiveStamp
+        {
+            std::uint64_t size = 0, device = 0, inode = 0;
+            std::int64_t modified = 0, changed = 0;
+            long modified_ns = 0, changed_ns = 0;
+            bool valid = false;
+
+            bool matches(const ArchiveStamp &other) const
+            {
+                return valid && other.valid &&
+                       std::tie(size, device, inode, modified, changed, modified_ns, changed_ns) ==
+                       std::tie(other.size, other.device, other.inode, other.modified, other.changed, other.modified_ns, other.changed_ns);
+            }
+        };
+
+        ArchiveStamp archive_stamp(const std::string &path)
+        {
+            struct stat info{};
+            if (stat(path.c_str(), &info) != 0 || info.st_size < 0)
+                return {};
+            ArchiveStamp result;
+            result.size = info.st_size;
+            result.device = info.st_dev;
+            result.inode = info.st_ino;
+            result.modified = info.st_mtime;
+            result.changed = info.st_ctime;
+#if defined(__linux__)
+            result.modified_ns = info.st_mtim.tv_nsec;
+            result.changed_ns = info.st_ctim.tv_nsec;
+#endif
+            result.valid = true;
+            return result;
+        }
+    }
+
+    struct EpubDirectory
+    {
+        struct Entry
+        {
+            std::string path;
+            unz64_file_pos position;
+        };
+        ArchiveStamp stamp;
+        std::vector<Entry> entries;
+
+        const Entry *find(const std::string &path) const
+        {
+            const auto found = std::lower_bound(entries.begin(), entries.end(), path,
+                                               [](const Entry &entry, const std::string &name) { return entry.path < name; });
+            return found != entries.end() && found->path == path ? &*found : nullptr;
+        }
+    };
+
     namespace
     {
         using tinyxml2::XMLDocument;
@@ -22,18 +79,28 @@ namespace reader
         using tinyxml2::XMLNode;
 
         constexpr std::size_t metadata_limit = 512 * 1024;
+        constexpr std::size_t archive_limit = 512 * 1024 * 1024;
+        constexpr std::size_t directory_name_limit = 1024 * 1024;
+        constexpr std::size_t lookup_name_limit = 256; // The vendored unzLocateFile limit, including the terminator.
 
         class Archive
         {
         public:
-            explicit Archive(const std::string &path)
+            explicit Archive(const std::string &path, const std::shared_ptr<const EpubDirectory> &directory = {}) : stamp_(archive_stamp(path))
             {
-                std::ifstream input(path, std::ios::binary | std::ios::ate);
-                if (!input || input.tellg() < 0)
-                    throw std::runtime_error("Cannot open this EPUB.");
-                if (input.tellg() > 512 * 1024 * 1024)
+                auto size = stamp_.size;
+                if (!stamp_.valid)
+                {
+                    std::ifstream input(path, std::ios::binary | std::ios::ate);
+                    const auto length = input.tellg();
+                    if (!input || length < 0)
+                        throw std::runtime_error("Cannot open this EPUB.");
+                    size = static_cast<std::uint64_t>(length);
+                }
+                if (size > archive_limit)
                     throw std::runtime_error("EPUB exceeds the 512 MiB archive limit.");
                 file_ = unzOpen64(path.c_str());
+                perf::add_zip_work({1, 0, 0});
                 if (!file_)
                     throw std::runtime_error("This EPUB is not a readable ZIP archive.");
                 unz_global_info64 info{};
@@ -43,6 +110,11 @@ namespace reader
                     file_ = nullptr;
                     throw std::runtime_error("EPUB archive has too many entries or is damaged.");
                 }
+                entry_count_ = static_cast<std::size_t>(info.number_entry);
+                if (!stamp_.matches(archive_stamp(path)))
+                    stamp_ = {};
+                if (directory && stamp_.matches(directory->stamp))
+                    directory_ = directory;
             }
             ~Archive()
             {
@@ -52,11 +124,111 @@ namespace reader
             Archive(const Archive &) = delete;
             Archive &operator=(const Archive &) = delete;
 
-            bool contains(const std::string &path) { return unzLocateFile(file_, path.c_str(), 1) == UNZ_OK; }
+            void build_index()
+            {
+                if (!stamp_.valid || !entry_count_)
+                    return;
+                std::size_t scanned = 0;
+                try
+                {
+                    directory_ = scan_directory(scanned);
+                }
+                catch (const std::bad_alloc &)
+                {
+                    // A ZIP remains readable through the existing bounded lookup path.
+                }
+                perf::add_zip_work({0, scanned, 0});
+                if (!directory_)
+                    unzGoToFirstFile(file_);
+            }
+
+            const std::shared_ptr<const EpubDirectory> &directory() const { return directory_; }
+
+            bool contains(const std::string &path) { return directory_ ? directory_->find(path) != nullptr : locate(path); }
 
             std::string read(const std::string &path, std::size_t limit)
             {
-                if (!contains(path))
+                Entry entry(file_, open_entry(path, limit), false);
+                std::string result;
+                entry.read_to(result, entry.size);
+                entry.finish();
+                return result;
+            }
+
+            bool probe_image(const std::string &path, ImageInfo &info, std::string &error)
+            {
+                Entry entry(file_, open_entry(path, max_image_bytes), true);
+                std::string bytes;
+                entry.read_to(bytes, std::min<std::size_t>(33, entry.size));
+                bool valid = inspect_image(bytes, info, error);
+                const bool jpeg = bytes.size() >= 2 && bytes.compare(0, 2, "\xff\xd8", 2) == 0;
+                if (!valid && jpeg)
+                {
+                    constexpr std::size_t jpeg_probe_limit = 64 * 1024;
+                    for (std::size_t target = 4 * 1024; target <= jpeg_probe_limit && bytes.size() < entry.size; target *= 2)
+                    {
+                        entry.read_to(bytes, std::min(target, entry.size));
+                        valid = inspect_image(bytes, info, error);
+                        if (valid)
+                            break;
+                    }
+                    // Keep compatibility with JPEGs that have large metadata segments before their dimensions.
+                    if (!valid && bytes.size() < entry.size)
+                    {
+                        entry.read_to(bytes, entry.size);
+                        valid = inspect_image(bytes, info, error);
+                    }
+                }
+                entry.finish();
+                return valid;
+            }
+
+        private:
+            class Entry
+            {
+            public:
+                const std::size_t size;
+                Entry(unzFile file, std::size_t length, bool probe) : size(length), file_(file), probe_(probe) {}
+                Entry(const Entry &) = delete;
+                Entry &operator=(const Entry &) = delete;
+                ~Entry()
+                {
+                    if (file_)
+                        unzCloseCurrentFile(file_);
+                    if (probe_)
+                        perf::add_zip_work({0, 0, inflated_});
+                }
+
+                void read_to(std::string &bytes, std::size_t target)
+                {
+                    auto at = bytes.size();
+                    bytes.resize(target);
+                    while (at < target)
+                    {
+                        const auto count = unzReadCurrentFile(file_, &bytes[at], static_cast<unsigned>(target - at));
+                        if (count <= 0)
+                            throw std::runtime_error("EPUB document is truncated or damaged.");
+                        at += static_cast<std::size_t>(count);
+                        inflated_ += static_cast<std::size_t>(count);
+                    }
+                }
+                void finish()
+                {
+                    const auto status = unzCloseCurrentFile(file_);
+                    file_ = nullptr;
+                    if (status != UNZ_OK)
+                        throw std::runtime_error("EPUB document failed its checksum.");
+                }
+
+            private:
+                unzFile file_;
+                bool probe_;
+                std::size_t inflated_ = 0;
+            };
+
+            std::size_t open_entry(const std::string &path, std::size_t limit)
+            {
+                if (!locate(path))
                     throw std::runtime_error("An EPUB document is missing from the archive.");
                 unz_file_info64 info{};
                 if (unzGetCurrentFileInfo64(file_, &info, nullptr, 0, nullptr, 0, nullptr, 0) != UNZ_OK)
@@ -69,35 +241,80 @@ namespace reader
                     throw std::runtime_error("Unsupported EPUB ZIP compression.");
                 if (unzOpenCurrentFile(file_) != UNZ_OK)
                     throw std::runtime_error("Cannot decompress EPUB document.");
-                std::string result;
-                // Close the entry even if allocation fails; never extract files onto disk.
-                try
-                {
-                    result.reserve(static_cast<std::size_t>(info.uncompressed_size));
-                    char buffer[16384];
-                    int count = 0;
-                    while ((count = unzReadCurrentFile(file_, buffer, sizeof(buffer))) > 0)
-                    {
-                        if (result.size() + static_cast<std::size_t>(count) > limit)
-                            throw std::runtime_error("Expanded EPUB document exceeds its memory limit.");
-                        result.append(buffer, static_cast<std::size_t>(count));
-                    }
-                    if (count < 0 || result.size() != info.uncompressed_size)
-                        throw std::runtime_error("EPUB document is truncated or damaged.");
-                }
-                catch (...)
-                {
-                    unzCloseCurrentFile(file_);
-                    throw;
-                }
-                if (unzCloseCurrentFile(file_) != UNZ_OK)
-                    throw std::runtime_error("EPUB document failed its checksum.");
-                return result;
+                return static_cast<std::size_t>(info.uncompressed_size);
             }
 
-        private:
+            std::shared_ptr<const EpubDirectory> scan_directory(std::size_t &scanned)
+            {
+                if (unzGoToFirstFile(file_) != UNZ_OK)
+                    return {};
+                auto index = std::make_shared<EpubDirectory>();
+                index->stamp = stamp_;
+                index->entries.reserve(entry_count_);
+                std::size_t name_bytes = 0;
+                for (std::size_t i = 0; i < entry_count_; ++i)
+                {
+                    ++scanned;
+                    char name[lookup_name_limit]{};
+                    unz_file_info64 info{};
+                    if (unzGetCurrentFileInfo64(file_, &info, name, sizeof(name), nullptr, 0, nullptr, 0) != UNZ_OK)
+                        return {};
+                    if (info.size_filename < sizeof(name))
+                    {
+                        const auto length = static_cast<std::size_t>(info.size_filename);
+                        unz64_file_pos position{};
+                        if (std::memchr(name, '\0', length) || length + 1 > directory_name_limit - name_bytes ||
+                            unzGetFilePos64(file_, &position) != UNZ_OK)
+                            return {};
+                        name_bytes += length + 1;
+                        index->entries.push_back({std::string(name, length), position});
+                    }
+                    if (i + 1 < entry_count_ && unzGoToNextFile(file_) != UNZ_OK)
+                        return {};
+                }
+                std::sort(index->entries.begin(), index->entries.end(), [](const EpubDirectory::Entry &a, const EpubDirectory::Entry &b)
+                          { return std::tie(a.path, a.position.num_of_file) < std::tie(b.path, b.position.num_of_file); });
+                return index;
+            }
+
+            bool locate(const std::string &path)
+            {
+                if (directory_)
+                {
+                    const auto *entry = directory_->find(path);
+                    if (!entry)
+                        return false;
+                    char name[lookup_name_limit]{};
+                    if (unzGoToFilePos64(file_, &entry->position) == UNZ_OK &&
+                        unzGetCurrentFileInfo64(file_, nullptr, name, sizeof(name), nullptr, 0, nullptr, 0) == UNZ_OK &&
+                        std::memcmp(name, path.c_str(), path.size() + 1) == 0)
+                        return true;
+                    directory_.reset();
+                    unzGoToFirstFile(file_);
+                }
+#ifdef NOVELREADER_PROFILE
+                unsigned scanned = 0;
+                const auto result = unzLocateFileCounted(file_, path.c_str(), 1, &scanned);
+                perf::add_zip_work({0, scanned, 0});
+                return result == UNZ_OK;
+#else
+                return unzLocateFile(file_, path.c_str(), 1) == UNZ_OK;
+#endif
+            }
+
             unzFile file_ = nullptr;
+            ArchiveStamp stamp_;
+            std::size_t entry_count_ = 0;
+            std::shared_ptr<const EpubDirectory> directory_;
         };
+
+        void validate_image_path(const std::string &path)
+        {
+            if (path.empty() || path.front() == '/' || path.find_first_of(":\\") != std::string::npos ||
+                path == ".." || path.compare(0, 3, "../") == 0 || path.find("/../") != std::string::npos ||
+                path.find('\0') != std::string::npos)
+                throw std::runtime_error("This illustration has no supported local image path.");
+        }
 
         std::string local(const char *name)
         {
@@ -557,6 +774,7 @@ namespace reader
                 return true;
             }
             Archive archive(path);
+            archive.build_index();
             if (archive.read("mimetype", 128) != "application/epub+zip")
                 throw std::runtime_error("Archive is not an EPUB publication.");
             XMLDocument container;
@@ -673,6 +891,7 @@ namespace reader
                     chapter.title = found->second;
             }
             check_encryption(archive, result);
+            result.epub_directory = archive.directory();
             publication = std::move(result);
             return true;
         }
@@ -683,7 +902,7 @@ namespace reader
         }
     }
 
-    bool load_chapter(const Publication &publication, std::size_t index, Book &chapter, std::string &error)
+    bool load_chapter(const Publication &publication, std::size_t index, Book &chapter, std::string &error, bool probe_illustrations)
     {
         const perf::Scope timing(perf::Event::Chapter);
         error.clear();
@@ -700,22 +919,43 @@ namespace reader
             }
             if (!publication.epub)
                 return load_book(publication.path, chapter, error);
-            Archive archive(publication.path);
-            XMLDocument document;
-            parse(document, xhtml_entities(archive.read(publication.chapters[index].path, max_chapter_bytes)),
-                  "Chapter is not valid UTF-8 XHTML (or may be encrypted).");
-            const auto *body = child(document.RootElement(), "body");
-            if (!body)
-                throw std::runtime_error("EPUB chapter has no XHTML body.");
-            TextBuilder builder(publication.chapters[index].path);
-            builder.walk(body);
+            Archive archive(publication.path, publication.epub_directory);
+            const auto &source = publication.chapters[index];
+            TextBuilder builder(source.path);
+            {
+                XMLDocument document;
+                parse(document, xhtml_entities(archive.read(source.path, max_chapter_bytes)),
+                      "Chapter is not valid UTF-8 XHTML (or may be encrypted).");
+                const auto *body = child(document.RootElement(), "body");
+                if (!body)
+                    throw std::runtime_error("EPUB chapter has no XHTML body.");
+                builder.walk(body);
+            }
             if (builder.book.text.empty())
                 builder.text("[This section contains no text.]", Emphasis);
             // Whitespace at the end adds no useful pages. Styled offsets remain valid.
             while (!builder.book.text.empty() && builder.book.text.back() == '\n')
                 builder.book.text.pop_back();
             if (builder.book.title.empty())
-                builder.book.title = publication.chapters[index].title;
+                builder.book.title = source.title;
+            if (probe_illustrations)
+                for (auto &image : builder.book.illustrations)
+                {
+                    try
+                    {
+                        validate_image_path(image.path);
+                        ImageInfo info;
+                        if (archive.probe_image(image.path, info, image.error))
+                        {
+                            image.width = info.width;
+                            image.height = info.height;
+                        }
+                    }
+                    catch (const std::exception &exception)
+                    {
+                        image.error = exception.what();
+                    }
+                }
             chapter = std::move(builder.book);
             return true;
         }
@@ -726,29 +966,39 @@ namespace reader
         }
     }
 
-    bool load_epub_image(const std::string &archive_path, const std::string &image_path,
-                         std::string &bytes, std::string &error)
+    namespace
     {
-        error.clear();
-        try
+        bool read_epub_image(const std::string &archive_path, const std::shared_ptr<const EpubDirectory> &directory,
+                             const std::string &image_path, std::string &bytes, std::string &error)
         {
-            if (image_path.empty() || image_path.front() == '/' || image_path.find_first_of(":\\") != std::string::npos ||
-                image_path == ".." || image_path.compare(0, 3, "../") == 0 || image_path.find("/../") != std::string::npos ||
-                image_path.find('\0') != std::string::npos)
-                throw std::runtime_error("This illustration has no supported local image path.");
-            Archive archive(archive_path);
-            auto data = archive.read(image_path, max_image_bytes);
-            ImageInfo info;
-            if (!inspect_image(data, info, error))
+            error.clear();
+            try
+            {
+                validate_image_path(image_path);
+                Archive archive(archive_path, directory);
+                auto data = archive.read(image_path, max_image_bytes);
+                ImageInfo info;
+                if (!inspect_image(data, info, error))
+                    return false;
+                bytes = std::move(data);
+                return true;
+            }
+            catch (const std::exception &exception)
+            {
+                error = exception.what();
                 return false;
-            bytes = std::move(data);
-            return true;
+            }
         }
-        catch (const std::exception &exception)
-        {
-            error = exception.what();
-            return false;
-        }
+    }
+
+    bool load_epub_image(const std::string &archive_path, const std::string &image_path, std::string &bytes, std::string &error)
+    {
+        return read_epub_image(archive_path, {}, image_path, bytes, error);
+    }
+
+    bool load_epub_image(const Publication &publication, const std::string &image_path, std::string &bytes, std::string &error)
+    {
+        return read_epub_image(publication.path, publication.epub_directory, image_path, bytes, error);
     }
 
 } // namespace reader
